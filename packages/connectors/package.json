@@ -1,0 +1,22 @@
+{
+  "name": "@fold/connectors",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@ui-tars/operator-nut-js": "^1.2.3",
+    "@ui-tars/sdk": "^1.2.3",
+    "playwright": "^1.51.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "5.9.2"
+  }
+}

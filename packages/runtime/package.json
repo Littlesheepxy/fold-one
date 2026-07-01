@@ -1,0 +1,23 @@
+{
+  "name": "@fold/runtime",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fold/ai": "workspace:*",
+    "@fold/connectors": "workspace:*",
+    "@fold/context": "workspace:*",
+    "@fold/memory": "workspace:*",
+    "@fold/skills": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "5.9.2"
+  }
+}

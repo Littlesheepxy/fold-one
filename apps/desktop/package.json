@@ -1,0 +1,39 @@
+{
+  "name": "@fold/desktop",
+  "version": "0.0.1",
+  "private": true,
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "node scripts/clean-electron-artifacts.mjs && vite",
+    "build": "node scripts/clean-electron-artifacts.mjs && vite build",
+    "rebuild:native": "electron-rebuild -f -w better-sqlite3",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit"
+  },
+  "dependencies": {
+    "@fold/connectors": "workspace:*",
+    "@fold/context": "workspace:*",
+    "@fold/memory": "workspace:*",
+    "@fold/runtime": "workspace:*",
+    "@fold/voice": "workspace:*",
+    "better-sqlite3": "^11.8.1",
+    "framer-motion": "^12.4.7",
+    "lucide-react": "^0.487.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "uiohook-napi": "^1.5.4",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.9",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^34.2.0",
+    "electron-rebuild": "^3.2.9",
+    "tailwindcss": "^4.0.9",
+    "typescript": "5.9.2",
+    "vite": "^6.2.0",
+    "vite-plugin-electron": "^0.29.0",
+    "vite-plugin-electron-renderer": "^0.14.6"
+  }
+}

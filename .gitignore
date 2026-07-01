@@ -1,0 +1,11 @@
+node_modules
+dist
+apps/desktop/dist-electron
+.turbo
+.env
+.env.local
+*.log
+.DS_Store
+apps/desktop/out
+apps/desktop/release
+*.db
