@@ -3,7 +3,9 @@ import { useEffect, useRef, useState } from "react";
 import { useOverlayStore } from "./useOverlayStore";
 import { useVoiceHandlers } from "./useVoice";
 import { useMousePassthrough } from "./useMousePassthrough";
+import { DotMatrixLoader } from "./components/DotMatrixLoader";
 import { StepList } from "./components/StepList";
+import { ProgressLine } from "./components/ProgressLine";
 import { TranscriptScroll } from "./components/TranscriptScroll";
 import { AskOptions } from "./components/AskOptions";
 
@@ -207,34 +209,9 @@ function MultiColorBorderBeam({
 	);
 }
 
-function ExecutionVisual() {
-	const [imageOk, setImageOk] = useState(true);
-
-	if (imageOk) {
-		return (
-			<img
-				src="/fold-working.gif"
-				alt=""
-				className="w-9 h-9 rounded-full object-cover"
-				onError={() => setImageOk(false)}
-			/>
-		);
-	}
-
-	return (
-		<div className="fold-working-fallback">
-			<span />
-			<span />
-			<span />
-		</div>
-	);
-}
-
 function compactSummary(result: string | null | undefined) {
 	return result ?? "Fold 已完成任务";
 }
-
-type ExecView = "thinking" | "executing";
 
 const EDGE_GAP = 12;
 const ORB_SIZE = 48;
@@ -305,7 +282,6 @@ export function OverlayApp() {
 	const [mockAsr, setMockAsr] = useState(true);
 	const [detailsOpen, setDetailsOpen] = useState(false);
 	const [panelOpen, setPanelOpen] = useState(false);
-	const [execView, setExecView] = useState<ExecView>("thinking");
 	const initialPosition = useRef(
 		(() => {
 		if (typeof window === "undefined") return { x: 32, y: 32, snapSide: null };
@@ -340,11 +316,6 @@ export function OverlayApp() {
 	}, []);
 
 	useEffect(() => {
-		if (status === "working") setExecView("executing");
-		if (status === "understanding") setExecView("thinking");
-	}, [status]);
-
-	useEffect(() => {
 		if (prevStatusRef.current === "idle" && status !== "idle") {
 			playExpandSound();
 		}
@@ -371,7 +342,6 @@ export function OverlayApp() {
 
 	const isExecuting = status === "understanding" || status === "planning" || status === "working";
 	const isAuthPrompt = status === "ask";
-	const hasExecutionSteps = (steps?.length ?? 0) > 0;
 	const collapsed = status === "idle" && !panelOpen;
 	const dockedSide = collapsed ? anchorPosition.snapSide : null;
 	const idleShellWidth = idleRailOpen ? 424 : 360;
@@ -381,8 +351,10 @@ export function OverlayApp() {
 			? 360
 			: status === "idle"
 				? idleShellWidth
-			: status === "working" || status === "done"
-				? 420
+			: status === "working" || status === "planning" || status === "understanding"
+				? 300
+				: status === "done"
+					? 320
 				: status === "ask"
 					? 400
 				: status === "listening"
@@ -459,6 +431,10 @@ export function OverlayApp() {
 			>
 				<motion.div
 					className={`fold-shell ${collapsed ? "fold-shell-collapsed" : ""} ${
+						isExecuting ? "fold-shell-executing" : ""
+					} ${
+						!collapsed && (status === "error" || status === "ask") ? "fold-shell-expanded" : ""
+					} ${
 						!collapsed && status === "idle" ? "fold-shell-idle" : ""
 					} ${
 						dockedSide ? `fold-shell-docked fold-shell-docked-${dockedSide}` : ""
@@ -543,72 +519,32 @@ export function OverlayApp() {
 								)}
 
 								{isExecuting && (
-									<>
-										<ExecutionVisual />
-										<div className="min-w-[250px] max-w-[340px]">
-											<p className="text-sm font-medium">
-												{status === "working" ? "Fold 正在执行…" : "Fold 正在理解任务…"}
-											</p>
-											<div className="fold-phase-tabs mt-2">
-												<button
-													type="button"
-													className={execView === "thinking" ? "active" : ""}
-													onClick={(e) => {
-														e.stopPropagation();
-														setExecView("thinking");
-													}}
-												>
-													思考
-												</button>
-												<button
-													type="button"
-													className={execView === "executing" ? "active" : ""}
-													disabled={!hasExecutionSteps}
-													onClick={(e) => {
-														e.stopPropagation();
-														setExecView("executing");
-													}}
-												>
-													执行
-												</button>
-											</div>
-											<div className="mt-2">
-												{execView === "thinking" ? (
-													<div className="fold-thinking-panel">
-														<pre className="fold-thinking-text">
-															{thinkingText?.trim() || transcript || "正在分析你的请求…"}
-														</pre>
-													</div>
-												) : (
-													<>
-														<StepList steps={steps ?? []} />
-														{progressMessage && (
-															<p className="mt-2 text-xs text-white/55">{progressMessage}</p>
-														)}
-														{currentApp && (
-															<p className="mt-1 text-xs text-white/50">正在使用：{currentApp}</p>
-														)}
-													</>
-												)}
-											</div>
-										</div>
-									</>
+									<div className="fold-exec-row">
+										<DotMatrixLoader />
+										<ProgressLine
+											status={status}
+											transcript={transcript}
+											thinkingText={thinkingText}
+											progressMessage={progressMessage}
+											steps={steps}
+											currentApp={currentApp}
+										/>
+									</div>
 								)}
 
 								{status === "done" && (
-									<div className="min-w-[320px] max-w-[360px]">
-										<button
-											type="button"
-											className="block w-full text-left"
-											onClick={(e) => {
-												e.stopPropagation();
-												setDetailsOpen((v) => !v);
-											}}
-										>
-											<p className="text-sm font-medium truncate">{compactSummary(result)}</p>
-											<p className="text-xs text-white/45">点击查看执行结果和工具</p>
-										</button>
-									</div>
+									<button
+										type="button"
+										className="min-w-0 flex-1 text-left"
+										onClick={(e) => {
+											e.stopPropagation();
+											setDetailsOpen((v) => !v);
+										}}
+									>
+										<p className="text-sm font-medium truncate" title={compactSummary(result)}>
+											{compactSummary(result)}
+										</p>
+									</button>
 								)}
 
 								{status === "error" && (

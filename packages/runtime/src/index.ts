@@ -1,4 +1,6 @@
 export { runTask, runMockTask } from "./orchestrator.js";
+export { formatThinkingText, buildResultDetail } from "./format-result.js";
+export { labelForSkill } from "./step-labels.js";
 export { runPlan } from "./executor.js";
 export { formatRelevantEpisodes } from "./episode-context.js";
 export { formatProbeSummary, runProbes } from "./probe-runner.js";

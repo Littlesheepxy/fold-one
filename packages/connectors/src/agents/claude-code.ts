@@ -17,6 +17,10 @@ function parseClaudeJson(stdout: string): { result?: string; session_id?: string
 	}
 }
 
+function isCliNoise(text: string): boolean {
+	return /no stdin data received|proceeding without it/i.test(text);
+}
+
 export const claudeCodeConnector: AgentConnector = {
 	id: "claude-code",
 
@@ -37,14 +41,19 @@ export const claudeCodeConnector: AgentConnector = {
 		];
 		if (task.maxTurns) args.push("--max-turns", String(task.maxTurns));
 
-		const result = await runShellDetailed("claude", args, task.timeoutMs ?? 180_000, task.cwd);
+		const result = await runShellDetailed("claude", args, task.timeoutMs ?? 180_000, task.cwd, {
+			closeStdin: true,
+		});
 		const parsed = parseClaudeJson(result.stdout);
-		const summary = parsed.result?.trim() || result.stdout.trim() || result.stderr.trim();
+		const summary =
+			parsed.result?.trim() ||
+			(!isCliNoise(result.stdout) ? result.stdout.trim() : "") ||
+			(!isCliNoise(result.stderr) ? result.stderr.trim() : "");
 
 		return {
-			ok: result.exitCode === 0 && Boolean(summary),
+			ok: result.exitCode === 0 && Boolean(parsed.result?.trim()),
 			agentId: "claude-code",
-			summary: summary || "Claude Code 未返回结果",
+			summary: summary || "Claude Code 未返回有效结果",
 			sessionId: parsed.session_id,
 			costUsd: parsed.total_cost_usd,
 			exitCode: result.exitCode,

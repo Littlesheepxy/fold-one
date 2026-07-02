@@ -42,6 +42,10 @@ export default defineConfig({
 		electron({
 			main: {
 				entry: "electron/main.ts",
+				onstart({ startup }) {
+					// Only boot Electron once — rebuilding main must not kill in-flight tasks.
+					if (!(process as NodeJS.Process & { electronApp?: unknown }).electronApp) startup();
+				},
 				vite: {
 					resolve: { alias: foldAliases },
 					build: {

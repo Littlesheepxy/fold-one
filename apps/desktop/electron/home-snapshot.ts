@@ -73,34 +73,46 @@ function buildConnections(
 		label: "Gmail CLI",
 		status: gmail?.available ? "ok" : gmail?.backend ? "warn" : "error",
 		detail: gmail?.available
-			? gmail.backend ?? "已授权"
+			? `终端发信 · ${gmail.backend ?? "已授权"}`
 			: (gmail?.error ?? "未安装或未登录"),
 		meta: { backend: gmail?.backend ?? null },
 	});
 
-	const cdp = probeOk<{ connected?: boolean; cdpUrl?: string; error?: string }>(probes, "browser.cdp");
+	const cdp = probeOk<{ connected?: boolean; cdpUrl?: string; pageCount?: number; error?: string }>(
+		probes,
+		"browser.cdp",
+	);
 	rows.push({
 		id: "cdp",
-		label: "Chrome CDP",
+		label: "Chrome 浏览器",
 		status: cdp?.connected ? "ok" : cdp?.cdpUrl ? "warn" : "error",
-		detail: cdp?.connected ? "已连接" : (cdp?.error ?? "未配置"),
+		detail: cdp?.connected
+			? `Playwright 已连接 · ${cdp.pageCount ?? 0} 个标签页`
+			: (cdp?.error ?? "未配置 CDP 地址"),
 		meta: { cdpUrl: cdp?.cdpUrl ?? null },
 	});
 
 	const screen = probeOk<{ available?: boolean; error?: string }>(probes, "screen.capture");
 	rows.push({
 		id: "screen",
-		label: "屏幕录制",
+		label: "屏幕读取",
 		status: screen?.available ? "ok" : "warn",
-		detail: screen?.available ? "可用" : (screen?.error ?? "未授权"),
+		detail: screen?.available ? "截屏与 OCR 可用" : (screen?.error ?? "需授予屏幕录制权限"),
 	});
 
-	const uitars = probeOk<{ enabled?: boolean; available?: boolean }>(probes, "uitars.available");
+	const uitars = probeOk<{ enabled?: boolean; available?: boolean; model?: string }>(
+		probes,
+		"uitars.available",
+	);
 	rows.push({
 		id: "uitars",
-		label: "UI-TARS",
+		label: "UI-TARS 桌面操控",
 		status: uitars?.enabled && uitars.available ? "ok" : uitars?.enabled ? "warn" : "error",
-		detail: uitars?.enabled ? (uitars.available ? "可用" : "未配置 VLM") : "未开启",
+		detail: uitars?.enabled
+			? uitars.available
+				? `nut-js 可用 · ${uitars.model ?? "VLM 已配置"}`
+				: "未配置 VLM API Key"
+			: "未开启",
 	});
 
 	const wb = probeOk<{ enabled?: boolean; available?: boolean }>(probes, "workbuddy.available");

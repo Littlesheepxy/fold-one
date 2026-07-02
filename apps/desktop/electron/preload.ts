@@ -33,6 +33,17 @@ contextBridge.exposeInMainWorld("fold", {
 		ipcRenderer.invoke("fold:ask-response", optionId) as Promise<void>,
 	getConfig: () => ipcRenderer.invoke("fold:get-config") as Promise<Record<string, unknown>>,
 	getHomeSnapshot: () => ipcRenderer.invoke("fold:get-home-snapshot") as Promise<Record<string, unknown>>,
+	getLiveContext: () => ipcRenderer.invoke("fold:get-live-context") as Promise<Record<string, unknown>>,
+	getAppIcon: (appPath: string, appName?: string) =>
+		ipcRenderer.invoke("fold:get-app-icon", appPath, appName) as Promise<string | null>,
+	listEpisodes: () => ipcRenderer.invoke("fold:list-episodes") as Promise<Record<string, unknown>[]>,
+	getEpisode: (id: string) =>
+		ipcRenderer.invoke("fold:get-episode", id) as Promise<Record<string, unknown> | null>,
+	onContextEvent(cb: (event: Record<string, unknown>) => void) {
+		const handler = (_: unknown, event: Record<string, unknown>) => cb(event);
+		ipcRenderer.on("fold:context-event", handler);
+		return () => ipcRenderer.removeListener("fold:context-event", handler);
+	},
 	runConnectionAction: (action: string, context?: Record<string, unknown>) =>
 		ipcRenderer.invoke("fold:connection-action", action, context) as Promise<{ ok: boolean }>,
 	saveConfig: (config: Record<string, unknown>) =>

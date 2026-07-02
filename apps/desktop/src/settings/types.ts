@@ -1,4 +1,4 @@
-export type HomeSection = "overview" | "profile" | "work" | "connections" | "settings";
+export type HomeSection = "overview" | "profile" | "work" | "tasks" | "connections" | "settings";
 
 export interface FoldConfig {
 	dashscopeApiKey?: string;
@@ -30,6 +30,50 @@ export interface HomeEpisode {
 	summary: string;
 }
 
+export interface EpisodeSummary extends HomeEpisode {
+	durationMs: number;
+	goal?: string;
+	steps?: Array<{ stepId?: string; skill: string; label: string; status: string }>;
+	apps?: Array<{ name: string; path?: string | null }>;
+	stepCount?: number;
+	successCount?: number;
+}
+
+export interface EpisodeDetail {
+	id: string;
+	intent: string;
+	goal: string;
+	status: string;
+	timestamp: number;
+	summary: string;
+	durationMs: number;
+	thinkingText: string;
+	resultDetail: string | null;
+	probeSummary: string | null;
+	steps: Array<{
+		stepId: string;
+		label: string;
+		skill: string;
+		status: string;
+		durationMs: number;
+		error?: string;
+	}>;
+	validationChecks: Array<{ rule: string; passed: boolean; message?: string }>;
+	contextEvents: Array<{
+		id: string;
+		type: string;
+		timestamp: number;
+		data: {
+			appName?: string;
+			windowTitle?: string;
+			appPath?: string;
+			filePath?: string;
+			url?: string;
+			text?: string;
+		};
+	}>;
+}
+
 export interface HomeConnection {
 	id: string;
 	label: string;
@@ -57,4 +101,25 @@ export interface HomeSnapshot {
 	};
 	connections: HomeConnection[];
 	configSummary: HomeConfigSummary;
+}
+
+export interface HomeContextEvent {
+	id: string;
+	type: string;
+	timestamp: number;
+	data: {
+		appName?: string;
+		windowTitle?: string;
+		appPath?: string;
+		filePath?: string;
+		url?: string;
+		text?: string;
+	};
+}
+
+export interface LiveContextLite {
+	activeApp: string | null;
+	activeWindow: string | null;
+	activeAppPath: string | null;
+	events: HomeContextEvent[];
 }

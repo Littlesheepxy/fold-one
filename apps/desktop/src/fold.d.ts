@@ -1,5 +1,5 @@
 import type { FoldStateEvent } from "@fold/runtime";
-import type { FoldConfig, HomeSnapshot } from "./settings/types.js";
+import type { FoldConfig, EpisodeDetail, EpisodeSummary, HomeContextEvent, HomeSnapshot, LiveContextLite } from "./settings/types.js";
 
 interface FoldApi {
 	onState(cb: (state: FoldStateEvent) => void): () => void;
@@ -11,6 +11,11 @@ interface FoldApi {
 	askResponse(optionId: string): Promise<void>;
 	getConfig(): Promise<FoldConfig>;
 	getHomeSnapshot(): Promise<HomeSnapshot>;
+	getLiveContext(): Promise<LiveContextLite>;
+	getAppIcon(appPath: string, appName?: string): Promise<string | null>;
+	listEpisodes(): Promise<EpisodeSummary[]>;
+	getEpisode(id: string): Promise<EpisodeDetail | null>;
+	onContextEvent(cb: (event: HomeContextEvent) => void): () => void;
 	runConnectionAction(action: string, context?: Record<string, unknown>): Promise<{ ok: boolean }>;
 	saveConfig(config: FoldConfig): Promise<{ ok: boolean }>;
 	setMousePassthrough(ignore: boolean): void;

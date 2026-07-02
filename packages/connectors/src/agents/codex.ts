@@ -42,7 +42,9 @@ export const codexConnector: AgentConnector = {
 			args.splice(2, 0, "--sandbox", "workspace-write");
 		}
 
-		const result = await runShellDetailed("codex", args, task.timeoutMs ?? 180_000, task.cwd);
+		const result = await runShellDetailed("codex", args, task.timeoutMs ?? 180_000, task.cwd, {
+			closeStdin: true,
+		});
 		const summary = lastAgentMessage(result.stdout) || result.stderr.trim();
 
 		return {
