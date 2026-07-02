@@ -7,6 +7,11 @@ import {
 	createOutlookWebDraft,
 	openGmailWeb,
 } from "./gmail-web.js";
+import {
+	countGmailUnreadViaNango,
+	createGmailDraftViaNango,
+	hasNangoGmailConnection,
+} from "../nango/index.js";
 import { connectorLabel, resolveMailConnector } from "./router.js";
 import type {
 	MailConnectorId,
@@ -21,7 +26,7 @@ import type {
 } from "./types.js";
 
 function isGmailFamily(id: MailConnectorId): boolean {
-	return id === "gmail-web" || id === "gmail-cli";
+	return id === "gmail-web" || id === "gmail-cli" || id === "gmail-nango";
 }
 
 /** True when gog/gws binary exists on PATH (may still need auth). */
@@ -31,7 +36,7 @@ export async function isGmailCliInstalled(): Promise<boolean> {
 }
 
 /**
- * CLI first; CDP only when no gog/gws binary is installed.
+ * Gmail 选择顺序：CLI（已授权）→ Nango（已连接）→ CDP（gmail-web）。
  */
 export async function resolveMailConnectorAsync(
 	provider: MailProvider | undefined,
@@ -43,9 +48,10 @@ export async function resolveMailConnectorAsync(
 	}
 
 	const sync = resolveMailConnector(provider, context);
-	if (sync === "gmail-cli" || sync === "gmail-web") {
+	if (isGmailFamily(sync)) {
 		const cli = await probeGmailCli();
-		if (cli.backend) return "gmail-cli";
+		if (cli.available) return "gmail-cli";
+		if (await hasNangoGmailConnection()) return "gmail-nango";
 		return "gmail-web";
 	}
 	return sync;
@@ -57,11 +63,20 @@ async function countGmailWithCliFirst(options: MailActionOptions): Promise<MailC
 		options.onProgress?.(`Using Gmail CLI (${cli.backend})`);
 		return countGmailCliUnread(cli);
 	}
-	if (cli.backend) {
-		throw new Error(cli.error ?? "Gmail CLI 已安装但未授权，请先在终端完成登录");
+	// CLI 不可用 → Nango 托管授权 → 浏览器 CDP，逐级兜底
+	if (await hasNangoGmailConnection()) {
+		options.onProgress?.("Gmail CLI 不可用，改用 Nango 托管连接读取");
+		return countGmailUnreadViaNango();
 	}
-	options.onProgress?.("未安装 gog/gws，使用浏览器 CDP 兜底");
-	return countGmailWebUnread();
+	options.onProgress?.("Gmail CLI / Nango 均不可用，使用浏览器 CDP 兜底");
+	try {
+		return await countGmailWebUnread();
+	} catch (webErr) {
+		const webMsg = webErr instanceof Error ? webErr.message : String(webErr);
+		throw new Error(
+			`${cli.error ?? "Gmail CLI 不可用"}；Nango 未连接 Gmail；浏览器 CDP 兜底也失败: ${webMsg}`,
+		);
+	}
 }
 
 async function runConnector(
@@ -71,6 +86,8 @@ async function runConnector(
 	switch (id) {
 		case "apple-mail":
 			return createAppleMailDraft(input);
+		case "gmail-nango":
+			return createGmailDraftViaNango(input);
 		case "gmail-cli":
 		case "gmail-web":
 			return createGmailWebDraft(input);
@@ -120,12 +137,16 @@ export async function openMail(options: MailActionOptions = {}): Promise<MailOpe
 	switch (connectorId) {
 		case "gmail-cli": {
 			const cli = await probeGmailCli();
-			if (!cli.available) {
-				throw new Error(cli.error ?? "Gmail CLI 需要授权");
+			if (cli.available) {
+				options.onProgress?.("Gmail CLI 已就绪，无需打开浏览器");
+				return { provider: "gmail-cli", opened: false };
 			}
-			options.onProgress?.("Gmail CLI 已就绪，无需打开浏览器");
-			return { provider: "gmail-cli", opened: false };
+			options.onProgress?.("Gmail CLI 未授权，改为打开 Gmail 网页");
+			return openGmailWeb();
 		}
+		case "gmail-nango":
+			options.onProgress?.("Nango 托管连接已就绪，无需打开浏览器");
+			return { provider: "gmail-nango", opened: false };
 		case "gmail-web":
 			return openGmailWeb();
 		case "apple-mail":
@@ -143,8 +164,14 @@ export async function countMailUnread(
 
 	switch (connectorId) {
 		case "gmail-cli":
-		case "gmail-web":
 			return countGmailWithCliFirst(options);
+		case "gmail-nango":
+			options.onProgress?.("使用 Nango 托管连接读取 Gmail");
+			return countGmailUnreadViaNango();
+		case "gmail-web":
+			// 用户显式选了 gmail-web（CDP）时不再绕道 CLI
+			options.onProgress?.("使用浏览器 CDP 读取 Gmail");
+			return countGmailWebUnread();
 		case "apple-mail":
 			return countAppleMailUnread();
 		default:

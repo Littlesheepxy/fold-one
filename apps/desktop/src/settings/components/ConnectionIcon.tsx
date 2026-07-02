@@ -1,4 +1,4 @@
-import { Bot, Monitor } from "lucide-react";
+import { Bot, Monitor, Plug } from "lucide-react";
 import { BRAND_ICONS, BrandIcon, ChromeIcon } from "./brand-icons.js";
 
 export function ConnectionIcon({ id, size = 18 }: { id: string; size?: number }) {
@@ -12,6 +12,8 @@ export function ConnectionIcon({ id, size = 18 }: { id: string; size?: number })
 			return <BrandIcon src={BRAND_ICONS.cursor} size={size} alt="Cursor Agent" />;
 		case "gmail":
 			return <BrandIcon src={BRAND_ICONS.google} size={size} alt="Gmail" />;
+		case "nango":
+			return <Plug size={size} className="shrink-0 text-neutral-500" strokeWidth={1.75} />;
 		case "cdp":
 			return <ChromeIcon size={size} />;
 		case "screen":

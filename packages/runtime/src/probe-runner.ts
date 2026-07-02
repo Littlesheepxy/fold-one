@@ -1,7 +1,7 @@
 import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { detectMailConnector, isAgentSubagentsEnabled, listAvailableAgents, probeBrowserCdp, probeGmailCli, probeLarkCli, probeScreenCapture, probeSlackCli, probeUitars, probeWorkBuddyGateway, resolveMailConnector } from "@fold/connectors";
+import { detectMailConnector, isAgentSubagentsEnabled, listAvailableAgents, probeBrowserCdp, probeGmailCli, probeLarkCli, probeNango, probeScreenCapture, probeSlackCli, probeUitars, probeWorkBuddyGateway, resolveMailConnector } from "@fold/connectors";
 import type { LiveContext } from "@fold/context";
 import { listSkills } from "@fold/skills";
 
@@ -84,6 +84,7 @@ export async function runProbes(intent: string, context: LiveContext): Promise<P
 			});
 		}),
 		runProbe("gmail.cli", async () => ok("gmail.cli", await probeGmailCli())),
+		runProbe("nango.available", async () => ok("nango.available", await probeNango())),
 		runProbe("feishu.available", async () => ok("feishu.available", await probeLarkCli())),
 		runProbe("slack.available", async () => ok("slack.available", await probeSlackCli())),
 		runProbe("browser.cdp", async () => ok("browser.cdp", await probeBrowserCdp())),

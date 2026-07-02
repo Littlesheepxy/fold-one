@@ -20,8 +20,8 @@ const CONNECTION_GROUPS: ConnectionGroup[] = [
 	{
 		id: "apps",
 		title: "操作应用",
-		description: "优先 — 用 CLI 直接调应用（如终端发 Gmail）",
-		match: (conn) => conn.id === "gmail",
+		description: "优先 — 用 CLI 直接调应用（如终端发 Gmail），或走 Nango 托管授权",
+		match: (conn) => conn.id === "gmail" || conn.id === "nango",
 	},
 	{
 		id: "browser",
@@ -85,6 +85,17 @@ function actionsFor(conn: HomeConnection, summary: HomeSnapshot["configSummary"]
 			}
 			return [
 				{ id: "gmail:open-browser", label: "打开 Gmail" },
+				{ id: "refresh", label: "重新检测" },
+			];
+		case "nango":
+			if (conn.status === "error") {
+				return [
+					{ id: "nango:settings", label: "去配置 Key", primary: true },
+					{ id: "nango:dashboard", label: "打开 Nango 控制台" },
+				];
+			}
+			return [
+				{ id: "nango:connect", label: "授权新应用", primary: true },
 				{ id: "refresh", label: "重新检测" },
 			];
 		case "cdp":
@@ -181,7 +192,9 @@ export function ConnectionsSection({
 				action.id !== "gmail:open-browser" &&
 				action.id !== "cdp:open-chrome-help" &&
 				action.id !== "codex:install-terminal" &&
-				action.id !== "claude:login-terminal"
+				action.id !== "claude:login-terminal" &&
+				action.id !== "nango:connect" &&
+				action.id !== "nango:dashboard"
 			) {
 				await onRefresh();
 			}

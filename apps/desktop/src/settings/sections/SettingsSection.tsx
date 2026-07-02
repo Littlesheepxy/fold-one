@@ -89,7 +89,14 @@ export function SettingsSection({
 					label="Mail Provider"
 					value={config.mailProvider ?? "auto"}
 					onChange={(v) => onUpdate("mailProvider", v)}
-					options={["auto", "apple-mail", "gmail-cli", "gmail-web", "file"]}
+					options={["auto", "apple-mail", "gmail-cli", "gmail-nango", "gmail-web", "file"]}
+				/>
+				<Field
+					label="Nango Secret Key（托管授权）"
+					type="password"
+					value={config.nangoSecretKey ?? ""}
+					onChange={(v) => onUpdate("nangoSecretKey", v)}
+					hint="app.nango.dev → Environment Settings 获取；配置后可一键授权 Gmail 等应用"
 				/>
 				<Field
 					label="Chrome CDP URL（Gmail Web）"

@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, screen, shell } from "electron";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ContextEngine } from "@fold/context";
-import { openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal } from "@fold/connectors";
+import { createNangoConnectLink, openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal } from "@fold/connectors";
 import { saveContextEvent } from "@fold/memory";
 import { runTask, type FoldStateEvent, type UserActionRequest } from "@fold/runtime";
 import { getAppIconDataUrl, resolveAppBundlePath } from "./app-icon.js";
@@ -11,6 +11,7 @@ import { buildHomeSnapshot } from "./home-snapshot.js";
 import { buildEpisodeDetail, listEpisodesForHome } from "./episode-detail.js";
 import { startToggleHotkey } from "./hotkey.js";
 import { createTray } from "./tray.js";
+import { createFoldAppIcon } from "./tray-icon.js";
 
 applyConfigToEnv();
 
@@ -52,6 +53,18 @@ function emitState(state: FoldStateEvent) {
 	} catch {
 		// Overlay reload/HMR can dispose the render frame mid-task.
 	}
+}
+
+function syncDockVisibility() {
+	if (process.platform !== "darwin") return;
+	const devMode = Boolean(process.env.VITE_DEV_SERVER_URL);
+	const settingsOpen = Boolean(settingsWindow && !settingsWindow.isDestroyed());
+	if (devMode || settingsOpen) {
+		app.dock?.setIcon(createFoldAppIcon());
+		app.dock?.show();
+		return;
+	}
+	app.dock?.hide();
 }
 
 function createOverlayWindow() {
@@ -109,6 +122,7 @@ function openSettingsWindow(section?: string) {
 		if (section) {
 			settingsWindow.webContents.send("fold:home-navigate", section);
 		}
+		syncDockVisibility();
 		return;
 	}
 
@@ -145,6 +159,7 @@ function openSettingsWindow(section?: string) {
 	settingsWindow.loadURL(settingsUrl);
 	settingsWindow.once("ready-to-show", () => {
 		settingsWindow?.show();
+		syncDockVisibility();
 	});
 	settingsWindow.webContents.once("did-finish-load", () => {
 		if (pendingHomeSection) {
@@ -154,6 +169,7 @@ function openSettingsWindow(section?: string) {
 	});
 	settingsWindow.on("closed", () => {
 		settingsWindow = null;
+		syncDockVisibility();
 	});
 }
 
@@ -165,6 +181,14 @@ async function runUserAction(optionId: string, context?: Record<string, unknown>
 			break;
 		case "gmail:open-browser":
 			await shell.openExternal("https://mail.google.com/mail/u/0/#inbox");
+			break;
+		case "nango:connect": {
+			const link = await createNangoConnectLink();
+			await shell.openExternal(link);
+			break;
+		}
+		case "nango:dashboard":
+			await shell.openExternal("https://app.nango.dev");
 			break;
 		case "screen:open-settings":
 			await shell.openExternal(
@@ -380,8 +404,9 @@ function registerHotkeys() {
 
 app.whenReady().then(() => {
 	if (process.platform === "darwin") {
-		app.dock?.hide();
+		app.setName("Fold");
 	}
+	syncDockVisibility();
 
 	contextEngine.start();
 	createOverlayWindow();

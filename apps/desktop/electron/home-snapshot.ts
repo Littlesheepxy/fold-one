@@ -78,6 +78,25 @@ function buildConnections(
 		meta: { backend: gmail?.backend ?? null },
 	});
 
+	const nango = probeOk<{
+		configured?: boolean;
+		connected?: boolean;
+		connections?: Array<{ providerConfigKey: string }>;
+		error?: string;
+	}>(probes, "nango.available");
+	rows.push({
+		id: "nango",
+		label: "Nango 托管授权",
+		status: nango?.connected ? "ok" : nango?.configured ? "warn" : "error",
+		detail: nango?.connected
+			? `已授权 ${nango.connections?.length ?? 0} 个应用 · ${(nango.connections ?? [])
+					.map((c) => c.providerConfigKey)
+					.join(", ")}`
+			: nango?.configured
+				? (nango.error ?? "已配置 Key，还没有授权任何应用")
+				: "未配置 Secret Key",
+	});
+
 	const cdp = probeOk<{ connected?: boolean; cdpUrl?: string; pageCount?: number; error?: string }>(
 		probes,
 		"browser.cdp",

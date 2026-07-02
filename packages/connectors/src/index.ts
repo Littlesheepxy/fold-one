@@ -77,6 +77,17 @@ export {
 	type WorkBuddyRunResult,
 } from "./workbuddy/index.js";
 export {
+	createNangoConnectLink,
+	countGmailUnreadViaNango,
+	createGmailDraftViaNango,
+	hasNangoGmailConnection,
+	isNangoConfigured,
+	listNangoConnections,
+	probeNango,
+	type NangoConnection,
+	type NangoProbe,
+} from "./nango/index.js";
+export {
 	executeLarkMailTriage,
 	probeLarkCli,
 	type LarkCliProbe,

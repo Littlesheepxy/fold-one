@@ -7,9 +7,22 @@ export interface MailDraftInput {
 	toEmail?: string;
 }
 
-export type MailProvider = "auto" | "apple-mail" | "gmail-cli" | "gmail-web" | "outlook-web" | "file";
+export type MailProvider =
+	| "auto"
+	| "apple-mail"
+	| "gmail-cli"
+	| "gmail-nango"
+	| "gmail-web"
+	| "outlook-web"
+	| "file";
 
-export type MailConnectorId = "apple-mail" | "gmail-cli" | "gmail-web" | "outlook-web" | "file";
+export type MailConnectorId =
+	| "apple-mail"
+	| "gmail-cli"
+	| "gmail-nango"
+	| "gmail-web"
+	| "outlook-web"
+	| "file";
 
 export interface MailDraftResult {
 	subject: string;

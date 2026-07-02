@@ -11,6 +11,7 @@ export interface FoldConfig {
 	plannerProvider?: string;
 	plannerModel?: string;
 	mailProvider?: string;
+	nangoSecretKey?: string;
 	asrWsUrl?: string;
 	chromeCdpUrl?: string;
 	allowScriptExecution?: boolean;
@@ -58,6 +59,7 @@ export function applyConfigToEnv(config: FoldConfig = loadConfig()): void {
 	if (config.plannerProvider) process.env.FOLD_PLANNER_PROVIDER = config.plannerProvider;
 	if (config.plannerModel) process.env.FOLD_PLANNER_MODEL = config.plannerModel;
 	if (config.mailProvider) process.env.FOLD_MAIL_PROVIDER = config.mailProvider;
+	if (config.nangoSecretKey) process.env.FOLD_NANGO_SECRET_KEY = config.nangoSecretKey;
 	if (config.asrWsUrl) process.env.FOLD_ASR_WS_URL = config.asrWsUrl;
 	if (config.chromeCdpUrl) process.env.FOLD_CHROME_CDP_URL = config.chromeCdpUrl;
 	if (typeof config.allowScriptExecution === "boolean") {
