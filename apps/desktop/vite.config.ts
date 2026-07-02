@@ -28,6 +28,18 @@ const electronExternals = (id: string) =>
 	id.startsWith("@ui-tars/");
 
 export default defineConfig({
+	// react-draggable 在 handleDragStart 里访问 process.env.DRAGGABLE_DEBUG，
+	// 渲染进程没有 process 全局 → ReferenceError → 拖拽静默失败
+	define: {
+		"process.env.DRAGGABLE_DEBUG": "false",
+	},
+	optimizeDeps: {
+		esbuildOptions: {
+			define: {
+				"process.env.DRAGGABLE_DEBUG": "false",
+			},
+		},
+	},
 	build: {
 		rollupOptions: {
 			input: {

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import GridLayout, { type Layout, type LayoutItem } from "react-grid-layout/legacy";
+import GridLayout from "react-grid-layout";
+import type RGL from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
-import "react-resizable/css/styles.css";
 import type { HomeSnapshot } from "../types.js";
 import { ConnectionIcon } from "../components/ConnectionIcon.js";
 import { Card, formatTime, StatusDot } from "../components/FormFields.js";
@@ -27,7 +27,7 @@ export function OverviewSection({
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const [width, setWidth] = useState(960);
-	const [layout, setLayout] = useState<LayoutItem[]>(() => loadOverviewLayout(visibleIds));
+	const [layout, setLayout] = useState<RGL.Layout[]>(() => loadOverviewLayout(visibleIds));
 
 	useEffect(() => {
 		setLayout(loadOverviewLayout(visibleIds));
@@ -43,10 +43,9 @@ export function OverviewSection({
 		return () => ro.disconnect();
 	}, []);
 
-	const handleLayoutChange = (next: Layout) => {
-		const mutable = [...next];
-		setLayout(mutable);
-		saveOverviewLayout(mutable);
+	const handleLayoutChange = (next: RGL.Layout[]) => {
+		setLayout(next);
+		saveOverviewLayout(next);
 	};
 
 	return (
@@ -61,14 +60,10 @@ export function OverviewSection({
 					rowHeight={OVERVIEW_ROW_HEIGHT}
 					margin={[14, 14] as const}
 					containerPadding={[0, 0] as const}
-					isDraggable
-					isResizable
 					compactType="vertical"
 					draggableHandle=".fold-home-card-drag-handle"
 					draggableCancel=".fold-home-link,button,a,input,textarea,select"
 					onLayoutChange={handleLayoutChange}
-					onDragStop={handleLayoutChange}
-					onResizeStop={handleLayoutChange}
 				>
 					<div key="memory" className="fold-overview-item">
 						<Card title="个人记忆" fill dragHandle>

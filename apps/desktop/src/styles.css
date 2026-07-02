@@ -451,6 +451,7 @@ body.fold-home #root {
 /* ── Fold Home (Settings window) ── */
 
 .fold-home-shell {
+  position: relative;
   width: 100vw;
   height: 100vh;
   overflow: hidden;
@@ -459,6 +460,18 @@ body.fold-home #root {
   box-shadow:
     0 0 0 0.5px rgb(0 0 0 / 0.08),
     0 28px 80px rgb(0 0 0 / 0.14);
+  -webkit-app-region: no-drag;
+}
+
+/* 仅顶部条带可拖窗口，避免 drag 区域吞掉主页网格的鼠标事件 */
+.fold-home-window-drag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 44px;
+  z-index: 50;
+  -webkit-app-region: drag;
 }
 
 .fold-home {
@@ -466,6 +479,7 @@ body.fold-home #root {
   min-height: 0;
   background: #ececee;
   color: #1d1d1f;
+  -webkit-app-region: no-drag;
 }
 
 .fold-home-sidebar {
@@ -477,7 +491,7 @@ body.fold-home #root {
   padding: 44px 12px 16px;
   border-right: 0.5px solid rgb(0 0 0 / 0.08);
   background: rgb(246 246 248 / 0.96);
-  -webkit-app-region: drag;
+  -webkit-app-region: no-drag;
 }
 
 .fold-home-sidebar-resizer {
@@ -574,15 +588,6 @@ body.fold-sidebar-resizing {
   position: relative;
 }
 
-/* 主内容区顶部留白仍可拖窗口（子区域 no-drag 不影响条带） */
-.fold-home-main::before {
-  content: "";
-  display: block;
-  height: 44px;
-  margin: -44px -28px 0;
-  -webkit-app-region: drag;
-}
-
 .fold-home-content {
   max-width: 720px;
   -webkit-app-region: no-drag;
@@ -610,6 +615,17 @@ body.fold-sidebar-resizing {
   flex: 1;
   min-height: 0;
   gap: 10px;
+}
+
+/* 卡片缩放时内容自适应：链接贴底，中间列表占满剩余空间 */
+.fold-home-card-body > .fold-home-link {
+  margin-top: auto;
+  align-self: center;
+}
+
+.fold-home-card-body > ul {
+  flex: 1;
+  min-height: 0;
 }
 
 .fold-home-card-drag-handle {
@@ -656,9 +672,26 @@ body.fold-sidebar-resizing {
   z-index: 20;
 }
 
+/* 拖拽/缩放目标位置的占位块 — 覆盖库默认的红色 */
+.fold-overview-grid .react-grid-item.react-grid-placeholder {
+  background: rgb(0 122 255 / 0.08);
+  border: 1.5px dashed rgb(0 122 255 / 0.35);
+  border-radius: 24px;
+  opacity: 1;
+}
+
+/* 拖拽/缩放期间禁止全页误选文本 */
+body:has(.react-draggable-dragging),
+body:has(.react-grid-item.resizing) {
+  user-select: none;
+  cursor: grabbing;
+}
+
 .fold-overview-grid .react-resizable-handle {
   z-index: 30;
   pointer-events: auto;
+  touch-action: none;
+  -webkit-app-region: no-drag;
 }
 
 .fold-overview-grid .react-grid-item > .react-resizable-handle {

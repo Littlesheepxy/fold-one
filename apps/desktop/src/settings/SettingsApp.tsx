@@ -146,6 +146,7 @@ export function SettingsApp() {
 	if (loading) {
 		return (
 			<div className="fold-home-shell">
+				<div className="fold-home-window-drag" aria-hidden="true" />
 				<div className="fold-home flex h-full items-center justify-center text-sm text-[#86868b]">
 					加载中…
 				</div>
@@ -155,6 +156,7 @@ export function SettingsApp() {
 
 	return (
 		<div className="fold-home-shell">
+			<div className="fold-home-window-drag" aria-hidden="true" />
 			<div className="fold-home flex h-full">
 			<aside className="fold-home-sidebar" style={{ width: sidebarWidth }}>
 				<div className="fold-home-brand">
