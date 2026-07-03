@@ -10,6 +10,7 @@ export interface FoldConfig {
 	plannerModel?: string;
 	mailProvider?: string;
 	nangoSecretKey?: string;
+	hubApiKey?: string;
 	asrWsUrl?: string;
 	chromeCdpUrl?: string;
 	allowScriptExecution?: boolean;

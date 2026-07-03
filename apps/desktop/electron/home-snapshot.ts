@@ -82,19 +82,21 @@ function buildConnections(
 		configured?: boolean;
 		connected?: boolean;
 		connections?: Array<{ providerConfigKey: string }>;
+		mode?: "local" | "hub";
 		error?: string;
 	}>(probes, "nango.available");
+	const nangoModeLabel = nango?.mode === "hub" ? "Fold Hub" : "Nango 直连";
 	rows.push({
 		id: "nango",
-		label: "Nango 托管授权",
+		label: "托管授权",
 		status: nango?.connected ? "ok" : nango?.configured ? "warn" : "error",
 		detail: nango?.connected
-			? `已授权 ${nango.connections?.length ?? 0} 个应用 · ${(nango.connections ?? [])
+			? `${nangoModeLabel} · 已授权 ${nango.connections?.length ?? 0} 个应用 · ${(nango.connections ?? [])
 					.map((c) => c.providerConfigKey)
 					.join(", ")}`
 			: nango?.configured
-				? (nango.error ?? "已配置 Key，还没有授权任何应用")
-				: "未配置 Secret Key",
+				? (nango.error ?? `${nangoModeLabel} · 已配置，还没有授权任何应用`)
+				: "未配置 Fold Hub API Key",
 	});
 
 	const cdp = probeOk<{ connected?: boolean; cdpUrl?: string; pageCount?: number; error?: string }>(
