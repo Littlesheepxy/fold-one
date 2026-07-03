@@ -92,6 +92,13 @@ export function SettingsSection({
 					options={["auto", "apple-mail", "gmail-cli", "gmail-nango", "gmail-web", "file"]}
 				/>
 				<Field
+					label="Playwright Bridge Token（浏览器插件）"
+					type="password"
+					value={config.playwrightMcpExtensionToken ?? ""}
+					onChange={(v) => onUpdate("playwrightMcpExtensionToken", v)}
+					hint="Chrome 装 Playwright MCP Bridge 后，在扩展状态页复制 PLAYWRIGHT_MCP_EXTENSION_TOKEN"
+				/>
+				<Field
 					label="Fold Hub API Key（托管授权）"
 					type="password"
 					value={config.hubApiKey ?? ""}

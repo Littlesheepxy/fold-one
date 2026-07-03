@@ -17,6 +17,24 @@ interface FoldApi {
 	getEpisode(id: string): Promise<EpisodeDetail | null>;
 	onContextEvent(cb: (event: HomeContextEvent) => void): () => void;
 	runConnectionAction(action: string, context?: Record<string, unknown>): Promise<{ ok: boolean }>;
+	startConnectFlow(
+		connectionId: string,
+		kind: "login" | "install",
+	): Promise<{
+		sessionId: string;
+		title: string;
+		message: string;
+		authUrl?: string;
+		userCode?: string;
+		opensBrowserAutomatically?: boolean;
+	}>;
+	pollConnectFlow(sessionId: string): Promise<{
+		status: "pending" | "success" | "error";
+		message?: string;
+		error?: string;
+	}>;
+	cancelConnectFlow(sessionId: string): Promise<{ ok: boolean }>;
+	openExternal(url: string): Promise<{ ok: boolean }>;
 	saveConfig(config: FoldConfig): Promise<{ ok: boolean }>;
 	setMousePassthrough(ignore: boolean): void;
 	dismiss(): Promise<void>;

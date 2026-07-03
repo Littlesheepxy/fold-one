@@ -1,3 +1,7 @@
+import { getExtensionCurrentPage, getPlaywrightExtensionToken, probePlaywrightExtension } from "./mcp-extension.js";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { Browser, BrowserContext, Page } from "playwright";
 
 export interface BrowserPageInfo {
@@ -18,10 +22,46 @@ export interface BrowserCdpProbe {
 	pageCount: number;
 	mailUrl?: string | null;
 	error?: string;
+	/** extension = Playwright MCP Bridge；cdp = Chrome remote debugging */
+	mode?: "extension" | "cdp";
 }
 
 export function getChromeCdpUrl(): string | undefined {
 	return process.env.FOLD_CHROME_CDP_URL?.trim() || undefined;
+}
+
+/**
+ * 用户在 chrome://inspect/#remote-debugging 打开「Allow remote debugging」后，
+ * Chrome 会在默认用户目录写 DevToolsActivePort（第一行端口，第二行 ws 路径）。
+ * 这种模式只开 WebSocket 端点（HTTP /json/* 是 404），所以必须拼完整 ws URL。
+ * 连上即是用户真实 Chrome（含登录态），无需插件。
+ */
+export async function getAutoDebugCdpUrl(): Promise<string | undefined> {
+	let port: string | undefined;
+	let wsPath: string | undefined;
+	try {
+		const file = join(
+			homedir(),
+			"Library/Application Support/Google/Chrome/DevToolsActivePort",
+		);
+		[port, wsPath] = readFileSync(file, "utf8").trim().split("\n");
+	} catch {
+		return undefined; // 文件不存在 = 开关未开
+	}
+	if (!port || !/^\d+$/.test(port) || !wsPath?.startsWith("/")) return undefined;
+	try {
+		// 端点只回 404，但只要有 HTTP 响应就说明端口活着；连不上才是真死（文件残留）
+		await fetch(`http://127.0.0.1:${port}/json/version`, {
+			signal: AbortSignal.timeout(1500),
+		});
+	} catch {
+		return undefined;
+	}
+	return `ws://127.0.0.1:${port}${wsPath}`;
+}
+
+export async function resolveCdpUrl(): Promise<string | undefined> {
+	return getChromeCdpUrl() ?? (await getAutoDebugCdpUrl());
 }
 
 async function getChromium() {
@@ -30,19 +70,16 @@ async function getChromium() {
 }
 
 export async function connectBrowser(): Promise<BrowserSession> {
-	const cdpUrl = getChromeCdpUrl();
-	const chromium = await getChromium();
-	if (cdpUrl) {
-		const browser = await chromium.connectOverCDP(cdpUrl);
-		const context = browser.contexts()[0] ?? (await browser.newContext());
-		return { browser, context, ownsBrowser: false };
+	const cdpUrl = await resolveCdpUrl();
+	if (!cdpUrl) {
+		throw new Error(
+			"未连接到你的 Chrome。请在设置填入 Playwright Bridge Token 并安装扩展，或在 Chrome 开启 remote debugging。",
+		);
 	}
-	const browser = await chromium.launch({
-		headless: false,
-		channel: "chrome",
-	});
-	const context = await browser.newContext();
-	return { browser, context, ownsBrowser: true };
+	const chromium = await getChromium();
+	const browser = await chromium.connectOverCDP(cdpUrl);
+	const context = browser.contexts()[0] ?? (await browser.newContext());
+	return { browser, context, ownsBrowser: false };
 }
 
 export async function withBrowserSession<T>(
@@ -90,8 +127,26 @@ export async function readCurrentPageInfo(page: Page): Promise<BrowserPageInfo> 
 }
 
 export async function getCurrentBrowserPage(): Promise<
-	BrowserPageInfo & { pages: BrowserPageInfo[]; cdpUrl?: string; connected: boolean }
+	BrowserPageInfo & { pages: BrowserPageInfo[]; cdpUrl?: string; connected: boolean; mode?: "extension" | "cdp" }
 > {
+	if (getPlaywrightExtensionToken()) {
+		const ext = await probePlaywrightExtension();
+		if (ext.connected) {
+			const page = await getExtensionCurrentPage();
+			return {
+				url: page.url,
+				title: page.title,
+				pages: page.pages,
+				connected: true,
+				mode: "extension",
+			};
+		}
+		throw new Error(
+			ext.error ??
+				"Playwright Bridge 未就绪。请确认扩展已安装，并在 Chrome 打开要操作的网页标签。",
+		);
+	}
+
 	return withBrowserSession(async (session) => {
 		const pageInfos: BrowserPageInfo[] = [];
 		for (const page of session.context.pages()) {
@@ -106,16 +161,43 @@ export async function getCurrentBrowserPage(): Promise<
 		return {
 			...current,
 			pages: pageInfos,
-			cdpUrl: getChromeCdpUrl(),
+			cdpUrl: await resolveCdpUrl(),
 			connected: true,
+			mode: "cdp",
 		};
 	});
 }
 
 export async function probeBrowserCdp(): Promise<BrowserCdpProbe> {
-	const cdpUrl = getChromeCdpUrl();
+	if (getPlaywrightExtensionToken()) {
+		const ext = await probePlaywrightExtension();
+		if (ext.connected) {
+			return {
+				connected: true,
+				pageCount: ext.tabCount,
+				mailUrl: ext.tabs.find((t) => /mail\.google\.com|outlook\./i.test(t.url))?.url ?? null,
+				mode: "extension",
+			};
+		}
+		if (ext.configured) {
+			return {
+				connected: false,
+				pageCount: 0,
+				mailUrl: null,
+				mode: "extension",
+				error: ext.error ?? "Playwright Bridge 未连接。请确认扩展已安装且 Chrome 已打开目标网页",
+			};
+		}
+	}
+
+	const cdpUrl = await resolveCdpUrl();
 	if (!cdpUrl) {
-		return { connected: false, pageCount: 0, mailUrl: null };
+		return {
+			connected: false,
+			pageCount: 0,
+			mailUrl: null,
+			error: "未检测到调试通道。在 Chrome 打开 chrome://inspect/#remote-debugging 勾选 Allow remote debugging 并重启浏览器",
+		};
 	}
 	try {
 		return await withBrowserSession(async (session) => {
@@ -126,6 +208,7 @@ export async function probeBrowserCdp(): Promise<BrowserCdpProbe> {
 				cdpUrl,
 				pageCount: pages.length,
 				mailUrl: mailPage?.url() ?? null,
+				mode: "cdp",
 			};
 		});
 	} catch (error) {

@@ -11,7 +11,8 @@ export {
 	type RouteDecision,
 } from "./router.js";
 export { validatePlan } from "./validator.js";
-export { buildReactAgentPlan, buildRepairBrief, isGuiIntent } from "./repair.js";
+export { buildReactAgentPlan, buildRepairBrief } from "./repair.js";
+export { isGuiIntent } from "./capability-resolver.js";
 export {
 	buildRecoveryPlan,
 	classifyFailure,

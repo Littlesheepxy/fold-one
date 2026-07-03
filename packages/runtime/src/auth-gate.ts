@@ -5,9 +5,9 @@ import {
 	probeScreenCapture,
 	type GmailCliProbe,
 } from "@fold/connectors";
+import { isBrowserIntent, isGmailIntent, mayNeedScreenPermission } from "./capability-resolver.js";
 import type { ProbeRunResult } from "./probe-runner.js";
 import type { OrchestratorDeps, UserActionRequest } from "./types.js";
-import { mayNeedScreenPermission } from "./visual-intent.js";
 
 function probeValue<T>(probeResult: ProbeRunResult, id: string): T | undefined {
 	const probe = probeResult.probes.find((p) => p.id === id);
@@ -15,8 +15,8 @@ function probeValue<T>(probeResult: ProbeRunResult, id: string): T | undefined {
 	return probe.value as T;
 }
 
-function isGmailIntent(intent: string): boolean {
-	return /gmail|谷歌邮箱|google\s*mail/i.test(intent);
+function planUsesBrowser(plan: ActionPlan): boolean {
+	return plan.steps.some((s) => s.skill.startsWith("browser."));
 }
 
 function planUsesMail(plan: ActionPlan): boolean {
@@ -102,10 +102,10 @@ async function ensureGmailBrowserReady(
 			title: attempt === 0 ? "Gmail 浏览器登录" : "仍在等待 Gmail 登录",
 			message:
 				attempt === 0
-					? "已打开 Gmail，请登录你的 Google 账号。"
+					? "已打开 Gmail，请在你正在使用的 Chrome 里登录 Google 账号。"
 					: cdp.connected
 						? "Chrome 已连接，但还没有 Gmail 标签页。请登录后点击「已完成」。"
-						: "请在新窗口登录你的 Google 账号。",
+						: "请先在 Chrome 登录 Gmail，并确保浏览器已连接。",
 			hint: "浏览器适合：打开收件箱、读页面内容、写草稿。",
 			options: [
 				{ id: "gmail:open-browser", label: "重新打开 Gmail" },
@@ -146,6 +146,32 @@ async function ensureScreenCapturePermission(
 	throw new Error("屏幕录制权限仍未生效，无法截屏");
 }
 
+async function ensureBrowserReady(
+	requestUserAction: NonNullable<OrchestratorDeps["requestUserAction"]>,
+): Promise<void> {
+	for (let attempt = 0; attempt < 4; attempt++) {
+		const cdp = await probeBrowserCdp();
+		if (cdp.connected) return;
+
+		await ask(requestUserAction, {
+			title: attempt === 0 ? "需要连接你的 Chrome" : "仍在等待浏览器连接",
+			message:
+				attempt === 0
+					? "Fold 需要操控你正在使用的 Chrome，不会自动新开浏览器。请选择一种方式完成配置。"
+					: (cdp.error ?? "尚未检测到 Chrome 调试通道。"),
+			hint: "推荐：安装 Playwright MCP Bridge 并在设置里填入 Token；或在 Chrome 打开 chrome://inspect/#remote-debugging 勾选 Allow remote debugging 后重启 Chrome。",
+			options: [
+				{ id: "cdp:install-bridge", label: "安装 Playwright Bridge" },
+				{ id: "cdp:open-remote-debugging", label: "打开 Chrome 调试设置" },
+				{ id: "cdp:poll-done", label: "已完成配置" },
+				{ id: "cancel", label: "取消" },
+			],
+		});
+	}
+
+	throw new Error("浏览器仍未连接，请完成配置后重试");
+}
+
 /**
  * Pause execution and guide the user through CLI / browser auth when needed.
  */
@@ -160,7 +186,16 @@ export async function ensureExecutionPrerequisites(
 
 	const needsMail = planUsesMail(plan) || isGmailIntent(intent);
 	const needsScreen = mayNeedScreenPermission(intent, planUsesScreenshot(plan));
-	if (!needsMail && !needsScreen) return;
+	const needsBrowser =
+		planUsesBrowser(plan) || (isBrowserIntent(intent) && !isGmailIntent(intent));
+	if (!needsMail && !needsScreen && !needsBrowser) return;
+
+	if (needsBrowser) {
+		const cdp = probeValue<{ connected?: boolean }>(probeResult, "browser.cdp");
+		if (!cdp?.connected) {
+			await ensureBrowserReady(requestUserAction);
+		}
+	}
 
 	if (needsMail) {
 		const gmailCli = probeValue<GmailCliProbe>(probeResult, "gmail.cli") ?? (await probeGmailCli());

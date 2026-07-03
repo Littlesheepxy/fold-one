@@ -619,8 +619,7 @@ body.fold-sidebar-resizing {
 
 /* 卡片缩放时内容自适应：链接贴底，中间列表占满剩余空间 */
 .fold-home-card-body > .fold-home-link {
-  margin-top: auto;
-  align-self: center;
+   align-self: center;
 }
 
 .fold-home-card-body > ul {
@@ -1199,4 +1198,150 @@ body:has(.react-grid-item.resizing) {
 
 .fold-profile-recent-btn:hover {
   opacity: 0.72;
+}
+
+.fold-connect-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(0 0 0 / 0.18);
+  backdrop-filter: blur(10px) saturate(120%);
+  -webkit-backdrop-filter: blur(10px) saturate(120%);
+}
+
+.fold-connect-modal {
+  width: min(100%, 380px);
+  padding: 28px 24px 22px;
+  border-radius: 28px;
+  border: 0.5px solid rgb(255 255 255 / 0.55);
+  background: rgb(255 255 255 / 0.72);
+  box-shadow:
+    0 24px 80px rgb(0 0 0 / 0.14),
+    inset 0 1px 0 rgb(255 255 255 / 0.65);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+}
+
+.fold-connect-logos {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.fold-connect-logo-tile {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 18px;
+  background: rgb(255 255 255 / 0.88);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.04),
+    inset 0 0 0 0.5px rgb(0 0 0 / 0.06);
+}
+
+.fold-connect-logo-fold {
+  color: #1d1d1f;
+}
+
+.fold-connect-logo-link {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.fold-connect-logo-link span {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: #c7c7cc;
+}
+
+.fold-connect-title {
+  margin: 0;
+  text-align: center;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: #1d1d1f;
+}
+
+.fold-connect-message {
+  margin: 10px 0 0;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #6e6e73;
+}
+
+.fold-connect-code {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgb(0 0 0 / 0.04);
+  text-align: center;
+}
+
+.fold-connect-code-label {
+  margin: 0;
+  font-size: 11px;
+  color: #86868b;
+}
+
+.fold-connect-code-value {
+  margin: 6px 0 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #1d1d1f;
+}
+
+.fold-connect-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 22px;
+}
+
+.fold-connect-btn {
+  min-width: 96px;
+  padding: 9px 16px;
+  border-radius: 999px;
+  border: 0.5px solid rgb(0 0 0 / 0.08);
+  background: rgb(255 255 255 / 0.9);
+  font-size: 13px;
+  font-weight: 600;
+  color: #1d1d1f;
+  cursor: pointer;
+  transition: background 120ms ease, transform 120ms ease;
+}
+
+.fold-connect-btn:hover:not(:disabled) {
+  background: #fff;
+  transform: translateY(-1px);
+}
+
+.fold-connect-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.fold-connect-btn-primary {
+  background: #1d1d1f;
+  border-color: transparent;
+  color: #fff;
+}
+
+.fold-connect-btn-primary:hover:not(:disabled) {
+  background: #000;
+}
+
+.fold-connect-btn-muted {
+  background: transparent;
+  color: #6e6e73;
 }

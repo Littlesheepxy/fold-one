@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, screen, shell } from "electron";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ContextEngine } from "@fold/context";
-import { createNangoConnectLink, openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal } from "@fold/connectors";
+import { createNangoConnectLink, openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal, openOfficeSetupInTerminal, cancelConnectFlow, pollConnectFlow, resolveConnectTarget, startConnectFlow } from "@fold/connectors";
 import { saveContextEvent } from "@fold/memory";
 import { runTask, type FoldStateEvent, type UserActionRequest } from "@fold/runtime";
 import { getAppIconDataUrl, resolveAppBundlePath } from "./app-icon.js";
@@ -197,12 +197,28 @@ async function runUserAction(optionId: string, context?: Record<string, unknown>
 			break;
 		case "cdp:open-chrome-help":
 			await shell.openExternal(
-				"https://developer.chrome.com/docs/devtools/remote-debugging/local-server",
+				"https://playwright.dev/mcp/configuration/browser-extension",
+			);
+			break;
+		case "cdp:open-remote-debugging":
+			await shell.openExternal("chrome://inspect/#remote-debugging");
+			break;
+		case "cdp:install-bridge":
+			await shell.openExternal(
+				"https://chromewebstore.google.com/detail/playwright-mcp-bridge/mmlmfjhmonkocbjadbfplnigmagldckm",
 			);
 			break;
 		case "codex:install-terminal":
 			openCodexInstallInTerminal();
 			break;
+		case "office:install-terminal":
+		case "office:login-terminal": {
+			const channel = typeof context?.channel === "string" ? context.channel : "";
+			const kind = optionId === "office:login-terminal" ? "login" : "install";
+			const result = openOfficeSetupInTerminal(channel, kind);
+			if (!result.opened && result.url) await shell.openExternal(result.url);
+			break;
+		}
 		case "claude:login-terminal":
 			openClaudeLoginInTerminal();
 			break;
@@ -252,6 +268,10 @@ const IPC_HANDLE_CHANNELS = [
 	"fold:list-episodes",
 	"fold:get-episode",
 	"fold:connection-action",
+	"fold:connect-flow-start",
+	"fold:connect-flow-poll",
+	"fold:connect-flow-cancel",
+	"fold:open-external",
 	"fold:run-task",
 	"fold:retry-task",
 	"fold:ask-response",
@@ -311,6 +331,26 @@ function registerIpc() {
 
 	ipcMain.handle("fold:connection-action", async (_e, action: string, context?: Record<string, unknown>) => {
 		await runUserAction(action, context);
+		return { ok: true };
+	});
+
+	ipcMain.handle("fold:connect-flow-start", async (_e, connectionId: string, kind: "login" | "install") => {
+		const target = resolveConnectTarget(connectionId);
+		if (!target) throw new Error(`未知连接: ${connectionId}`);
+		return startConnectFlow(target, kind);
+	});
+
+	ipcMain.handle("fold:connect-flow-poll", async (_e, sessionId: string) => pollConnectFlow(sessionId));
+
+	ipcMain.handle("fold:connect-flow-cancel", async (_e, sessionId: string) => {
+		cancelConnectFlow(sessionId);
+		return { ok: true };
+	});
+
+	ipcMain.handle("fold:open-external", async (_e, url: string) => {
+		if (typeof url === "string" && /^https?:\/\//i.test(url)) {
+			await shell.openExternal(url);
+		}
 		return { ok: true };
 	});
 

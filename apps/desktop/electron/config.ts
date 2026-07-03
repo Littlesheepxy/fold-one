@@ -13,6 +13,7 @@ export interface FoldConfig {
 	mailProvider?: string;
 	nangoSecretKey?: string;
 	hubApiKey?: string;
+	playwrightMcpExtensionToken?: string;
 	asrWsUrl?: string;
 	chromeCdpUrl?: string;
 	allowScriptExecution?: boolean;
@@ -62,6 +63,9 @@ export function applyConfigToEnv(config: FoldConfig = loadConfig()): void {
 	if (config.mailProvider) process.env.FOLD_MAIL_PROVIDER = config.mailProvider;
 	if (config.nangoSecretKey) process.env.FOLD_NANGO_SECRET_KEY = config.nangoSecretKey;
 	if (config.hubApiKey) process.env.FOLD_HUB_API_KEY = config.hubApiKey;
+	if (config.playwrightMcpExtensionToken) {
+		process.env.PLAYWRIGHT_MCP_EXTENSION_TOKEN = config.playwrightMcpExtensionToken;
+	}
 	if (config.asrWsUrl) process.env.FOLD_ASR_WS_URL = config.asrWsUrl;
 	if (config.chromeCdpUrl) process.env.FOLD_CHROME_CDP_URL = config.chromeCdpUrl;
 	if (typeof config.allowScriptExecution === "boolean") {

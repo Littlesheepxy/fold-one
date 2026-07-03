@@ -46,6 +46,24 @@ contextBridge.exposeInMainWorld("fold", {
 	},
 	runConnectionAction: (action: string, context?: Record<string, unknown>) =>
 		ipcRenderer.invoke("fold:connection-action", action, context) as Promise<{ ok: boolean }>,
+	startConnectFlow: (connectionId: string, kind: "login" | "install") =>
+		ipcRenderer.invoke("fold:connect-flow-start", connectionId, kind) as Promise<{
+			sessionId: string;
+			title: string;
+			message: string;
+			authUrl?: string;
+			userCode?: string;
+			opensBrowserAutomatically?: boolean;
+		}>,
+	pollConnectFlow: (sessionId: string) =>
+		ipcRenderer.invoke("fold:connect-flow-poll", sessionId) as Promise<{
+			status: "pending" | "success" | "error";
+			message?: string;
+			error?: string;
+		}>,
+	cancelConnectFlow: (sessionId: string) =>
+		ipcRenderer.invoke("fold:connect-flow-cancel", sessionId) as Promise<{ ok: boolean }>,
+	openExternal: (url: string) => ipcRenderer.invoke("fold:open-external", url) as Promise<{ ok: boolean }>,
 	saveConfig: (config: Record<string, unknown>) =>
 		ipcRenderer.invoke("fold:save-config", config) as Promise<{ ok: boolean }>,
 	setMousePassthrough: (ignore: boolean) => {

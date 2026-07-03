@@ -24,6 +24,8 @@ const electronExternals = (id: string) =>
 	id === "fsevents" ||
 	id === "uuid" ||
 	id.startsWith("playwright") ||
+	id === "@playwright/mcp" ||
+	id.startsWith("@modelcontextprotocol/") ||
 	id.startsWith("@computer-use/") ||
 	id.startsWith("@ui-tars/");
 

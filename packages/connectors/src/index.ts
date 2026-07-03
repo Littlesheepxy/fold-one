@@ -102,6 +102,26 @@ export {
 	type SlackUnreadResult,
 } from "./slack/index.js";
 export {
+	isOfficeChannelId,
+	openOfficeSetupInTerminal,
+	probeOfficeChannels,
+	runOfficeCli,
+	type OfficeChannelId,
+	type OfficeChannelProbe,
+	type OfficeCliResult,
+} from "./office/index.js";
+export {
+	cancelConnectFlow,
+	getConnectFlowSession,
+	pollConnectFlow,
+	resolveConnectTarget,
+	startConnectFlow,
+	type ConnectFlowKind,
+	type ConnectFlowPollResult,
+	type ConnectFlowStart,
+	type ConnectTarget,
+} from "./office/auth-flow.js";
+export {
 	captureScreenshot,
 	probeScreenCapture,
 	type ScreenshotResult,

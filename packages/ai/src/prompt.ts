@@ -1,27 +1,3 @@
-const SKILL_CATALOG = `
-Available skills:
-- finder.latestDownload: { ext?: string, since?: string } -> { path, name, size }
-- pdf.extract: { path: string, fields?: string[] } -> { vendor?, amount?, date?, rawText? }
-- mail.open: {} -> { provider, opened }
-- mail.countUnread: {} -> { provider, count, backend? } (prefers gog/gws CLI over browser CDP)
-- mail.draft: { to: string, subject?: string, body: string, template?: string } -> { subject, to }
-- browser.currentPage: {} -> { url, title, selectedText?, pages[], cdpUrl?, connected }
-- browser.interact: { action: "goto"|"click"|"fill", url?, selector?, value? } -> { ok, url, title, action }
-- agent.execute: { brief: string, agent?: "auto"|"claude-code"|"codex"|"cursor", cwd?: string, allowEdits?: boolean } -> { ok, agentId, summary, exitCode, handoff? }
-- gui.uitars: { goal: string, budget?: number } -> { ok, summary, stepsUsed } (requires FOLD_ALLOW_UITARS=1 + VLM API key)
-- workbuddy.run: { query: string, capability?: string } -> { ok, summary } (Work Buddy MCP gateway; search then auto-run best match)
-- feishu.mail.triage: { query?: string, max?: number } -> { ok, count, summary } (requires lark-cli)
-- slack.unread: { limit?: number } -> { ok, count, summary } (requires slack-cli or slk)
-- clipboard.read: {} -> { text }
-- os.shell: { command: string, args?: string[], cwd?: string } -> { stdout, stderr, exitCode }.
-  Allowed commands: ls, find, wc, head, tail, cat, grep, rg, df, du, which, pbpaste, open.
-  This is execFile mode: command must be a single executable name, not sh/bash/zsh; no pipes or redirects.
-- os.applescript: { script: string } -> { output }
-- os.python: { code?: string, scriptPath?: string, args?: string[] } -> { stdout, stderr, exitCode }
-- os.screenshot: { target?: "frontmost"|"screen", ocr?: boolean } -> { path, target, bytes, text?, activeApp?, activeWindow? }
-  Use frontmost for "当前窗口/屏幕上"; screen for full display. Set ocr:true (or ZHIPU_API_KEY) to read text from image.
-`.trim();
-
 const SAFETY_POLICY = `
 Safety policy:
 - Do not invent skills outside the catalog.
@@ -29,6 +5,8 @@ Safety policy:
 - Use mail.draft only when the user explicitly asks to create/write a draft.
 - For mail queries/counting/opening inbox, use mail.open then mail.countUnread; do not use mail.draft.
 - Prefer Gmail vendor CLI (gog/gws) when installed; use browser CDP only when no CLI binary is on PATH.
+- For 飞书/GitHub/钉钉/企业微信/Slack operations (多维表格、文档、日历、issue、PR、待办、群消息), prefer office.cli when probe office.channels shows the channel installed+authed; use browser automation only as fallback.
+- office.cli is read-write: creating/updating records or sending messages is allowed when the user asked for it.
 - When the user names Gmail explicitly, mail skills must target Gmail CLI first, not Apple Mail.
 - Complete the user's intent with a concrete outcome; do not stop at partial progress if another catalog skill can finish the job.
 - Completion mandate: when the user states a clear, actionable request, the plan must produce a user-visible answer or artifact (count, list summary, draft, extracted text, screenshot readout). If faster skills fail validation, escalate: os.screenshot (ocr) before gui.uitars for read-only tasks.
@@ -39,6 +17,8 @@ Safety policy:
 export interface PlannerPromptInput {
 	intent: string;
 	contextSummary: string;
+	/** Skill 目录文本，由 @fold/skills 的 buildSkillCatalog() 生成（manifest 单一事实源）。 */
+	skillCatalog: string;
 	probeSummary?: string;
 	relevantEpisodes?: string;
 	relevantMemories?: string;
@@ -63,7 +43,7 @@ The JSON must match this shape:
   "validate": ["string"]
 }
 
-${SKILL_CATALOG}
+${input.skillCatalog.trim()}
 
 User intent: ${input.intent}
 
@@ -95,6 +75,7 @@ Rules:
 - agent.execute uses probe agent.available preferred CLI when agent is auto.
 - validate must include agent.exitOk for agent.execute steps.
 - validate must include os.shell.exitOk for os.shell steps; include os.stdout.nonEmpty only when empty stdout is invalid.
+- validate must include office.cli.exitOk for office.cli steps.
 - validate must include os.screenshot.ok when os.screenshot is used to answer the user.
 - validate must include os.screenshot.hasText when os.screenshot uses ocr to answer a read-screen question.
 - Use os.screenshot with target frontmost when user says 截屏/屏幕/当前窗口/看一下这个界面 and faster skills do not apply.

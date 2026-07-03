@@ -11,6 +11,7 @@ export interface FoldConfig {
 	mailProvider?: string;
 	nangoSecretKey?: string;
 	hubApiKey?: string;
+	playwrightMcpExtensionToken?: string;
 	asrWsUrl?: string;
 	chromeCdpUrl?: string;
 	allowScriptExecution?: boolean;

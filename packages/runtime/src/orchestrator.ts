@@ -8,6 +8,7 @@ import type { LiveContext } from "@fold/context";
 import { formatContextSummary } from "@fold/context";
 import { isAgentSubagentsEnabled } from "@fold/connectors";
 import { saveEpisode } from "@fold/memory";
+import { buildSkillCatalog } from "@fold/skills";
 import { ensureExecutionPrerequisites } from "./auth-gate.js";
 import { formatCapabilityBrief } from "./capability-brief.js";
 import { formatRelevantEpisodes } from "./episode-context.js";
@@ -19,8 +20,8 @@ import { getAgentProbe, getCdpConnected, runRecoveryLoop } from "./recovery-runn
 import { resolveTier, tryCompiledPlan } from "./router.js";
 import { labelForSkill } from "./step-labels.js";
 import type { OrchestratorDeps, StateEmitter, TaskResult } from "./types.js";
+import { needsVisualRead } from "./capability-resolver.js";
 import { validatePlan, type ValidationResult } from "./validator.js";
-import { needsVisualRead } from "./visual-intent.js";
 
 export type { OrchestratorDeps } from "./types.js";
 
@@ -64,6 +65,7 @@ export async function runTask(
 			plan = await generateActionPlan({
 				intent,
 				contextSummary: formatContextSummary(context),
+				skillCatalog: buildSkillCatalog(),
 				probeSummary,
 				relevantEpisodes: formatRelevantEpisodes(intent, deps.dataDir),
 			});

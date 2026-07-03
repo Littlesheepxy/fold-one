@@ -99,7 +99,35 @@ function buildConnections(
 				: "未配置 Fold Hub API Key",
 	});
 
-	const cdp = probeOk<{ connected?: boolean; cdpUrl?: string; pageCount?: number; error?: string }>(
+	const office = probeOk<
+		Array<{ id: string; installed: boolean; authed: boolean; error?: string }>
+	>(probes, "office.channels");
+	const officeLabels: Record<string, string> = {
+		feishu: "飞书",
+		github: "GitHub",
+		dingtalk: "钉钉",
+		wecom: "企业微信",
+		slack: "Slack",
+	};
+	for (const channel of office ?? []) {
+		rows.push({
+			id: `office-${channel.id}`,
+			label: officeLabels[channel.id] ?? channel.id,
+			status: channel.authed ? "ok" : channel.installed ? "warn" : "error",
+			detail: channel.authed
+				? "CLI 已登录，可直接调用"
+				: (channel.error ?? (channel.installed ? "已安装，还没登录" : "未安装")),
+			meta: { channel: channel.id, installed: channel.installed, authed: channel.authed },
+		});
+	}
+
+	const cdp = probeOk<{
+		connected?: boolean;
+		cdpUrl?: string;
+		pageCount?: number;
+		mode?: "extension" | "cdp";
+		error?: string;
+	}>(
 		probes,
 		"browser.cdp",
 	);
@@ -108,8 +136,10 @@ function buildConnections(
 		label: "Chrome 浏览器",
 		status: cdp?.connected ? "ok" : cdp?.cdpUrl ? "warn" : "error",
 		detail: cdp?.connected
-			? `Playwright 已连接 · ${cdp.pageCount ?? 0} 个标签页`
-			: (cdp?.error ?? "未配置 CDP 地址"),
+			? cdp.mode === "extension"
+				? `Playwright Bridge · ${cdp.pageCount ?? 0} 个网页标签`
+				: `Chrome 调试通道 · ${cdp.pageCount ?? 0} 个标签页`
+			: (cdp?.error ?? "未连接 — 请安装 Playwright Bridge 或开启 Chrome remote debugging"),
 		meta: { cdpUrl: cdp?.cdpUrl ?? null },
 	});
 

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { HomeConnection, HomeSnapshot } from "../types.js";
+import { ConnectFlowModal, type ConnectFlowTarget } from "../components/ConnectFlowModal.js";
 import { ConnectionIcon } from "../components/ConnectionIcon.js";
 import { ConnectionBadge, StatusDot } from "../components/FormFields.js";
 
@@ -18,15 +19,21 @@ type ConnectionGroup = {
 
 const CONNECTION_GROUPS: ConnectionGroup[] = [
 	{
+		id: "office",
+		title: "办公渠道",
+		description: "优先 — 官方 CLI 直连飞书 / Google / Slack / GitHub / 钉钉 / 企业微信",
+		match: (conn) => conn.id === "gmail" || conn.id.startsWith("office-"),
+	},
+	{
 		id: "apps",
-		title: "操作应用",
-		description: "优先 — 用 CLI 直接调应用（如终端发 Gmail），或走 Nango 托管授权",
-		match: (conn) => conn.id === "gmail" || conn.id === "nango",
+		title: "托管授权",
+		description: "更多应用走 Nango 托管 OAuth 授权",
+		match: (conn) => conn.id === "nango",
 	},
 	{
 		id: "browser",
 		title: "操作浏览器",
-		description: "网页里读内容、点按钮、填表单",
+		description: "连接你正在使用的 Chrome（推荐 Playwright Bridge 扩展）",
 		match: (conn) => conn.id === "cdp",
 	},
 	{
@@ -75,11 +82,27 @@ function actionsFor(conn: HomeConnection, summary: HomeSnapshot["configSummary"]
 		return [{ id: "refresh", label: "重新检测" }];
 	}
 
+	if (conn.id.startsWith("office-")) {
+		if (conn.meta?.installed === false) {
+			return [
+				{ id: "connect", label: "安装", primary: true },
+				{ id: "refresh", label: "重新检测" },
+			];
+		}
+		if (conn.status !== "ok") {
+			return [
+				{ id: "connect", label: "连接", primary: true },
+				{ id: "refresh", label: "重新检测" },
+			];
+		}
+		return [{ id: "refresh", label: "重新检测" }];
+	}
+
 	switch (conn.id) {
 		case "gmail":
 			if (conn.status !== "ok") {
 				return [
-					{ id: "gmail:terminal-auth", label: "终端授权", primary: true },
+					{ id: "connect", label: "连接", primary: true },
 					{ id: "gmail:open-browser", label: "打开 Gmail" },
 				];
 			}
@@ -95,13 +118,14 @@ function actionsFor(conn: HomeConnection, summary: HomeSnapshot["configSummary"]
 				];
 			}
 			return [
-				{ id: "nango:connect", label: "授权新应用", primary: true },
+				{ id: "connect", label: "授权应用", primary: true },
 				{ id: "refresh", label: "重新检测" },
 			];
 		case "cdp":
 			if (conn.status !== "ok") {
 				return [
-					{ id: "cdp:settings", label: "去配置", primary: true },
+					{ id: "cdp:install-bridge", label: "安装 Playwright Bridge", primary: true },
+					{ id: "cdp:open-remote-debugging", label: "打开 Chrome 调试设置" },
 					{ id: "cdp:open-chrome-help", label: "配置说明" },
 				];
 			}
@@ -148,11 +172,20 @@ export function ConnectionsSection({
 	onOpenSettings: () => void;
 }) {
 	const [busyId, setBusyId] = useState<string | null>(null);
+	const [connectTarget, setConnectTarget] = useState<ConnectFlowTarget | null>(null);
 
 	const runAction = async (conn: HomeConnection, action: RowAction) => {
 		const key = `${conn.id}:${action.id}`;
 		setBusyId(key);
 		try {
+			if (action.id === "connect") {
+				setConnectTarget({
+					connectionId: conn.id,
+					label: conn.label,
+					kind: conn.meta?.installed === false ? "install" : "login",
+				});
+				return;
+			}
 			if (action.id === "refresh") {
 				await onRefresh();
 				return;
@@ -179,10 +212,6 @@ export function ConnectionsSection({
 				await onRefresh();
 				return;
 			}
-			if (action.id === "cdp:settings") {
-				onOpenSettings();
-				return;
-			}
 			const context =
 				action.id === "gmail:terminal-auth"
 					? { backend: conn.meta?.backend === "gws" ? "gws" : "gog" }
@@ -191,9 +220,10 @@ export function ConnectionsSection({
 			if (
 				action.id !== "gmail:open-browser" &&
 				action.id !== "cdp:open-chrome-help" &&
+				action.id !== "cdp:install-bridge" &&
+				action.id !== "cdp:open-remote-debugging" &&
 				action.id !== "codex:install-terminal" &&
 				action.id !== "claude:login-terminal" &&
-				action.id !== "nango:connect" &&
 				action.id !== "nango:dashboard"
 			) {
 				await onRefresh();
@@ -281,8 +311,14 @@ export function ConnectionsSection({
 			</div>
 
 			<p className="fold-home-footnote">
-				Fold 优先走操作应用；不够用再选浏览器或操作电脑；写代码等复杂任务走 Subagent。
+				Fold 优先走办公渠道 CLI；没有 CLI 的应用走托管授权或浏览器；写代码等复杂任务走 Subagent。
 			</p>
+
+			<ConnectFlowModal
+				target={connectTarget}
+				onClose={() => setConnectTarget(null)}
+				onSuccess={() => void onRefresh()}
+			/>
 		</div>
 	);
 }

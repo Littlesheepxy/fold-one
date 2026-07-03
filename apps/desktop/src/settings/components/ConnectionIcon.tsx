@@ -1,4 +1,4 @@
-import { Bot, Monitor, Plug } from "lucide-react";
+import { Bot, Github, MessageSquare, Monitor, Plug, Slack } from "lucide-react";
 import { BRAND_ICONS, BrandIcon, ChromeIcon } from "./brand-icons.js";
 
 export function ConnectionIcon({ id, size = 18 }: { id: string; size?: number }) {
@@ -14,6 +14,16 @@ export function ConnectionIcon({ id, size = 18 }: { id: string; size?: number })
 			return <BrandIcon src={BRAND_ICONS.google} size={size} alt="Gmail" />;
 		case "nango":
 			return <Plug size={size} className="shrink-0 text-neutral-500" strokeWidth={1.75} />;
+		case "office-github":
+			return <Github size={size} className="shrink-0 text-neutral-700" strokeWidth={1.75} />;
+		case "office-slack":
+			return <Slack size={size} className="shrink-0 text-[#611f69]" strokeWidth={1.75} />;
+		case "office-feishu":
+			return <MessageSquare size={size} className="shrink-0 text-[#3370ff]" strokeWidth={1.75} />;
+		case "office-dingtalk":
+			return <MessageSquare size={size} className="shrink-0 text-[#0089ff]" strokeWidth={1.75} />;
+		case "office-wecom":
+			return <MessageSquare size={size} className="shrink-0 text-[#0082ef]" strokeWidth={1.75} />;
 		case "cdp":
 			return <ChromeIcon size={size} />;
 		case "screen":
