@@ -11,10 +11,12 @@ import { browserCurrentPage, browserInteractSkill } from "./builtin/browser.js";
 import { feishuMailTriage } from "./builtin/feishu.js";
 import { guiUitars } from "./builtin/gui.js";
 import { officeCli } from "./builtin/office.js";
+import { pluginCli, pluginScout } from "./builtin/plugin.js";
 import { slackUnread } from "./builtin/slack.js";
 import { workbuddyRun } from "./builtin/workbuddy.js";
 import { osAppleScript, osPython, osShell } from "./builtin/os-runtime.js";
 import { osScreenshot } from "./builtin/screenshot.js";
+import { loadPluginManifests } from "@fold/connectors";
 import type { SkillContext, SkillDefinition, SkillStepView, SkillValidator } from "./types.js";
 
 function findStep(results: SkillStepView[], skill: string): SkillStepView | undefined {
@@ -184,6 +186,39 @@ const REGISTRY: SkillDefinition[] = [
 		},
 	},
 	{
+		id: "plugin.cli",
+		handler: pluginCli,
+		label: "扩展插件 CLI",
+		catalogDoc: [
+			"plugin.cli: { plugin: string, args: string[] } -> { ok, stdout, stderr, exitCode }",
+			'  Runs a user-installed plugin CLI in execFile mode. Only use plugin ids listed under "Installed plugins" below.',
+		].join("\n"),
+		validators: {
+			"plugin.cli.exitOk": (results) => {
+				const step = findStep(results, "plugin.cli");
+				const output = step?.output as { ok?: boolean } | undefined;
+				return step?.status === "success" && output?.ok === true;
+			},
+		},
+	},
+	{
+		id: "plugin.scout",
+		handler: pluginScout,
+		label: "插件接入调研",
+		catalogDoc: [
+			"plugin.scout: { service: string, hint?: string } -> { ok, pluginId, installed, authed, install?, login? }",
+			"  Researches a service's official CLI via local agent subagent and registers it as a reusable plugin manifest.",
+			"  Use only when the user asks to integrate a service that has no catalog skill and no installed plugin. Slow (up to 5 min).",
+		].join("\n"),
+		validators: {
+			"plugin.scout.ok": (results) => {
+				const step = findStep(results, "plugin.scout");
+				const output = step?.output as { ok?: boolean } | undefined;
+				return step?.status === "success" && output?.ok === true;
+			},
+		},
+	},
+	{
 		id: "os.shell",
 		handler: osShell,
 		label: "运行 Shell 命令",
@@ -268,9 +303,17 @@ export function listSkillManifests(): ReadonlyArray<SkillDefinition> {
 	return REGISTRY;
 }
 
-/** Planner prompt 的 skill 目录，从 manifest 派生。 */
+/** Planner prompt 的 skill 目录，从 manifest 派生；末尾附上用户已装插件列表。 */
 export function buildSkillCatalog(): string {
-	return ["Available skills:", ...REGISTRY.map((s) => `- ${s.catalogDoc}`)].join("\n");
+	const lines = ["Available skills:", ...REGISTRY.map((s) => `- ${s.catalogDoc}`)];
+	const plugins = loadPluginManifests();
+	if (plugins.length > 0) {
+		lines.push("", "Installed plugins (for plugin.cli):");
+		for (const p of plugins) {
+			lines.push(`- "${p.id}" (${p.label}, binary: ${p.binary})${p.catalogDoc ? `: ${p.catalogDoc}` : ""}`);
+		}
+	}
+	return lines.join("\n");
 }
 
 /** 步骤中文名，从 manifest 派生。 */

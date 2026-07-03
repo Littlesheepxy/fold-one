@@ -1,7 +1,7 @@
 import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { detectMailConnector, isAgentSubagentsEnabled, listAvailableAgents, probeBrowserCdp, probeGmailCli, probeLarkCli, probeNango, probeOfficeChannels, probeScreenCapture, probeSlackCli, probeUitars, probeWorkBuddyGateway, resolveMailConnector } from "@fold/connectors";
+import { detectMailConnector, isAgentSubagentsEnabled, listAvailableAgents, probeBrowserCdp, probeGmailCli, probeLarkCli, probeNango, probeOfficeChannels, probePlugins, probeScreenCapture, probeSlackCli, probeUitars, probeWorkBuddyGateway, resolveMailConnector } from "@fold/connectors";
 import type { LiveContext } from "@fold/context";
 import { listSkills } from "@fold/skills";
 import { mentionsDownloads } from "./capability-resolver.js";
@@ -88,6 +88,19 @@ export async function runProbes(intent: string, context: LiveContext): Promise<P
 		runProbe("nango.available", async () => ok("nango.available", await probeNango())),
 		runProbe("feishu.available", async () => ok("feishu.available", await probeLarkCli())),
 		runProbe("slack.available", async () => ok("slack.available", await probeSlackCli())),
+		runProbe("plugin.channels", async () => {
+			const plugins = await probePlugins();
+			if (plugins.length === 0) return skipped("plugin.channels", "no plugins installed");
+			return ok(
+				"plugin.channels",
+				plugins.map((p) => ({
+					id: p.id,
+					installed: p.installed,
+					authed: p.authed,
+					error: p.error,
+				})),
+			);
+		}),
 		runProbe("office.channels", async () => {
 			const channels = await probeOfficeChannels();
 			return ok(
