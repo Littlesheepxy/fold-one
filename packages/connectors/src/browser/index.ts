@@ -1,4 +1,5 @@
 export {
+	browserEvaluate,
 	connectBrowser,
 	findPage,
 	getChromeCdpUrl,

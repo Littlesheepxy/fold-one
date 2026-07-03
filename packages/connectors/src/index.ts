@@ -31,6 +31,7 @@ export {
 	type MailConnectorId,
 } from "./mail/index.js";
 export {
+	browserEvaluate,
 	connectBrowser,
 	getChromeCdpUrl,
 	getCurrentBrowserPage,

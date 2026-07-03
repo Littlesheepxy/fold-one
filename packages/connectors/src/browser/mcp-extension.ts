@@ -95,12 +95,12 @@ export async function probePlaywrightExtension(): Promise<ExtensionProbe> {
 			"Playwright Bridge 连接超时：扩展未安装或未连接。请检查扩展状态，或打开一个普通网页标签",
 		);
 		const userTabs = tabs.filter((t) => !t.url.startsWith(BRIDGE_EXTENSION_PREFIX));
+		// 中继可用即视为已连接：共享标签页可以随时 navigate 到目标页，不依赖已有标签
 		return {
 			configured: true,
-			connected: userTabs.length > 0,
+			connected: true,
 			tabCount: userTabs.length,
 			tabs: userTabs,
-			error: userTabs.length === 0 ? "扩展已连接，但没有可操控的普通网页标签" : undefined,
 		};
 	} catch (err) {
 		clientPromise = null;
@@ -112,6 +112,50 @@ export async function probePlaywrightExtension(): Promise<ExtensionProbe> {
 			error: err instanceof Error ? err.message : String(err),
 		};
 	}
+}
+
+/** 解析 MCP 工具回包里 "### Result" 段的值（Playwright 用 JSON.stringify 打印返回值）。 */
+function parseToolResult(text: string): unknown {
+	const m = text.match(/### Result\n([\s\S]*?)(?:\n### |$)/);
+	if (!m) return undefined;
+	const raw = m[1]!.trim();
+	try {
+		return JSON.parse(raw);
+	} catch {
+		return raw;
+	}
+}
+
+async function callExtensionTool(
+	name: string,
+	args: Record<string, unknown>,
+	timeoutMs = 30_000,
+): Promise<string> {
+	const client = await getMcpClient();
+	const res = (await withTimeout(
+		client.callTool({ name, arguments: args }),
+		timeoutMs,
+		`Playwright Bridge 调用 ${name} 超时`,
+	)) as { isError?: boolean; content?: Array<{ type: string; text?: string }> };
+	const text = res.content?.find((c) => c.type === "text")?.text ?? "";
+	if (res.isError) throw new Error(text.slice(0, 500));
+	return text;
+}
+
+/** 在用户 Chrome 的共享标签页里执行 JS（复用登录态）。code 必须是函数表达式，如 "() => document.title"。 */
+export async function extensionEvaluate(code: string, url?: string): Promise<unknown> {
+	if (url) {
+		await callExtensionTool("browser_navigate", { url }, 45_000);
+	} else {
+		// 无 url 时切到用户当前标签页，避免落在扩展欢迎页上
+		const tabs = await callTabsList();
+		const target = pickUserTab(tabs);
+		if (target && !target.current) {
+			await callExtensionTool("browser_tabs", { action: "select", index: target.index });
+		}
+	}
+	const text = await callExtensionTool("browser_evaluate", { function: code }, 45_000);
+	return parseToolResult(text);
 }
 
 export async function getExtensionCurrentPage(): Promise<{

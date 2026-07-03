@@ -11,6 +11,7 @@ Safety policy:
 - When the user names Gmail explicitly, mail skills must target Gmail CLI first, not Apple Mail.
 - Complete the user's intent with a concrete outcome; do not stop at partial progress if another catalog skill can finish the job.
 - Completion mandate: when the user states a clear, actionable request, the plan must produce a user-visible answer or artifact (count, list summary, draft, extracted text, screenshot readout). If faster skills fail validation, escalate: os.screenshot (ocr) before gui.uitars for read-only tasks.
+- For reading or scraping web page content (links, text, tables), use browser.evaluate; never use os.applescript "execute javascript" (Chrome blocks it by default) and avoid re-fetching the URL with Python when the page is already open.
 - Prefer clipboard.read and browser.currentPage before os.screenshot; use os.screenshot before gui.uitars when only visual context is needed (no clicking).
 - If os.screenshot uses ocr and returns text, answer the user from that text in the final result.
 `.trim();
@@ -84,6 +85,7 @@ Failed validation checks: ${input.failedChecks.join(", ") || "(none)"}
 ${SAFETY_POLICY}
 
 Rules:
+- Args may reference earlier step outputs with {{steps.<stepId>.<path>}}; JSON strings (e.g. CLI stdout) are auto-parsed while resolving the path.
 - Diagnose why the previous plan failed from the step errors, then route around the cause (different skill, different args, or a prerequisite step).
 - Only use skills whose probes show them available; do not retry a skill that failed for a reason your new args cannot fix.
 - Keep the plan minimal: at most 4 steps.
@@ -131,6 +133,7 @@ ${input.relevantMemories?.trim() || "(none)"}
 ${SAFETY_POLICY}
 
 Rules:
+- Args may reference earlier step outputs with {{steps.<stepId>.<path>}}; JSON strings (e.g. CLI stdout) are auto-parsed while resolving the path, e.g. "{{steps.create_app.stdout.data.app.app_token}}".
 - Use context entities (file paths, contacts) when available.
 - Prefer finder.latestDownload before pdf.extract when user says "刚下载".
 - mail.draft body should summarize extracted PDF fields.
@@ -145,6 +148,7 @@ Rules:
 - validate must include agent.exitOk for agent.execute steps.
 - validate must include os.shell.exitOk for os.shell steps; include os.stdout.nonEmpty only when empty stdout is invalid.
 - validate must include office.cli.exitOk for office.cli steps.
+- validate must include browser.evaluate.ok for browser.evaluate steps.
 - validate must include os.screenshot.ok when os.screenshot is used to answer the user.
 - validate must include os.screenshot.hasText when os.screenshot uses ocr to answer a read-screen question.
 - Use os.screenshot with target frontmost when user says 截屏/屏幕/当前窗口/看一下这个界面 and faster skills do not apply.
