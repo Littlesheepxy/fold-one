@@ -11,10 +11,14 @@ export {
 	similarityScore,
 	type PredictEnrichment,
 	type PredictMode,
+	type PredictPhase,
 	type PredictResult,
 	type PredictSuggestion,
 	type SituationFingerprint,
 } from "./predict.js";
+export { generatePredictDrafts, type PredictDraftLine } from "./predict-drafts.js";
+export { inferPredictSurface, surfaceActionLabel, type PredictSurface } from "./predict-surface.js";
+export { predictContextSnippet } from "./predict-fallback.js";
 export { extractEntityTokens } from "./entity-extract.js";
 export {
 	formatPlannerMemory,
@@ -45,6 +49,11 @@ export {
 	summaryFromJsonPayload,
 } from "./format-result.js";
 export { labelForSkill, labelForStep } from "./step-labels.js";
+export {
+	buildProfileImportPrompt,
+	parseProfileImportResponse,
+	type ProfileImportFields,
+} from "./profile-prompt.js";
 export { runPlan } from "./executor.js";
 export { formatRelevantEpisodes } from "./episode-context.js";
 export { formatProbeSummary, runProbes } from "./probe-runner.js";

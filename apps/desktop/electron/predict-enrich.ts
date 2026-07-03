@@ -7,8 +7,11 @@ import type { LiveContext } from "@fold/context";
 import {
 	buildPredictions,
 	extractEntityTokens,
+	generatePredictDrafts,
 	getPredictions,
+	inferPredictSurface,
 	needsScreenCalibration,
+	predictContextSnippet,
 	refreshPredictCache,
 	retrieveSimilarTraces,
 	type PredictEnrichment,
@@ -40,6 +43,20 @@ function attachTraceReasons(
 	return { ...result, suggestions };
 }
 
+let lastPredictTargetApp: string | null = null;
+
+export function getPredictTargetApp(): string | null {
+	return lastPredictTargetApp;
+}
+
+export function setPredictTargetApp(app: string | null | undefined): void {
+	lastPredictTargetApp = app?.trim() || null;
+}
+
+export function clearPredictTargetApp(): void {
+	lastPredictTargetApp = null;
+}
+
 export async function gatherPredictEnrichment(): Promise<PredictEnrichment> {
 	const [chromeTabs, ax] = await Promise.all([
 		listChromeTabsViaAppleScript().catch(() => []),
@@ -47,14 +64,20 @@ export async function gatherPredictEnrichment(): Promise<PredictEnrichment> {
 	]);
 	const accessibilityText = ax?.text;
 	const entities = extractEntityTokens(accessibilityText);
-	return { chromeTabs, accessibilityText, entities };
+	return {
+		chromeTabs,
+		accessibilityText,
+		accessibilityApp: ax?.app,
+		accessibilityWindowTitle: ax?.windowTitle,
+		entities,
+	};
 }
 
 async function screenTextViaOcr(): Promise<string | undefined> {
 	if (!process.env.ZHIPU_API_KEY?.trim()) return undefined;
 	try {
 		const shot = await captureScreenshot({ target: "frontmost" });
-		const { extractPdfWithZhipuOcr } = await import("@fold/skills/src/builtin/zhipu-ocr.js");
+		const { extractPdfWithZhipuOcr } = await import("@fold/skills");
 		const ocr = await extractPdfWithZhipuOcr(shot.path);
 		const text = ocr.rawText?.trim();
 		return text ? text.slice(0, 2500) : undefined;
@@ -63,15 +86,33 @@ async function screenTextViaOcr(): Promise<string | undefined> {
 	}
 }
 
+async function attachDraftsIfNeeded(
+	result: PredictResult,
+	enrichment: PredictEnrichment,
+): Promise<PredictResult> {
+	if (result.phase !== "result" || !result.suggestions[0]) return result;
+	const top = result.suggestions[0];
+	const drafts = await generatePredictDrafts({
+		intent: top.intent,
+		surface: result.surface,
+		contextSnippet: predictContextSnippet(enrichment) || undefined,
+		anchor: result.anchor,
+	});
+	return { ...result, drafts };
+}
+
 export async function resolvePredictions(ctx: LiveContext, dataDir?: string): Promise<PredictResult> {
 	const enrichment = await gatherPredictEnrichment();
+	lastPredictTargetApp = enrichment.accessibilityApp ?? ctx.activeApp ?? null;
 	let result = getPredictions(ctx, dataDir, enrichment);
 	result = attachTraceReasons(result, ctx, enrichment, dataDir);
 
-	if (!needsScreenCalibration(result, enrichment)) return result;
+	if (!needsScreenCalibration(result, enrichment)) {
+		return attachDraftsIfNeeded(result, enrichment);
+	}
 
 	const screenText = await screenTextViaOcr();
-	if (!screenText) return result;
+	if (!screenText) return attachDraftsIfNeeded(result, enrichment);
 
 	const rich = {
 		...enrichment,
@@ -81,7 +122,22 @@ export async function resolvePredictions(ctx: LiveContext, dataDir?: string): Pr
 	result = buildPredictions(ctx, dataDir, rich);
 	result = attachTraceReasons(result, ctx, rich, dataDir);
 	refreshPredictCache(ctx, dataDir, rich);
-	return result;
+	return attachDraftsIfNeeded(result, rich);
+}
+
+export async function resolvePredictDraftsForIntent(
+	ctx: LiveContext,
+	intent: string,
+	enrichment?: PredictEnrichment,
+): Promise<{ surface: PredictResult["surface"]; drafts: NonNullable<PredictResult["drafts"]> }> {
+	const rich = enrichment ?? (await gatherPredictEnrichment());
+	const surface = inferPredictSurface(ctx, rich, intent);
+	const drafts = await generatePredictDrafts({
+		intent,
+		surface,
+		contextSnippet: predictContextSnippet(rich) || undefined,
+	});
+	return { surface, drafts };
 }
 
 export async function refreshPredictCacheEnriched(

@@ -7,8 +7,18 @@ import {
 	type InformationObjectInput,
 } from "./information-object.js";
 import { matchRoutinesForTrail, mineRoutinesFromEpisodes } from "./routine-mining.js";
+import {
+	chatReplyFallbackSuggestion,
+	shouldOcrForChatReply,
+} from "./predict-fallback.js";
+import { inferPredictSurface, type PredictSurface } from "./predict-surface.js";
+import type { PredictDraftLine } from "./predict-drafts.js";
+
+export type { PredictSurface } from "./predict-surface.js";
+export type { PredictDraftLine } from "./predict-drafts.js";
 
 export type PredictMode = "silent" | "fast" | "full";
+export type PredictPhase = "silent" | "pick" | "result";
 
 export interface SituationFingerprint {
 	apps: string[];
@@ -30,8 +40,13 @@ export interface PredictSuggestion {
 
 export interface PredictResult {
 	mode: PredictMode;
+	/** silent=说不清 · pick=先选意图 · result=直接出草案 */
+	phase: PredictPhase;
+	surface: PredictSurface;
 	anchor: string | null;
 	suggestions: PredictSuggestion[];
+	drafts?: PredictDraftLine[];
+	topConfidence: number;
 	computedAt: number;
 }
 
@@ -317,9 +332,15 @@ function modeFromTopScore(top: number): PredictMode {
 	return "full";
 }
 
-function maxSuggestions(mode: PredictMode): number {
-	if (mode === "fast") return 1;
-	if (mode === "full") return 3;
+function phaseFromTopScore(top: number): PredictPhase {
+	if (top < SILENT_THRESHOLD) return "silent";
+	if (top < FAST_THRESHOLD) return "pick";
+	return "result";
+}
+
+function maxSuggestionsForPhase(phase: PredictPhase): number {
+	if (phase === "pick") return 3;
+	if (phase === "result") return 1;
 	return 0;
 }
 
@@ -388,15 +409,28 @@ export function buildPredictions(
 		if (episodeSuggestions.length >= 3) break;
 	}
 
-	const suggestions = mergeSuggestions(episodeSuggestions, routineMatches);
+	let suggestions = mergeSuggestions(episodeSuggestions, routineMatches);
+	const fallback = chatReplyFallbackSuggestion(
+		ctx,
+		enrichment,
+		suggestions[0]?.confidence ?? 0,
+	);
+	if (fallback) {
+		suggestions = [fallback, ...suggestions];
+	}
 	const topScore = suggestions[0]?.confidence ?? 0;
 	const mode = modeFromTopScore(topScore);
-	const limit = maxSuggestions(mode);
+	const phase = phaseFromTopScore(topScore);
+	const surface = inferPredictSurface(ctx, enrichment);
+	const limit = maxSuggestionsForPhase(phase);
 
 	return {
 		mode,
+		phase,
+		surface,
 		anchor,
 		suggestions: suggestions.slice(0, limit),
+		topConfidence: topScore,
 		computedAt: Date.now(),
 	};
 }
@@ -406,6 +440,10 @@ export function needsScreenCalibration(
 	result: PredictResult,
 	enrichment: PredictEnrichment = {},
 ): boolean {
+	// 微信聊天气泡 AX 读不到，尽量 OCR 补上下文再出草案
+	if (result.surface === "reply" && shouldOcrForChatReply(enrichment)) {
+		return true;
+	}
 	if (enrichment.accessibilityText && enrichment.accessibilityText.length > 80) {
 		if (result.mode === "full") return false;
 		if (result.mode === "fast" && (result.suggestions[0]?.confidence ?? 0) >= 0.4) {

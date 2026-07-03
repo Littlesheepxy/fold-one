@@ -8,6 +8,8 @@ import { StepList } from "./components/StepList";
 import { ProgressLine } from "./components/ProgressLine";
 import { TranscriptScroll } from "./components/TranscriptScroll";
 import { AskOptions } from "./components/AskOptions";
+import { PredictConfirmCard } from "./components/PredictConfirmCard";
+import { playFoldSoundForStatus, preloadFoldSounds } from "./sounds.js";
 
 function friendlyError(raw: string | null | undefined): string {
 	if (!raw) return "出错了";
@@ -19,29 +21,6 @@ function friendlyError(raw: string | null | undefined): string {
 	}
 	if (raw.includes("mail.draft.exists")) return "邮件草稿创建失败";
 	return raw.replace(/^Validation failed:\s*/i, "");
-}
-
-function playExpandSound() {
-	try {
-		const AudioContextClass = window.AudioContext;
-		const ctx = new AudioContextClass();
-		const osc = ctx.createOscillator();
-		const gain = ctx.createGain();
-
-		osc.type = "sine";
-		osc.frequency.setValueAtTime(520, ctx.currentTime);
-		osc.frequency.exponentialRampToValueAtTime(780, ctx.currentTime + 0.12);
-		gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-		gain.gain.exponentialRampToValueAtTime(0.08, ctx.currentTime + 0.02);
-		gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.18);
-		osc.connect(gain);
-		gain.connect(ctx.destination);
-		osc.start();
-		osc.stop(ctx.currentTime + 0.2);
-		setTimeout(() => void ctx.close(), 260);
-	} catch {
-		// Audio can be blocked until the first user gesture.
-	}
 }
 
 function FoldLogo({ className = "" }: { className?: string }) {
@@ -358,8 +337,14 @@ export function OverlayApp() {
 		askHint,
 		askOptions,
 		predictMode,
+		predictPhase,
+		predictSurface,
 		predictAnchor,
 		predictSuggestions,
+		predictDrafts,
+		predictSelectedIntent,
+		predictDraftsLoading,
+		predictCursor,
 		setState,
 	} = useOverlayStore();
 
@@ -400,12 +385,12 @@ export function OverlayApp() {
 	}, []);
 
 	useEffect(() => {
-		if (prevStatusRef.current === "idle" && status !== "idle") {
-			playExpandSound();
-		}
-		if (status === "predict") {
-			playExpandSound();
-		}
+		preloadFoldSounds();
+	}, []);
+
+	useEffect(() => {
+		const prev = prevStatusRef.current;
+		playFoldSoundForStatus(prev, status);
 		if (status !== "done") setDetailsOpen(false);
 		if (status !== "idle" && status !== "predict") setPanelOpen(false);
 		if (status !== "idle") setIdleRailOpen(false);
@@ -429,7 +414,8 @@ export function OverlayApp() {
 
 	const isExecuting = status === "understanding" || status === "planning" || status === "working";
 	const isAuthPrompt = status === "ask";
-	const collapsed = status === "idle" && !panelOpen;
+	const isPredictCard = status === "predict" && Boolean(predictCursor);
+	const collapsed = (status === "idle" && !panelOpen) || isPredictCard;
 	const dockedSide = collapsed ? anchorPosition.snapSide : null;
 	const idleShellWidth = idleRailOpen ? 424 : 360;
 	const shellWidth = collapsed
@@ -526,7 +512,7 @@ export function OverlayApp() {
 					} ${
 						!collapsed && status === "idle" ? "fold-shell-idle" : ""
 					} ${
-						status === "predict" ? "fold-shell-predict fold-shell-expanded" : ""
+						status === "predict" && !isPredictCard ? "fold-shell-predict fold-shell-expanded" : ""
 					} ${
 						dockedSide ? `fold-shell-docked fold-shell-docked-${dockedSide}` : ""
 					} ${
@@ -588,12 +574,12 @@ export function OverlayApp() {
 									</>
 								)}
 
-								{status === "predict" && (
+								{status === "predict" && !isPredictCard && (
 									<PredictSuggestions
 										anchor={predictAnchor}
 										suggestions={predictSuggestions ?? []}
 										mode={predictMode}
-										onRun={(intent) => void window.fold.runTask(intent)}
+										onRun={(intent) => void window.fold.predictPickIntent(intent)}
 										onDismiss={() => void window.fold.dismiss()}
 									/>
 								)}
@@ -763,6 +749,26 @@ export function OverlayApp() {
 					)}
 				</AnimatePresence>
 			</motion.div>
+
+			{isPredictCard && predictCursor && (
+				<PredictConfirmCard
+					x={predictCursor.x}
+					y={predictCursor.y}
+					phase={predictPhase}
+					surface={predictSurface}
+					anchor={predictAnchor}
+					suggestions={predictSuggestions ?? []}
+					drafts={predictDrafts}
+					loading={predictAnchor?.includes("正在读取")}
+					draftsLoading={predictDraftsLoading}
+					selectedIntent={predictSelectedIntent}
+					onPickIntent={(intent) => void window.fold.predictPickIntent(intent)}
+					onInsertDraft={(text) => void window.fold.predictInsertDraft(text)}
+					onCopyDraft={(text) => void navigator.clipboard.writeText(text)}
+					onVoiceOther={() => void window.fold.predictStartVoice()}
+					onDismiss={() => void window.fold.dismiss()}
+				/>
+			)}
 		</div>
 	);
 }

@@ -175,6 +175,117 @@ body.fold-home #root {
   background: rgb(255 255 255 / 0.14);
 }
 
+.fold-predict-card {
+  position: fixed;
+  z-index: 100;
+  width: min(340px, calc(100vw - 24px));
+  padding: 14px 14px 12px;
+  border-radius: 20px;
+  border: 0.5px solid rgb(255 255 255 / 0.22);
+  background: rgb(20 20 22 / 0.72);
+  box-shadow: 0 20px 60px rgb(0 0 0 / 0.35);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+}
+
+.fold-predict-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.fold-predict-card-drag-handle {
+  cursor: grab;
+  touch-action: none;
+}
+
+.fold-predict-card-drag-handle:active {
+  cursor: grabbing;
+}
+
+.fold-predict-card-close {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.1);
+  color: rgb(255 255 255 / 0.7);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.fold-predict-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fold-predict-card-option,
+.fold-predict-card-draft {
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 0.5px solid rgb(255 255 255 / 0.1);
+  background: rgb(255 255 255 / 0.06);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.fold-predict-card-option:hover,
+.fold-predict-card-draft:hover {
+  background: rgb(255 255 255 / 0.12);
+}
+
+.fold-predict-card-draft {
+  font-size: 13px;
+  line-height: 1.45;
+  color: rgb(255 255 255 / 0.92);
+}
+
+.fold-predict-card-btn {
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 0;
+  background: rgb(255 255 255 / 0.92);
+  color: #1d1d1f;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fold-predict-card-btn.subtle {
+  background: rgb(255 255 255 / 0.12);
+  color: rgb(255 255 255 / 0.85);
+}
+
+.fold-predict-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 0.5px solid rgb(255 255 255 / 0.1);
+}
+
+.fold-predict-card-link {
+  border: 0;
+  background: transparent;
+  font-size: 11px;
+  color: rgb(255 255 255 / 0.55);
+  cursor: pointer;
+}
+
+.fold-predict-card-link:hover {
+  color: rgb(255 255 255 / 0.8);
+}
+
 .fold-idle-actions {
   display: flex;
   align-items: center;
@@ -1238,6 +1349,185 @@ body:has(.react-grid-item.resizing) {
 
 .fold-profile-recent-btn:hover {
   opacity: 0.72;
+}
+
+.fold-profile-import-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(0 0 0 / 0.2);
+  backdrop-filter: blur(10px) saturate(120%);
+  -webkit-backdrop-filter: blur(10px) saturate(120%);
+}
+
+.fold-profile-import-modal {
+  width: min(100%, 520px);
+  max-height: min(88vh, 720px);
+  overflow: auto;
+  padding: 22px 22px 18px;
+  border-radius: 24px;
+  border: 0.5px solid rgb(255 255 255 / 0.55);
+  background: rgb(255 255 255 / 0.82);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 0.14);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+}
+
+.fold-profile-import-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.fold-profile-import-close {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.05);
+  font-size: 18px;
+  line-height: 1;
+  color: #6e6e73;
+  cursor: pointer;
+}
+
+.fold-profile-platform-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.fold-profile-platform-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 10px 12px;
+  border-radius: 16px;
+  border: 0.5px solid rgb(0 0 0 / 0.08);
+  background: rgb(255 255 255 / 0.92);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.fold-profile-platform-tile:hover {
+  background: #fff;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.06);
+}
+
+.fold-profile-platform-tile.active {
+  border-color: rgb(0 0 0 / 0.72);
+  background: #fff;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.72);
+}
+
+.fold-profile-platform-icon-wrap {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: rgb(0 0 0 / 0.03);
+}
+
+.fold-profile-platform-icon {
+  object-fit: contain;
+}
+
+.fold-profile-platform-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1d1d1f;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.fold-profile-platform-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 0.5px solid rgb(0 0 0 / 0.08);
+  background: rgb(255 255 255 / 0.9);
+  font-size: 12px;
+  font-weight: 600;
+  color: #1d1d1f;
+  cursor: pointer;
+}
+
+.fold-profile-platform-btn.active {
+  background: #1d1d1f;
+  border-color: transparent;
+  color: #fff;
+}
+
+.fold-profile-platform-dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: #34c759;
+}
+
+.fold-profile-prompt-preview {
+  margin-top: 8px;
+  max-height: 160px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgb(0 0 0 / 0.04);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: #3a3a3c;
+}
+
+.fold-profile-response-input {
+  width: 100%;
+  min-height: 140px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 0.5px solid rgb(0 0 0 / 0.1);
+  background: rgb(255 255 255 / 0.95);
+  font-size: 12px;
+  line-height: 1.5;
+  color: #1d1d1f;
+  resize: vertical;
+}
+
+.fold-profile-action-btn {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 0.5px solid rgb(0 0 0 / 0.08);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fold-profile-action-btn.primary {
+  background: #1d1d1f;
+  border-color: transparent;
+  color: #fff;
+}
+
+.fold-profile-action-btn.primary:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.fold-profile-action-btn.secondary {
+  background: rgb(255 255 255 / 0.92);
+  color: #1d1d1f;
 }
 
 .fold-connect-overlay {

@@ -17,6 +17,12 @@ export {
 	type ActionStep,
 } from "./planner.js";
 export {
+	generatePredictDrafts,
+	type PredictDraftInput,
+	type PredictDraftLine,
+	type PredictSurface,
+} from "./predict-drafts.js";
+export {
 	PROVIDER_TABLE,
 	resolveModelChoice,
 	type Provider,

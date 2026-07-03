@@ -45,7 +45,7 @@ export async function runTask(
 		if (route.tier === "react") {
 			if (!isAgentSubagentsEnabled()) {
 				throw new Error(
-					`此任务需要 Tier 2 本地 Agent Subagent（${route.reason}）。请在设置中开启「允许本地 Agent Subagent」。`,
+					`此任务需要 Tier 2 本地 Agent（${route.reason}）。请在设置中开启「允许本地 Agent Subagent」。`,
 				);
 			}
 			const agentProbe = getAgentProbe(probeResult);
@@ -132,6 +132,7 @@ export async function runTask(
 	let steps = initialSteps;
 	let validation = initialValidation;
 
+	let abortReason: string | undefined;
 	if (!validation.ok || initialFailures.length > 0) {
 		const recovery = await runRecoveryLoop({
 			intent,
@@ -146,6 +147,8 @@ export async function runTask(
 		});
 		steps = recovery.steps;
 		validation = recovery.validation;
+		const lastAbort = [...recovery.actions].reverse().find((a) => a.type === "abort");
+		abortReason = lastAbort?.type === "abort" ? lastAbort.reason : undefined;
 	}
 
 	validation = softenValidationForVisualAnswer(intent, steps, validation);
@@ -196,9 +199,11 @@ export async function runTask(
 		return { status: "success", intent, plan, steps, episodeId: episode.id };
 	}
 
+	const failedCheckMessage =
+		validation.checks.find((c) => !c.passed)?.message ?? "Validation failed";
 	emit({
 		status: "error",
-		error: validation.checks.find((c) => !c.passed)?.message ?? "Validation failed",
+		error: abortReason ? `${abortReason} · ${failedCheckMessage}` : failedCheckMessage,
 		result: userVisibleResult,
 		resultDetail,
 		thinkingText,

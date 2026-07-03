@@ -121,7 +121,7 @@ export interface RawContextEventInput {
 
 let db: Database.Database | null = null;
 
-function getDb(dataDir?: string): Database.Database {
+export function getDb(dataDir?: string): Database.Database {
 	if (db) return db;
 	const dir = (dataDir ?? process.env.FOLD_DATA_DIR ?? join(homedir(), ".fold")).replace(
 		/^~/,

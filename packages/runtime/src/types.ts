@@ -1,5 +1,9 @@
 import type { ActionPlan } from "@fold/ai";
 
+import type { PredictDraftLine } from "./predict-drafts.js";
+import type { PredictPhase } from "./predict.js";
+import type { PredictSurface } from "./predict-surface.js";
+
 export type OverlayStatus =
 	| "idle"
 	| "listening"
@@ -47,8 +51,14 @@ export interface FoldStateEvent {
 	askOptions?: Array<{ id: string; label: string }>;
 	/** ⌥Z 情境预测 */
 	predictMode?: PredictMode | null;
+	predictPhase?: PredictPhase | null;
+	predictSurface?: PredictSurface | null;
 	predictAnchor?: string | null;
 	predictSuggestions?: PredictSuggestion[];
+	predictDrafts?: PredictDraftLine[];
+	predictSelectedIntent?: string | null;
+	predictDraftsLoading?: boolean;
+	predictCursor?: { x: number; y: number } | null;
 }
 
 export interface UserActionOption {

@@ -72,7 +72,24 @@ export interface InformationObjectInput {
 	/** OCR 或 AX 读到的前台文本 */
 	screenText?: string;
 	accessibilityText?: string;
+	/** AX 读到的真实前台 App（比 2s 轮询的 ctx.activeApp 更准） */
+	accessibilityApp?: string;
+	accessibilityWindowTitle?: string;
 	entities?: string[];
+}
+
+const BROWSER_APP_RE = /chrome|arc|brave|edge|safari|firefox/i;
+
+function isBrowserApp(app: string | null | undefined): boolean {
+	return !!app && BROWSER_APP_RE.test(app);
+}
+
+function frontAppName(ctx: LiveContext, input: InformationObjectInput): string | null {
+	return input.accessibilityApp?.trim() || ctx.activeApp?.trim() || null;
+}
+
+function frontWindowTitle(ctx: LiveContext, input: InformationObjectInput): string | undefined {
+	return input.accessibilityWindowTitle?.trim() || ctx.activeWindow?.trim() || undefined;
 }
 
 /** 把切换流合并成「信息对象」列表（当前焦点 + 近期网页/文件）。 */
@@ -128,14 +145,29 @@ export function primaryInformationObject(
 	ctx: LiveContext,
 	input: InformationObjectInput = {},
 ): InformationObject | null {
+	const frontApp = frontAppName(ctx, input);
+	const winTitle = frontWindowTitle(ctx, input);
+
+	// 仅当前台真的是浏览器时，才用 Chrome 活动标签作锚点（多屏时 Chrome 可能在另一屏）
+	if (isBrowserApp(frontApp)) {
+		const activeTab = input.chromeTabs?.find((t) => t.active);
+		if (activeTab?.url?.startsWith("http")) {
+			return objectFromWeb(activeTab.url, activeTab.title, frontApp ?? "Google Chrome");
+		}
+		if (frontApp) {
+			return objectFromApp(frontApp, winTitle);
+		}
+	}
+
+	if (frontApp) {
+		return objectFromApp(frontApp, winTitle);
+	}
+
+	if (objects.length === 0) return null;
+
 	const activeTab = input.chromeTabs?.find((t) => t.active);
 	if (activeTab?.url?.startsWith("http")) {
 		return objectFromWeb(activeTab.url, activeTab.title, "Google Chrome");
-	}
-
-	if (objects.length === 0) {
-		if (ctx.activeApp) return objectFromApp(ctx.activeApp, ctx.activeWindow ?? undefined);
-		return null;
 	}
 
 	const recentWeb = objects.find((o) => o.kind === "webpage");

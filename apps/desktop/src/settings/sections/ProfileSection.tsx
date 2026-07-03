@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import type { EpisodeSummary, HomeSnapshot } from "../types.js";
+import type { EpisodeSummary, HomeSnapshot, UserProfileData } from "../types.js";
 import { Card, formatTime } from "../components/FormFields.js";
+import { ProfileImportModal } from "./ProfileImportModal.js";
 
 type Habit = { label: string; count: number; example?: string };
 
@@ -49,7 +50,16 @@ function inferTopics(habits: Habit[]): string[] {
 	return topics;
 }
 
-function buildProfileLine(episodes: EpisodeSummary[], habits: Habit[]): string {
+function buildProfileLine(
+	episodes: EpisodeSummary[],
+	habits: Habit[],
+	stored?: UserProfileData | null,
+): string {
+	if (stored?.summary?.trim()) return stored.summary.trim();
+	if (stored?.role?.trim()) {
+		const domains = stored.domains?.length ? `，主要处理${stored.domains.join("、")}` : "";
+		return `你是${stored.role}${domains}。`;
+	}
 	if (episodes.length === 0) {
 		return "开始使用 Fold 后，这里会根据你的任务记录逐步形成个人画像。";
 	}
@@ -88,16 +98,23 @@ export function ProfileSection({
 	onNavigate: (section: "tasks" | "work", taskId?: string) => void;
 }) {
 	const [episodes, setEpisodes] = useState<EpisodeSummary[]>([]);
+	const [storedProfile, setStoredProfile] = useState<UserProfileData | null>(null);
 	const [loading, setLoading] = useState(true);
+	const [importOpen, setImportOpen] = useState(false);
+
+	function reloadProfile() {
+		void window.fold.profileGet().then((p) => setStoredProfile((p as UserProfileData | null) ?? null));
+	}
 
 	useEffect(() => {
 		if (!active) return;
 		let mounted = true;
 		setLoading(true);
-		void window.fold
-			.listEpisodes()
-			.then((items) => {
-				if (mounted) setEpisodes(items);
+		void Promise.all([window.fold.listEpisodes(), window.fold.profileGet()])
+			.then(([items, profile]) => {
+				if (!mounted) return;
+				setEpisodes(items);
+				setStoredProfile((profile as UserProfileData | null) ?? null);
 			})
 			.finally(() => {
 				if (mounted) setLoading(false);
@@ -109,19 +126,44 @@ export function ProfileSection({
 
 	const habits = clusterHabits(episodes);
 	const stats = taskStats(episodes);
-	const topics = inferTopics(habits);
+	const topics = [
+		...new Set([...inferTopics(habits), ...(storedProfile?.domains ?? [])]),
+	];
 	const recent = episodes[0];
+	const profileTags = [
+		...(storedProfile?.preferredTools ?? []),
+		...(storedProfile?.workPatterns ?? []),
+	].slice(0, 6);
 
 	return (
 		<div className="space-y-4">
 			<Card title="个人画像">
+				<div className="mb-3 flex flex-wrap items-center gap-3">
+					<button type="button" className="fold-profile-action-btn primary" onClick={() => setImportOpen(true)}>
+						从 AI 助手导入
+					</button>
+					{storedProfile?.updatedAt && (
+						<span className="text-[11px] text-[#86868b]">
+							上次更新 {formatTime(storedProfile.updatedAt)}
+						</span>
+					)}
+				</div>
 				{loading ? (
 					<p className="text-[13px] text-[#86868b]">加载中…</p>
 				) : (
 					<>
 						<p className="text-[13px] leading-relaxed text-[#3a3a3c]">
-							{buildProfileLine(episodes, habits)}
+							{buildProfileLine(episodes, habits, storedProfile)}
 						</p>
+						{profileTags.length > 0 && (
+							<div className="mt-3 flex flex-wrap gap-2">
+								{profileTags.map((tag) => (
+									<span key={tag} className="fold-home-badge">
+										{tag}
+									</span>
+								))}
+							</div>
+						)}
 						{topics.length > 0 && (
 							<div className="mt-3 flex flex-wrap gap-2">
 								{topics.map((topic) => (
@@ -145,6 +187,15 @@ export function ProfileSection({
 					</>
 				)}
 			</Card>
+
+			{importOpen && (
+				<ProfileImportModal
+					onClose={() => setImportOpen(false)}
+					onSaved={() => {
+						reloadProfile();
+					}}
+				/>
+			)}
 
 			<Card title="我的习惯">
 				{loading ? (

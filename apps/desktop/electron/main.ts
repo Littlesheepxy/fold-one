@@ -5,11 +5,28 @@ import { ContextEngine } from "@fold/context";
 import { createNangoConnectLink, openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal, openOfficeSetupInTerminal, cancelConnectFlow, pollConnectFlow, resolveConnectTarget, startConnectFlow } from "@fold/connectors";
 import { saveContextEvent } from "@fold/memory";
 import { runTask, type FoldStateEvent, type UserActionRequest } from "@fold/runtime";
-import { refreshPredictCacheEnriched, resolvePredictions } from "./predict-enrich.js";
+import {
+	clearPredictTargetApp,
+	getPredictTargetApp,
+	refreshPredictCacheEnriched,
+	resolvePredictDraftsForIntent,
+	resolvePredictions,
+	setPredictTargetApp,
+} from "./predict-enrich.js";
+import { insertTextToFrontApp } from "./insert-text.js";
 import { getAppIconDataUrl, resolveAppBundlePath } from "./app-icon.js";
 import { applyConfigToEnv, hasRealAsr, loadConfig, saveConfig, type FoldConfig } from "./config.js";
 import { buildHomeSnapshot } from "./home-snapshot.js";
+import { openAccessibilitySettings, probeAccessibility, ensureAccessibilityPermission } from "./permissions.js";
 import { buildEpisodeDetail, listEpisodesForHome } from "./episode-detail.js";
+import {
+	buildProfilePrompt,
+	copyProfilePrompt,
+	executeProfileImport,
+	getStoredProfile,
+	listProfileImportOptions,
+	saveProfileFromResponse,
+} from "./profile-import.js";
 import { startToggleHotkey } from "./hotkey.js";
 import { createTray } from "./tray.js";
 import { createFoldAppIcon } from "./tray-icon.js";
@@ -201,6 +218,12 @@ async function runUserAction(optionId: string, context?: Record<string, unknown>
 				"x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
 			);
 			break;
+		case "accessibility:request":
+			void ensureAccessibilityPermission();
+			break;
+		case "accessibility:open-settings":
+			await openAccessibilitySettings();
+			break;
 		case "cdp:open-chrome-help":
 			await shell.openExternal(
 				"https://playwright.dev/mcp/configuration/browser-extension",
@@ -267,32 +290,53 @@ async function executeTask(intent: string) {
 	}
 }
 
+function getCursorInOverlay(): { x: number; y: number } {
+	const { workArea } = screen.getPrimaryDisplay();
+	const pt = screen.getCursorScreenPoint();
+	return { x: pt.x - workArea.x, y: pt.y - workArea.y };
+}
+
 function clearPredictState(): Partial<FoldStateEvent> {
 	return {
 		predictMode: null,
+		predictPhase: null,
+		predictSurface: null,
 		predictAnchor: null,
 		predictSuggestions: undefined,
+		predictDrafts: undefined,
+		predictSelectedIntent: null,
+		predictDraftsLoading: false,
+		predictCursor: null,
 	};
+}
+
+function emitPredictResult(result: Awaited<ReturnType<typeof resolvePredictions>>) {
+	emitState({
+		status: "predict",
+		...clearPredictState(),
+		predictMode: result.mode,
+		predictPhase: result.phase,
+		predictSurface: result.surface,
+		predictAnchor: result.anchor,
+		predictSuggestions: result.suggestions,
+		predictDrafts: result.drafts,
+		predictCursor: getCursorInOverlay(),
+	});
 }
 
 function showPredictions() {
 	createOverlayWindow();
+	setPredictTargetApp(contextEngine.getLiveContext().activeApp);
 	emitState({
 		status: "predict",
 		...clearPredictState(),
 		predictMode: "fast",
-		predictAnchor: "正在读取 Chrome 标签与历史…",
+		predictPhase: "pick",
+		predictAnchor: "正在读取情境…",
 		predictSuggestions: [],
+		predictCursor: getCursorInOverlay(),
 	});
-	void resolvePredictions(contextEngine.getLiveContext()).then((result) => {
-		emitState({
-			status: "predict",
-			...clearPredictState(),
-			predictMode: result.mode,
-			predictAnchor: result.anchor,
-			predictSuggestions: result.suggestions,
-		});
-	});
+	void resolvePredictions(contextEngine.getLiveContext()).then(emitPredictResult);
 }
 
 const IPC_HANDLE_CHANNELS = [
@@ -366,6 +410,56 @@ function registerIpc() {
 		return buildEpisodeDetail(id);
 	});
 
+	ipcMain.handle("fold:profile-import-options", () => listProfileImportOptions());
+	ipcMain.handle("fold:profile-build-prompt", () => buildProfilePrompt());
+	ipcMain.handle("fold:profile-copy-prompt", () => ({ prompt: copyProfilePrompt() }));
+	ipcMain.handle("fold:profile-get", () => getStoredProfile());
+	ipcMain.handle("fold:profile-run-import", (_e, platformId: string, tabUrl?: string) =>
+		executeProfileImport(platformId, tabUrl),
+	);
+	ipcMain.handle("fold:profile-save-response", (_e, responseText: string) =>
+		saveProfileFromResponse(responseText),
+	);
+
+	ipcMain.handle("fold:predict-pick-intent", async (_e, intent: string) => {
+		if (!intent?.trim()) return { ok: false };
+		emitState({
+			...lastOverlayState,
+			status: "predict",
+			predictDraftsLoading: true,
+			predictSelectedIntent: intent.trim(),
+			predictCursor: getCursorInOverlay(),
+		});
+		const ctx = contextEngine.getLiveContext();
+		const { surface, drafts } = await resolvePredictDraftsForIntent(ctx, intent.trim());
+		emitState({
+			...lastOverlayState,
+			status: "predict",
+			predictPhase: "result",
+			predictSurface: surface,
+			predictSelectedIntent: intent.trim(),
+			predictDrafts: drafts,
+			predictDraftsLoading: false,
+			predictCursor: getCursorInOverlay(),
+		});
+		return { ok: true };
+	});
+
+	ipcMain.handle("fold:predict-insert-draft", async (_e, text: string) => {
+		const targetApp = getPredictTargetApp() ?? contextEngine.getLiveContext().activeApp;
+		overlayWindow?.setIgnoreMouseEvents(true, { forward: true });
+		const result = await insertTextToFrontApp(text, targetApp);
+		clearPredictTargetApp();
+		emitState({ status: "idle", ...clearPredictState() });
+		return result;
+	});
+
+	ipcMain.handle("fold:predict-start-voice", () => {
+		emitState({ status: "idle", ...clearPredictState() });
+		toggleVoiceRecording();
+		return { ok: true };
+	});
+
 	ipcMain.handle("fold:connection-action", async (_e, action: string, context?: Record<string, unknown>) => {
 		await runUserAction(action, context);
 		return { ok: true };
@@ -433,6 +527,7 @@ function registerIpc() {
 			pendingUserAction.reject(new Error("用户取消了授权"));
 			pendingUserAction = null;
 		}
+		clearPredictTargetApp();
 		emitState({ status: "idle", ...clearPredictState() });
 	});
 
@@ -500,6 +595,9 @@ app.whenReady().then(() => {
 		onOpenSettings: openSettingsWindow,
 		onQuit: () => app.quit(),
 	});
+
+	// 未授权时弹系统对话框并打开辅助功能设置（开发模式登记为 Electron）
+	setTimeout(() => void ensureAccessibilityPermission(), 1200);
 });
 
 app.on("will-quit", () => {

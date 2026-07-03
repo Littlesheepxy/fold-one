@@ -39,10 +39,17 @@ export {
 	pickActiveChromeTab,
 	probeBrowserCdp,
 	withBrowserSession,
+	CHAT_PLATFORMS,
+	detectChatPlatforms,
+	getChatPlatform,
+	runChatProfileImport,
 	type BrowserCdpProbe,
 	type BrowserPageInfo,
 	type BrowserSession,
 	type ChromeTabInfo,
+	type ChatPlatform,
+	type ChatPlatformMatch,
+	type ChatProfileImportResult,
 } from "./browser/index.js";
 export {
 	browserInteract,
