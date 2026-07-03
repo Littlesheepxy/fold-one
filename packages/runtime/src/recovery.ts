@@ -1,9 +1,18 @@
 import type { ActionPlan } from "@fold/ai";
 import type { AgentId } from "@fold/connectors";
 import type { LiveContext } from "@fold/context";
+import {
+	hasNativeAppHint,
+	isCodeRepairHint,
+	isGuiIntent,
+	isWorkflowIntent,
+	needsClickGui,
+	needsVisualRead,
+} from "./capability-resolver.js";
 import type { StepFailure } from "./executor.js";
-import { buildRepairBrief, isGuiIntent } from "./repair.js";
-import { needsClickGui, needsVisualRead } from "./visual-intent.js";
+import { buildRepairBrief } from "./repair.js";
+
+export { isWorkflowIntent } from "./capability-resolver.js";
 
 export type RepairBackend = "agent" | "browser" | "uitars" | "workbuddy" | "screenshot";
 
@@ -53,18 +62,10 @@ export interface RecoveryContext {
 	maxRepairAttempts: number;
 }
 
-const CODE_REPAIR_HINTS = /(代码|仓库|repo|项目|修复|fix|bug|测试|test|refactor|implement)/i;
-const WORKFLOW_HINTS = /(workflow|工作流|obsidian|vault|workbuddy|待办|笔记同步|知识库)/i;
-const NATIVE_APP_HINTS = /(微信|wechat|飞书|feishu|lark|slack|finder|访达)/i;
-
-export function isWorkflowIntent(intent: string): boolean {
-	return WORKFLOW_HINTS.test(intent);
-}
-
 export function isNativeGuiContext(intent: string, context: LiveContext): boolean {
-	if (!isGuiIntent(intent) && !NATIVE_APP_HINTS.test(intent)) return false;
+	if (!isGuiIntent(intent) && !hasNativeAppHint(intent)) return false;
 	const app = context.activeApp?.toLowerCase() ?? "";
-	if (NATIVE_APP_HINTS.test(app) || NATIVE_APP_HINTS.test(intent)) return true;
+	if (hasNativeAppHint(app) || hasNativeAppHint(intent)) return true;
 	const isBrowser = /chrome|safari|firefox|edge|arc|browser/i.test(app);
 	return isGuiIntent(intent) && !isBrowser && context.recentUrls.length === 0;
 }
@@ -95,7 +96,7 @@ export function selectRepairBackend(ctx: RecoveryContext, attempt: number): Repa
 	}
 
 	const guiFailure = ctx.failures.some((f) => classifyFailure(f) === "gui.actionFailed");
-	const guiTask = isGuiIntent(ctx.intent) || guiFailure || NATIVE_APP_HINTS.test(ctx.intent);
+	const guiTask = isGuiIntent(ctx.intent) || guiFailure || hasNativeAppHint(ctx.intent);
 
 	if (guiTask && ctx.cdpConnected && attempt === 0) {
 		return "browser";
@@ -125,7 +126,7 @@ export function resolveRepairBudget(ctx: RecoveryContext): RepairBudget {
 	if (
 		isGuiIntent(ctx.intent) ||
 		isWorkflowIntent(ctx.intent) ||
-		NATIVE_APP_HINTS.test(ctx.intent)
+		hasNativeAppHint(ctx.intent)
 	) {
 		if (ctx.cdpConnected || ctx.uitarsEnabled || ctx.workbuddyAvailable) {
 			return GUI_REPAIR_BUDGET;
@@ -209,7 +210,7 @@ export function handleFailure(ctx: RecoveryContext): RecoveryAction | null {
 		};
 	}
 
-	if (isGuiIntent(ctx.intent) || NATIVE_APP_HINTS.test(ctx.intent)) {
+	if (isGuiIntent(ctx.intent) || hasNativeAppHint(ctx.intent)) {
 		return {
 			type: "repair",
 			backend: "agent",
@@ -356,8 +357,8 @@ function buildWorkbuddyRecoveryPlan(action: Extract<RecoveryAction, { type: "rep
 }
 
 function isRepairCandidate(intent: string, failures: StepFailure[]): boolean {
-	if (!failures.length) return CODE_REPAIR_HINTS.test(intent);
-	return failures.some((failure) => CODE_REPAIR_HINTS.test(`${intent} ${failure.error ?? ""}`));
+	if (!failures.length) return isCodeRepairHint(intent);
+	return failures.some((failure) => isCodeRepairHint(`${intent} ${failure.error ?? ""}`));
 }
 
 function buildGuiRepairBrief(intent: string, context: LiveContext): string {

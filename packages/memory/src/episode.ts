@@ -39,8 +39,62 @@ export interface Episode {
 	probeSummary?: string;
 	validationJson?: string;
 	contextEventsJson?: string;
+	thinkingText?: string;
+	resultDetail?: string;
 	durationMs: number;
 }
+
+export interface EpisodeSummaryRow {
+	id: string;
+	intent: string;
+	status: string;
+	timestamp: number;
+	summary: string;
+	durationMs: number;
+}
+
+type EpisodeRow = {
+	id: string;
+	timestamp: number;
+	intent: string;
+	goal: string | null;
+	status: string | null;
+	summary: string | null;
+	summary_json: string | null;
+	plan_json: string | null;
+	steps_json: string | null;
+	probe_summary: string | null;
+	validation_json: string | null;
+	context_events_json: string | null;
+	thinking_text: string | null;
+	result_detail: string | null;
+	duration_ms: number | null;
+};
+
+function mapEpisodeRow(row: EpisodeRow): Episode {
+	return {
+		id: row.id,
+		timestamp: row.timestamp,
+		intent: row.intent,
+		goal: row.goal ?? "",
+		status: row.status ?? "",
+		summary: row.summary ?? "",
+		summaryJson: row.summary_json ?? undefined,
+		planJson: row.plan_json ?? "{}",
+		stepsJson: row.steps_json ?? undefined,
+		probeSummary: row.probe_summary ?? undefined,
+		validationJson: row.validation_json ?? undefined,
+		contextEventsJson: row.context_events_json ?? undefined,
+		thinkingText: row.thinking_text ?? undefined,
+		resultDetail: row.result_detail ?? undefined,
+		durationMs: row.duration_ms ?? 0,
+	};
+}
+
+const EPISODE_SELECT = `
+	SELECT id, timestamp, intent, goal, status, summary, summary_json, plan_json, steps_json,
+		probe_summary, validation_json, context_events_json, thinking_text, result_detail, duration_ms
+	FROM episodes`;
 
 export interface MemoryRecord {
 	id: string;
@@ -114,6 +168,8 @@ function getDb(dataDir?: string): Database.Database {
 	ensureColumn(db, "episodes", "probe_summary", "TEXT");
 	ensureColumn(db, "episodes", "validation_json", "TEXT");
 	ensureColumn(db, "episodes", "context_events_json", "TEXT");
+	ensureColumn(db, "episodes", "thinking_text", "TEXT");
+	ensureColumn(db, "episodes", "result_detail", "TEXT");
 	return db;
 }
 
@@ -185,6 +241,8 @@ export function saveEpisode(
 		probeSummary?: string;
 		validationChecks?: Array<{ rule: string; passed: boolean; message?: string }>;
 		contextEvents?: Array<{ type?: string; source?: string; data?: Record<string, unknown> }>;
+		thinkingText?: string;
+		resultDetail?: string;
 	},
 	dataDir?: string,
 ): Episode {
@@ -204,9 +262,9 @@ export function saveEpisode(
 		.prepare(
 			`INSERT INTO episodes (
 				id, timestamp, intent, goal, status, summary, summary_json, plan_json, steps_json,
-				probe_summary, validation_json, context_events_json, duration_ms
+				probe_summary, validation_json, context_events_json, thinking_text, result_detail, duration_ms
 			)
-     		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		)
 		.run(
 			id,
@@ -221,6 +279,8 @@ export function saveEpisode(
 			input.probeSummary ?? null,
 			validationJson,
 			contextEventsJson,
+			input.thinkingText ?? null,
+			input.resultDetail ?? null,
 			durationMs,
 		);
 
@@ -237,6 +297,8 @@ export function saveEpisode(
 		probeSummary: input.probeSummary,
 		validationJson,
 		contextEventsJson,
+		thinkingText: input.thinkingText,
+		resultDetail: input.resultDetail,
 		durationMs,
 	};
 }
@@ -244,6 +306,23 @@ export function saveEpisode(
 export function listRecentEpisodes(limit = 5, dataDir?: string): Episode[] {
 	const conn = getDb(dataDir);
 	return conn
-		.prepare(`SELECT * FROM episodes ORDER BY timestamp DESC LIMIT ?`)
-		.all(limit) as Episode[];
+		.prepare(`${EPISODE_SELECT} ORDER BY timestamp DESC LIMIT ?`)
+		.all(limit)
+		.map((row) => mapEpisodeRow(row as EpisodeRow));
+}
+
+export function listEpisodeSummaries(limit = 50, dataDir?: string): EpisodeSummaryRow[] {
+	const conn = getDb(dataDir);
+	return conn
+		.prepare(
+			`SELECT id, intent, status, timestamp, summary, duration_ms as durationMs
+			 FROM episodes ORDER BY timestamp DESC LIMIT ?`,
+		)
+		.all(limit) as EpisodeSummaryRow[];
+}
+
+export function getEpisodeById(id: string, dataDir?: string): Episode | null {
+	const conn = getDb(dataDir);
+	const row = conn.prepare(`${EPISODE_SELECT} WHERE id = ?`).get(id) as EpisodeRow | undefined;
+	return row ? mapEpisodeRow(row) : null;
 }

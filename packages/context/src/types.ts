@@ -14,6 +14,7 @@ export interface ContextEvent {
 	data: {
 		appName?: string;
 		windowTitle?: string;
+		appPath?: string;
 		filePath?: string;
 		url?: string;
 		text?: string;
@@ -23,6 +24,7 @@ export interface ContextEvent {
 export interface LiveContext {
 	activeApp: string | null;
 	activeWindow: string | null;
+	activeAppPath: string | null;
 	recentFiles: Array<{ path: string; name: string; timestamp: number }>;
 	recentUrls: Array<{ url: string; title: string; timestamp: number }>;
 	clipboard: { text: string; timestamp: number } | null;
@@ -33,6 +35,7 @@ export function createEmptyContext(): LiveContext {
 	return {
 		activeApp: null,
 		activeWindow: null,
+		activeAppPath: null,
 		recentFiles: [],
 		recentUrls: [],
 		clipboard: null,

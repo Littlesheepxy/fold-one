@@ -2,13 +2,8 @@ import type { ActionPlan } from "@fold/ai";
 import type { AgentId } from "@fold/connectors";
 import type { LiveContext } from "@fold/context";
 import { formatContextSummary } from "@fold/context";
+import { isGuiIntent } from "./capability-resolver.js";
 import type { StepFailure } from "./executor.js";
-
-const GUI_REPAIR_HINTS = /(点击|登录|表单|按钮|页面|截图|browser|网页|网站)/i;
-
-export function isGuiIntent(intent: string): boolean {
-	return GUI_REPAIR_HINTS.test(intent);
-}
 
 export function buildReactAgentPlan(
 	intent: string,

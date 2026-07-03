@@ -1,4 +1,6 @@
 export { runTask, runMockTask } from "./orchestrator.js";
+export { formatThinkingText, buildResultDetail } from "./format-result.js";
+export { labelForSkill } from "./step-labels.js";
 export { runPlan } from "./executor.js";
 export { formatRelevantEpisodes } from "./episode-context.js";
 export { formatProbeSummary, runProbes } from "./probe-runner.js";
@@ -9,7 +11,8 @@ export {
 	type RouteDecision,
 } from "./router.js";
 export { validatePlan } from "./validator.js";
-export { buildReactAgentPlan, buildRepairBrief, isGuiIntent } from "./repair.js";
+export { buildReactAgentPlan, buildRepairBrief } from "./repair.js";
+export { isGuiIntent } from "./capability-resolver.js";
 export {
 	buildRecoveryPlan,
 	classifyFailure,

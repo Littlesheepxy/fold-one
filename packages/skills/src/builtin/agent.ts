@@ -13,12 +13,13 @@ export async function agentExecute(args: Record<string, unknown>, ctx: SkillCont
 		? args.failedSteps.map((step) => String(step))
 		: [];
 
+	const agentLabel = agent === "auto" ? "自动" : agent;
 	ctx.emit({
 		type: "progress",
-		message: `Running local agent subagent (${agent})`,
+		message: `正在运行本地 Agent（${agentLabel}）`,
 	});
 
-	return executeAgent(
+	const result = await executeAgent(
 		{
 			brief,
 			contextSnapshot: formatContextSummary(ctx.liveContext),
@@ -30,4 +31,8 @@ export async function agentExecute(args: Record<string, unknown>, ctx: SkillCont
 		},
 		failedSteps,
 	);
+	if (!result.ok) {
+		throw new Error(result.summary || result.stderr || "本地 Agent 执行失败");
+	}
+	return result;
 }

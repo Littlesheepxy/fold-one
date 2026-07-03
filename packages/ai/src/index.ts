@@ -2,6 +2,7 @@ export { toLanguageModel } from "./providers.js";
 export { buildPlannerPrompt, type PlannerPromptInput } from "./prompt.js";
 export {
 	generateActionPlan,
+	isMailCountIntent,
 	mockActionPlan,
 	hasPlannerApiKey,
 	ActionPlanSchema,

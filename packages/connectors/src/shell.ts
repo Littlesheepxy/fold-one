@@ -21,12 +21,14 @@ export async function runShellDetailed(
 	args: string[],
 	timeoutMs = 10000,
 	cwd?: string,
+	options?: { closeStdin?: boolean },
 ): Promise<ShellResult> {
 	try {
 		const { stdout, stderr } = await execFileAsync(command, args, {
 			timeout: timeoutMs,
 			maxBuffer: 10 * 1024 * 1024,
 			cwd,
+			...(options?.closeStdin ? { stdio: ["ignore", "pipe", "pipe"] as const } : {}),
 		});
 		return { stdout, stderr, exitCode: 0 };
 	} catch (error) {

@@ -24,10 +24,24 @@ const electronExternals = (id: string) =>
 	id === "fsevents" ||
 	id === "uuid" ||
 	id.startsWith("playwright") ||
+	id === "@playwright/mcp" ||
+	id.startsWith("@modelcontextprotocol/") ||
 	id.startsWith("@computer-use/") ||
 	id.startsWith("@ui-tars/");
 
 export default defineConfig({
+	// react-draggable 在 handleDragStart 里访问 process.env.DRAGGABLE_DEBUG，
+	// 渲染进程没有 process 全局 → ReferenceError → 拖拽静默失败
+	define: {
+		"process.env.DRAGGABLE_DEBUG": "false",
+	},
+	optimizeDeps: {
+		esbuildOptions: {
+			define: {
+				"process.env.DRAGGABLE_DEBUG": "false",
+			},
+		},
+	},
 	build: {
 		rollupOptions: {
 			input: {
@@ -42,6 +56,10 @@ export default defineConfig({
 		electron({
 			main: {
 				entry: "electron/main.ts",
+				onstart({ startup }) {
+					// Only boot Electron once — rebuilding main must not kill in-flight tasks.
+					if (!(process as NodeJS.Process & { electronApp?: unknown }).electronApp) startup();
+				},
 				vite: {
 					resolve: { alias: foldAliases },
 					build: {

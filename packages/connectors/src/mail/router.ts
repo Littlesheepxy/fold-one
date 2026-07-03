@@ -38,6 +38,7 @@ export function resolveMailConnector(
 
 	if (configured === "apple-mail") return "apple-mail";
 	if (configured === "gmail-cli") return "gmail-cli";
+	if (configured === "gmail-nango") return "gmail-nango";
 	if (configured === "gmail-web") return "gmail-web";
 	if (configured === "outlook-web") return "outlook-web";
 	if (configured === "file") return "file";
@@ -57,6 +58,8 @@ export function connectorLabel(id: MailConnectorId): string {
 	switch (id) {
 		case "gmail-cli":
 			return "Gmail (CLI)";
+		case "gmail-nango":
+			return "Gmail (Nango)";
 		case "gmail-web":
 			return "Gmail";
 		case "outlook-web":

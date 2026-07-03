@@ -25,6 +25,7 @@ export type ActionStep = z.infer<typeof ActionStepSchema>;
 export async function generateActionPlan(input: {
 	intent: string;
 	contextSummary: string;
+	skillCatalog: string;
 	probeSummary?: string;
 	relevantEpisodes?: string;
 }): Promise<ActionPlan> {
@@ -39,7 +40,7 @@ export async function generateActionPlan(input: {
 	return normalizeActionPlan(input.intent, parseActionPlan(text));
 }
 
-function isMailCountIntent(intent: string): boolean {
+export function isMailCountIntent(intent: string): boolean {
 	return /(邮件|mail)/i.test(intent) && /(多少|几封|待处理|未读|状态|count|unread|pending)/i.test(intent);
 }
 

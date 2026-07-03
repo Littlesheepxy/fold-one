@@ -1,9 +1,10 @@
 import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { detectMailConnector, isAgentSubagentsEnabled, listAvailableAgents, probeBrowserCdp, probeGmailCli, probeLarkCli, probeScreenCapture, probeSlackCli, probeUitars, probeWorkBuddyGateway, resolveMailConnector } from "@fold/connectors";
+import { detectMailConnector, isAgentSubagentsEnabled, listAvailableAgents, probeBrowserCdp, probeGmailCli, probeLarkCli, probeNango, probeOfficeChannels, probeScreenCapture, probeSlackCli, probeUitars, probeWorkBuddyGateway, resolveMailConnector } from "@fold/connectors";
 import type { LiveContext } from "@fold/context";
 import { listSkills } from "@fold/skills";
+import { mentionsDownloads } from "./capability-resolver.js";
 
 export type ProbeStatus = "ok" | "skipped" | "error";
 export type ProbeSideEffect = "none" | "reversible" | "irreversible";
@@ -51,7 +52,7 @@ async function runProbe(
 }
 
 async function probeDownloads(intent: string): Promise<ProbeResult> {
-	if (!/(download|下载|文件|pdf)/i.test(intent)) {
+	if (!mentionsDownloads(intent)) {
 		return skipped("fs.downloads", "intent does not mention downloads/files");
 	}
 	const entries = await readdir(join(homedir(), "Downloads"), { withFileTypes: true });
@@ -84,8 +85,21 @@ export async function runProbes(intent: string, context: LiveContext): Promise<P
 			});
 		}),
 		runProbe("gmail.cli", async () => ok("gmail.cli", await probeGmailCli())),
+		runProbe("nango.available", async () => ok("nango.available", await probeNango())),
 		runProbe("feishu.available", async () => ok("feishu.available", await probeLarkCli())),
 		runProbe("slack.available", async () => ok("slack.available", await probeSlackCli())),
+		runProbe("office.channels", async () => {
+			const channels = await probeOfficeChannels();
+			return ok(
+				"office.channels",
+				channels.map((c) => ({
+					id: c.id,
+					installed: c.installed,
+					authed: c.authed,
+					error: c.error,
+				})),
+			);
+		}),
 		runProbe("browser.cdp", async () => ok("browser.cdp", await probeBrowserCdp())),
 		runProbe("screen.capture", async () => ok("screen.capture", await probeScreenCapture())),
 		runProbe("browser.mailPage", async () => {

@@ -3,6 +3,7 @@ import {
 	History,
 	Home,
 	Link2,
+	ListChecks,
 	Settings,
 	UserRound,
 	type LucideIcon,
@@ -12,6 +13,7 @@ const NAV_ICONS: Record<HomeSection, LucideIcon> = {
 	overview: Home,
 	profile: UserRound,
 	work: History,
+	tasks: ListChecks,
 	connections: Link2,
 	settings: Settings,
 };

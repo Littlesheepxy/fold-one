@@ -16,6 +16,23 @@ function resolveGogAccount(): string | undefined {
 }
 
 async function probeGogAuth(): Promise<{ authed: boolean; account?: string }> {
+	// Prefer --json for reliable parsing; fall back to text if JSON unavailable.
+	const jsonList = await runShellDetailed("gog", ["auth", "list", "--json"], 5000);
+	if (jsonList.exitCode === 0) {
+		try {
+			const parsed = JSON.parse(jsonList.stdout) as { accounts?: string[] };
+			const accounts = Array.isArray(parsed.accounts) ? parsed.accounts : [];
+			if (accounts.length === 0) return { authed: false };
+			const account = resolveGogAccount();
+			if (account && accounts.includes(account)) return { authed: true, account };
+			// Multiple accounts and no env override: use the first one rather than
+			// letting gog fail with "missing --account".
+			return { authed: true, account: accounts[0] };
+		} catch {
+			// JSON parse failed — fall through to text-based detection below.
+		}
+	}
+
 	const list = await runShellDetailed("gog", ["auth", "list"], 5000);
 	if (list.exitCode !== 0 || /No tokens stored/i.test(list.stdout)) {
 		return { authed: false };

@@ -73,34 +73,97 @@ function buildConnections(
 		label: "Gmail CLI",
 		status: gmail?.available ? "ok" : gmail?.backend ? "warn" : "error",
 		detail: gmail?.available
-			? gmail.backend ?? "已授权"
+			? `终端发信 · ${gmail.backend ?? "已授权"}`
 			: (gmail?.error ?? "未安装或未登录"),
 		meta: { backend: gmail?.backend ?? null },
 	});
 
-	const cdp = probeOk<{ connected?: boolean; cdpUrl?: string; error?: string }>(probes, "browser.cdp");
+	const nango = probeOk<{
+		configured?: boolean;
+		connected?: boolean;
+		connections?: Array<{ providerConfigKey: string }>;
+		mode?: "local" | "hub";
+		error?: string;
+	}>(probes, "nango.available");
+	const nangoModeLabel = nango?.mode === "hub" ? "Fold Hub" : "Nango 直连";
+	rows.push({
+		id: "nango",
+		label: "托管授权",
+		status: nango?.connected ? "ok" : nango?.configured ? "warn" : "error",
+		detail: nango?.connected
+			? `${nangoModeLabel} · 已授权 ${nango.connections?.length ?? 0} 个应用 · ${(nango.connections ?? [])
+					.map((c) => c.providerConfigKey)
+					.join(", ")}`
+			: nango?.configured
+				? (nango.error ?? `${nangoModeLabel} · 已配置，还没有授权任何应用`)
+				: "未配置 Fold Hub API Key",
+	});
+
+	const office = probeOk<
+		Array<{ id: string; installed: boolean; authed: boolean; error?: string }>
+	>(probes, "office.channels");
+	const officeLabels: Record<string, string> = {
+		feishu: "飞书",
+		github: "GitHub",
+		dingtalk: "钉钉",
+		wecom: "企业微信",
+		slack: "Slack",
+	};
+	for (const channel of office ?? []) {
+		rows.push({
+			id: `office-${channel.id}`,
+			label: officeLabels[channel.id] ?? channel.id,
+			status: channel.authed ? "ok" : channel.installed ? "warn" : "error",
+			detail: channel.authed
+				? "CLI 已登录，可直接调用"
+				: (channel.error ?? (channel.installed ? "已安装，还没登录" : "未安装")),
+			meta: { channel: channel.id, installed: channel.installed, authed: channel.authed },
+		});
+	}
+
+	const cdp = probeOk<{
+		connected?: boolean;
+		cdpUrl?: string;
+		pageCount?: number;
+		mode?: "extension" | "cdp";
+		error?: string;
+	}>(
+		probes,
+		"browser.cdp",
+	);
 	rows.push({
 		id: "cdp",
-		label: "Chrome CDP",
+		label: "Chrome 浏览器",
 		status: cdp?.connected ? "ok" : cdp?.cdpUrl ? "warn" : "error",
-		detail: cdp?.connected ? "已连接" : (cdp?.error ?? "未配置"),
+		detail: cdp?.connected
+			? cdp.mode === "extension"
+				? `Playwright Bridge · ${cdp.pageCount ?? 0} 个网页标签`
+				: `Chrome 调试通道 · ${cdp.pageCount ?? 0} 个标签页`
+			: (cdp?.error ?? "未连接 — 请安装 Playwright Bridge 或开启 Chrome remote debugging"),
 		meta: { cdpUrl: cdp?.cdpUrl ?? null },
 	});
 
 	const screen = probeOk<{ available?: boolean; error?: string }>(probes, "screen.capture");
 	rows.push({
 		id: "screen",
-		label: "屏幕录制",
+		label: "屏幕读取",
 		status: screen?.available ? "ok" : "warn",
-		detail: screen?.available ? "可用" : (screen?.error ?? "未授权"),
+		detail: screen?.available ? "截屏与 OCR 可用" : (screen?.error ?? "需授予屏幕录制权限"),
 	});
 
-	const uitars = probeOk<{ enabled?: boolean; available?: boolean }>(probes, "uitars.available");
+	const uitars = probeOk<{ enabled?: boolean; available?: boolean; model?: string }>(
+		probes,
+		"uitars.available",
+	);
 	rows.push({
 		id: "uitars",
-		label: "UI-TARS",
+		label: "UI-TARS 桌面操控",
 		status: uitars?.enabled && uitars.available ? "ok" : uitars?.enabled ? "warn" : "error",
-		detail: uitars?.enabled ? (uitars.available ? "可用" : "未配置 VLM") : "未开启",
+		detail: uitars?.enabled
+			? uitars.available
+				? `nut-js 可用 · ${uitars.model ?? "VLM 已配置"}`
+				: "未配置 VLM API Key"
+			: "未开启",
 	});
 
 	const wb = probeOk<{ enabled?: boolean; available?: boolean }>(probes, "workbuddy.available");

@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@playwright/mcp": "^0.0.77",
     "@ui-tars/operator-nut-js": "^1.2.3",
     "@ui-tars/sdk": "^1.2.3",
     "playwright": "^1.51.0"

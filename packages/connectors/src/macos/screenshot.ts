@@ -20,15 +20,18 @@ function screenshotDir(): string {
 	return join(homedir(), ".fold", "screenshots");
 }
 
-async function getFrontmostWindowId(): Promise<number> {
-	const out = await runAppleScript(
-		'tell application "System Events" to get id of window 1 of (first application process whose frontmost is true)',
-	);
-	const id = Number.parseInt(out.trim(), 10);
-	if (!Number.isFinite(id)) {
-		throw new Error("无法获取前台窗口（需要辅助功能权限）");
+async function getFrontmostWindowId(): Promise<number | null> {
+	try {
+		const out = await runAppleScript(
+			'tell application "System Events" to get id of window 1 of (first application process whose frontmost is true)',
+		);
+		const id = Number.parseInt(out.trim(), 10);
+		if (!Number.isFinite(id)) return null;
+		return id;
+	} catch {
+		// -1728 / permission errors: frontmost process has no accessible window
+		return null;
 	}
-	return id;
 }
 
 export async function captureScreenshot(
@@ -46,7 +49,12 @@ export async function captureScreenshot(
 	const args = ["-x", path];
 	if (target === "frontmost") {
 		const winId = await getFrontmostWindowId();
-		args.unshift(`-l${winId}`);
+		if (winId !== null) {
+			args.unshift(`-l${winId}`);
+		}
+		// winId === null: frontmost process has no accessible window (error
+		// -1728). Fall through to a full-screen capture so the call still
+		// succeeds instead of passing an invalid "-lnull" flag.
 	}
 
 	const result = await runShellDetailed("screencapture", args, 15_000);

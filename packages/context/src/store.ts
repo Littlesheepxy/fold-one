@@ -28,12 +28,20 @@ export class ContextStore {
 	push(event: Omit<ContextEvent, "id">): ContextEvent | null {
 		if (!IMPORTANT_TYPES.has(event.type)) return null;
 
+		// app.active 每 2s 轮询一次；锚点没变就不产生事件，事件流保持为「切换流」。
+		if (event.type === "app.active") {
+			const sameApp = (event.data.appName ?? null) === this.ctx.activeApp;
+			const sameWindow = (event.data.windowTitle ?? null) === this.ctx.activeWindow;
+			if (sameApp && sameWindow) return null;
+		}
+
 		const full: ContextEvent = { ...event, id: randomUUID() };
 		this.ctx.events.push(full);
 
 		if (event.type === "app.active") {
 			this.ctx.activeApp = event.data.appName ?? null;
 			this.ctx.activeWindow = event.data.windowTitle ?? null;
+			this.ctx.activeAppPath = event.data.appPath ?? null;
 		}
 		if (event.type === "file.created" && event.data.filePath) {
 			const name = event.data.filePath.split("/").pop() ?? event.data.filePath;
@@ -51,6 +59,8 @@ export class ContextStore {
 		}
 		if (event.type === "browser.urlChanged" && event.data.url) {
 			const title = event.data.windowTitle ?? event.data.url;
+			// 同一 URL 只保留最新一条，避免列表被重复访问刷屏
+			this.ctx.recentUrls = this.ctx.recentUrls.filter((u) => u.url !== event.data.url);
 			this.ctx.recentUrls.unshift({
 				url: event.data.url,
 				title,

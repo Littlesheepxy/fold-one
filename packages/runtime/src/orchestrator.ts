@@ -8,6 +8,7 @@ import type { LiveContext } from "@fold/context";
 import { formatContextSummary } from "@fold/context";
 import { isAgentSubagentsEnabled } from "@fold/connectors";
 import { saveEpisode } from "@fold/memory";
+import { buildSkillCatalog } from "@fold/skills";
 import { ensureExecutionPrerequisites } from "./auth-gate.js";
 import { formatCapabilityBrief } from "./capability-brief.js";
 import { formatRelevantEpisodes } from "./episode-context.js";
@@ -19,8 +20,8 @@ import { getAgentProbe, getCdpConnected, runRecoveryLoop } from "./recovery-runn
 import { resolveTier, tryCompiledPlan } from "./router.js";
 import { labelForSkill } from "./step-labels.js";
 import type { OrchestratorDeps, StateEmitter, TaskResult } from "./types.js";
+import { needsVisualRead } from "./capability-resolver.js";
 import { validatePlan, type ValidationResult } from "./validator.js";
-import { needsVisualRead } from "./visual-intent.js";
 
 export type { OrchestratorDeps } from "./types.js";
 
@@ -64,6 +65,7 @@ export async function runTask(
 			plan = await generateActionPlan({
 				intent,
 				contextSummary: formatContextSummary(context),
+				skillCatalog: buildSkillCatalog(),
 				probeSummary,
 				relevantEpisodes: formatRelevantEpisodes(intent, deps.dataDir),
 			});
@@ -163,6 +165,8 @@ export async function runTask(
 			probeSummary,
 			validationChecks: validation.checks,
 			contextEvents: context.events,
+			thinkingText,
+			resultDetail,
 		},
 		deps.dataDir,
 	);
@@ -263,16 +267,27 @@ function softenValidationForVisualAnswer(
 
 function summarizeTaskResult(
 	intent: string,
-	steps: Array<{ skill: string; status: string; output?: unknown }>,
+	steps: Array<{ skill: string; status: string; output?: unknown; error?: string }>,
 	validationOk = true,
 ) {
+	const mailAuthFail = steps.find(
+		(s) =>
+			s.skill.startsWith("mail.") &&
+			s.status === "failed" &&
+			/未登录|auth add|not logged in/i.test(s.error ?? ""),
+	);
+	if (mailAuthFail?.error) return mailAuthFail.error;
+
 	const agentStep = steps.find((s) => s.skill === "agent.execute" && s.status === "success");
 	const agentOutput = agentStep?.output as { summary?: string; agentId?: string } | undefined;
 	const browserPage = steps.find((s) => s.skill === "browser.currentPage" && s.status === "success");
 	const browserOutput = browserPage?.output as { url?: string; title?: string } | undefined;
 	if (agentStep && agentOutput?.summary) {
-		const prefix = agentOutput.agentId ? `${agentOutput.agentId}: ` : "";
-		return `${prefix}${agentOutput.summary}`;
+		const summary = agentOutput.summary.trim();
+		if (agentStep.status === "success" && !/no stdin data received|proceeding without it/i.test(summary)) {
+			const prefix = agentOutput.agentId ? `${agentOutput.agentId}: ` : "";
+			return `${prefix}${summary}`;
+		}
 	}
 	if (browserOutput?.url) {
 		return browserOutput.title

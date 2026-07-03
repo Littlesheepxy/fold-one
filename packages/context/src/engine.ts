@@ -10,6 +10,8 @@ const execFileAsync = promisify(execFile);
 
 export interface ContextEngineOptions {
 	downloadsDir?: string;
+	/** 前台轮询忽略的 App（如 Fold 自身），避免打开 Home 窗口时锚点变成自己 */
+	ignoreApps?: string[];
 	onEvent?: (event: ContextEvent) => void;
 }
 
@@ -71,9 +73,27 @@ export class ContextEngine {
 		try {
 			const { stdout } = await execFileAsync("osascript", [
 				"-e",
-				'tell application "System Events" to get name of first application process whose frontmost is true',
+				'tell application "System Events" to set frontProc to first application process whose frontmost is true',
+				"-e",
+				'tell application "System Events" to set procName to name of frontProc',
+				"-e",
+				'try',
+				"-e",
+				'tell application "System Events" to set procPath to POSIX path of application file of frontProc',
+				"-e",
+				'on error',
+				"-e",
+				'set procPath to ""',
+				"-e",
+				'end try',
+				"-e",
+				'procName & linefeed & procPath',
 			]);
-			const appName = stdout.trim();
+			const [appName = "", appPath = ""] = stdout.split("\n").map((s) => s.trim());
+			if (!appName) return;
+			if (this.opts.ignoreApps?.some((n) => n.toLowerCase() === appName.toLowerCase())) {
+				return;
+			}
 			const { stdout: titleOut } = await execFileAsync("osascript", [
 				"-e",
 				'tell application "System Events" to get name of window 1 of (first application process whose frontmost is true)',
@@ -82,7 +102,11 @@ export class ContextEngine {
 				type: "app.active",
 				source: "system",
 				timestamp: Date.now(),
-				data: { appName, windowTitle: titleOut.trim() || undefined },
+				data: {
+					appName,
+					windowTitle: titleOut.trim() || undefined,
+					appPath: appPath || undefined,
+				},
 			});
 			await this.pollBrowserUrl(appName);
 		} catch {
@@ -96,18 +120,19 @@ export class ContextEngine {
 
 		try {
 			let url = "";
+			let title = "";
 			if (/chrome/i.test(appName)) {
 				const { stdout } = await execFileAsync("osascript", [
 					"-e",
-					'tell application "Google Chrome" to get URL of active tab of front window',
+					'tell application "Google Chrome" to get (URL of active tab of front window) & linefeed & (title of active tab of front window)',
 				]);
-				url = stdout.trim();
+				[url = "", title = ""] = stdout.split("\n").map((s) => s.trim());
 			} else if (/arc/i.test(appName)) {
 				const { stdout } = await execFileAsync("osascript", [
 					"-e",
-					'tell application "Arc" to get URL of active tab of front window',
+					'tell application "Arc" to get (URL of active tab of front window) & linefeed & (title of active tab of front window)',
 				]).catch(() => ({ stdout: "" }));
-				url = stdout.trim();
+				[url = "", title = ""] = stdout.split("\n").map((s) => s.trim());
 			}
 
 			if (url && url !== this.lastBrowserUrl) {
@@ -116,7 +141,7 @@ export class ContextEngine {
 					type: "browser.urlChanged",
 					source: "chrome",
 					timestamp: Date.now(),
-					data: { url, appName, windowTitle: appName },
+					data: { url, appName, windowTitle: title || appName },
 				});
 			}
 		} catch {

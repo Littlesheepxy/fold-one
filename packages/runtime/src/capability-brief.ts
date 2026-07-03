@@ -1,7 +1,12 @@
 import type { ActionPlan } from "@fold/ai";
 import type { ProbeRunResult } from "./probe-runner.js";
 import { formatCliVendorMaintenanceHint } from "@fold/connectors";
-import { isScreenshotIntent } from "./visual-intent.js";
+import {
+	isFeishuIntent,
+	isGmailIntent,
+	isScreenshotIntent,
+	wantsMailContent,
+} from "./capability-resolver.js";
 
 function probeValue<T>(probeResult: ProbeRunResult, id: string): T | undefined {
 	const probe = probeResult.probes.find((p) => p.id === id);
@@ -17,20 +22,8 @@ function planUsesFeishu(plan: ActionPlan): boolean {
 	return plan.steps.some((s) => s.skill === "feishu.mail.triage");
 }
 
-function isGmailIntent(intent: string): boolean {
-	return /gmail|谷歌邮箱|google\s*mail/i.test(intent);
-}
-
-function isFeishuIntent(intent: string): boolean {
-	return /飞书|feishu|lark/i.test(intent);
-}
-
 function planUsesScreenshot(plan: ActionPlan): boolean {
 	return plan.steps.some((s) => s.skill === "os.screenshot");
-}
-
-function wantsMailContent(intent: string): boolean {
-	return /什么样|主题|发件人|内容|列表|summary|list|recent/i.test(intent);
 }
 
 export function formatCapabilityBrief(

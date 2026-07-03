@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { GripHorizontal } from "lucide-react";
 
 export function BooleanField({
 	label,
@@ -65,15 +66,26 @@ export function Card({
 	title,
 	children,
 	className = "",
+	fill = false,
+	dragHandle = false,
 }: {
 	title?: string;
 	children: ReactNode;
 	className?: string;
+	fill?: boolean;
+	dragHandle?: boolean;
 }) {
 	return (
-		<div className={`fold-home-card ${className}`}>
-			{title && <h3 className="fold-home-card-title">{title}</h3>}
-			{children}
+		<div className={`fold-home-card${fill ? " fold-home-card--fill" : ""} ${className}`.trim()}>
+			{title && (
+				<h3
+					className={`fold-home-card-title${dragHandle ? " fold-home-card-drag-handle" : ""}`}
+				>
+					{dragHandle && <GripHorizontal className="fold-home-card-grip" size={14} strokeWidth={1.75} />}
+					{title}
+				</h3>
+			)}
+			<div className={fill ? "fold-home-card-body" : undefined}>{children}</div>
 		</div>
 	);
 }

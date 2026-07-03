@@ -25,12 +25,14 @@ export const cursorAgentConnector: AgentConnector = {
 		const args = ["-p", "--output-format", "json", buildPrompt(task)];
 		if (task.allowEdits) args.splice(1, 0, "--force");
 
-		const result = await runShellDetailed("agent", args, task.timeoutMs ?? 180_000, task.cwd);
+		const result = await runShellDetailed("agent", args, task.timeoutMs ?? 180_000, task.cwd, {
+			closeStdin: true,
+		});
 		const parsed = parseAgentJson(result.stdout);
 		const summary = parsed.result?.trim() || result.stdout.trim() || result.stderr.trim();
 
 		return {
-			ok: result.exitCode === 0 && Boolean(summary),
+			ok: result.exitCode === 0 && Boolean(parsed.result?.trim()),
 			agentId: "cursor",
 			summary: summary || "Cursor Agent 未返回结果",
 			exitCode: result.exitCode,

@@ -2,23 +2,28 @@ import { app, BrowserWindow, ipcMain, screen, shell } from "electron";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ContextEngine } from "@fold/context";
-import { openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal } from "@fold/connectors";
+import { createNangoConnectLink, openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal, openOfficeSetupInTerminal, cancelConnectFlow, pollConnectFlow, resolveConnectTarget, startConnectFlow } from "@fold/connectors";
 import { saveContextEvent } from "@fold/memory";
 import { runTask, type FoldStateEvent, type UserActionRequest } from "@fold/runtime";
+import { getAppIconDataUrl, resolveAppBundlePath } from "./app-icon.js";
 import { applyConfigToEnv, hasRealAsr, loadConfig, saveConfig, type FoldConfig } from "./config.js";
 import { buildHomeSnapshot } from "./home-snapshot.js";
+import { buildEpisodeDetail, listEpisodesForHome } from "./episode-detail.js";
 import { startToggleHotkey } from "./hotkey.js";
 import { createTray } from "./tray.js";
+import { createFoldAppIcon } from "./tray-icon.js";
 
 applyConfigToEnv();
 
 const contextEngine = new ContextEngine({
+	ignoreApps: ["Electron", "Fold", "fold"],
 	onEvent: (event) => {
 		try {
 			saveContextEvent(event);
 		} catch {
 			// Raw retention should never break foreground agent execution.
 		}
+		settingsWindow?.webContents.send("fold:context-event", event);
 	},
 });
 let overlayWindow: BrowserWindow | null = null;
@@ -32,12 +37,39 @@ let pendingUserAction: {
 	reject: (error: Error) => void;
 	runContext?: Record<string, unknown>;
 } | null = null;
+const appIconCache = new Map<string, string | null>();
+let lastOverlayState: FoldStateEvent = { status: "idle" };
 
 function emitState(state: FoldStateEvent) {
-	overlayWindow?.webContents.send("fold:state", state);
+	lastOverlayState = { ...lastOverlayState, ...state };
+	if (!overlayWindow || overlayWindow.isDestroyed()) {
+		createOverlayWindow();
+		return;
+	}
+	const { webContents } = overlayWindow;
+	if (webContents.isDestroyed()) return;
+	try {
+		webContents.send("fold:state", state);
+	} catch {
+		// Overlay reload/HMR can dispose the render frame mid-task.
+	}
+}
+
+function syncDockVisibility() {
+	if (process.platform !== "darwin") return;
+	const devMode = Boolean(process.env.VITE_DEV_SERVER_URL);
+	const settingsOpen = Boolean(settingsWindow && !settingsWindow.isDestroyed());
+	if (devMode || settingsOpen) {
+		app.dock?.setIcon(createFoldAppIcon());
+		app.dock?.show();
+		return;
+	}
+	app.dock?.hide();
 }
 
 function createOverlayWindow() {
+	if (overlayWindow && !overlayWindow.isDestroyed()) return;
+
 	const { workArea } = screen.getPrimaryDisplay();
 
 	overlayWindow = new BrowserWindow({
@@ -77,7 +109,9 @@ function createOverlayWindow() {
 		overlayWindow = null;
 	});
 
-	emitState({ status: "idle" });
+	overlayWindow.webContents.once("did-finish-load", () => {
+		emitState(lastOverlayState);
+	});
 }
 
 function openSettingsWindow(section?: string) {
@@ -88,6 +122,7 @@ function openSettingsWindow(section?: string) {
 		if (section) {
 			settingsWindow.webContents.send("fold:home-navigate", section);
 		}
+		syncDockVisibility();
 		return;
 	}
 
@@ -124,6 +159,7 @@ function openSettingsWindow(section?: string) {
 	settingsWindow.loadURL(settingsUrl);
 	settingsWindow.once("ready-to-show", () => {
 		settingsWindow?.show();
+		syncDockVisibility();
 	});
 	settingsWindow.webContents.once("did-finish-load", () => {
 		if (pendingHomeSection) {
@@ -133,6 +169,7 @@ function openSettingsWindow(section?: string) {
 	});
 	settingsWindow.on("closed", () => {
 		settingsWindow = null;
+		syncDockVisibility();
 	});
 }
 
@@ -145,6 +182,14 @@ async function runUserAction(optionId: string, context?: Record<string, unknown>
 		case "gmail:open-browser":
 			await shell.openExternal("https://mail.google.com/mail/u/0/#inbox");
 			break;
+		case "nango:connect": {
+			const link = await createNangoConnectLink();
+			await shell.openExternal(link);
+			break;
+		}
+		case "nango:dashboard":
+			await shell.openExternal("https://app.nango.dev");
+			break;
 		case "screen:open-settings":
 			await shell.openExternal(
 				"x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
@@ -152,12 +197,28 @@ async function runUserAction(optionId: string, context?: Record<string, unknown>
 			break;
 		case "cdp:open-chrome-help":
 			await shell.openExternal(
-				"https://developer.chrome.com/docs/devtools/remote-debugging/local-server",
+				"https://playwright.dev/mcp/configuration/browser-extension",
+			);
+			break;
+		case "cdp:open-remote-debugging":
+			await shell.openExternal("chrome://inspect/#remote-debugging");
+			break;
+		case "cdp:install-bridge":
+			await shell.openExternal(
+				"https://chromewebstore.google.com/detail/playwright-mcp-bridge/mmlmfjhmonkocbjadbfplnigmagldckm",
 			);
 			break;
 		case "codex:install-terminal":
 			openCodexInstallInTerminal();
 			break;
+		case "office:install-terminal":
+		case "office:login-terminal": {
+			const channel = typeof context?.channel === "string" ? context.channel : "";
+			const kind = optionId === "office:login-terminal" ? "login" : "install";
+			const result = openOfficeSetupInTerminal(channel, kind);
+			if (!result.opened && result.url) await shell.openExternal(result.url);
+			break;
+		}
 		case "claude:login-terminal":
 			openClaudeLoginInTerminal();
 			break;
@@ -202,7 +263,15 @@ const IPC_HANDLE_CHANNELS = [
 	"fold:save-config",
 	"fold:get-mock-asr",
 	"fold:get-home-snapshot",
+	"fold:get-live-context",
+	"fold:get-app-icon",
+	"fold:list-episodes",
+	"fold:get-episode",
 	"fold:connection-action",
+	"fold:connect-flow-start",
+	"fold:connect-flow-poll",
+	"fold:connect-flow-cancel",
+	"fold:open-external",
 	"fold:run-task",
 	"fold:retry-task",
 	"fold:ask-response",
@@ -232,8 +301,56 @@ function registerIpc() {
 		buildHomeSnapshot(() => contextEngine.getLiveContext()),
 	);
 
+	// 轻量版实时上下文（不带连接探测），供 Home 窗口高频刷新
+	ipcMain.handle("fold:get-live-context", () => {
+		const ctx = contextEngine.getLiveContext();
+		return {
+			activeApp: ctx.activeApp,
+			activeWindow: ctx.activeWindow,
+			activeAppPath: ctx.activeAppPath,
+			events: ctx.events.slice(-50),
+		};
+	});
+
+	ipcMain.handle("fold:get-app-icon", (_e, appPath: string, appName?: string) => {
+		const cacheKey = appPath?.endsWith(".app") ? appPath : `name:${appName ?? appPath}`;
+		if (!cacheKey || cacheKey === "name:") return null;
+		const cached = appIconCache.get(cacheKey);
+		if (cached !== undefined) return cached;
+		const dataUrl = getAppIconDataUrl(appPath, appName);
+		appIconCache.set(cacheKey, dataUrl);
+		return dataUrl;
+	});
+
+	ipcMain.handle("fold:list-episodes", () => listEpisodesForHome(50));
+
+	ipcMain.handle("fold:get-episode", (_e, id: string) => {
+		if (!id) return null;
+		return buildEpisodeDetail(id);
+	});
+
 	ipcMain.handle("fold:connection-action", async (_e, action: string, context?: Record<string, unknown>) => {
 		await runUserAction(action, context);
+		return { ok: true };
+	});
+
+	ipcMain.handle("fold:connect-flow-start", async (_e, connectionId: string, kind: "login" | "install") => {
+		const target = resolveConnectTarget(connectionId);
+		if (!target) throw new Error(`未知连接: ${connectionId}`);
+		return startConnectFlow(target, kind);
+	});
+
+	ipcMain.handle("fold:connect-flow-poll", async (_e, sessionId: string) => pollConnectFlow(sessionId));
+
+	ipcMain.handle("fold:connect-flow-cancel", async (_e, sessionId: string) => {
+		cancelConnectFlow(sessionId);
+		return { ok: true };
+	});
+
+	ipcMain.handle("fold:open-external", async (_e, url: string) => {
+		if (typeof url === "string" && /^https?:\/\//i.test(url)) {
+			await shell.openExternal(url);
+		}
 		return { ok: true };
 	});
 
@@ -327,8 +444,9 @@ function registerHotkeys() {
 
 app.whenReady().then(() => {
 	if (process.platform === "darwin") {
-		app.dock?.hide();
+		app.setName("Fold");
 	}
+	syncDockVisibility();
 
 	contextEngine.start();
 	createOverlayWindow();
@@ -348,10 +466,3 @@ app.on("will-quit", () => {
 app.on("window-all-closed", () => {
 	// menu bar app — keep running
 });
-
-// Vite HMR can reload preload/main out of sync; re-register handles when main hot-reloads.
-if (import.meta.hot) {
-	import.meta.hot.accept(() => {
-		if (app.isReady()) registerIpc();
-	});
-}
