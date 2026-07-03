@@ -1,6 +1,6 @@
 import { generateText } from "ai";
 import { z } from "zod";
-import { buildPlannerPrompt } from "./prompt.js";
+import { buildPlannerPrompt, buildReplannerPrompt, type ReplannerPromptInput } from "./prompt.js";
 import { toLanguageModel } from "./providers.js";
 import { resolveModelChoice } from "./types.js";
 
@@ -38,6 +38,19 @@ export async function generateActionPlan(input: {
 	});
 
 	return normalizeActionPlan(input.intent, parseActionPlan(text));
+}
+
+/** LLM Replanner：把失败上下文回喂 planner，生成换路线的恢复计划。 */
+export async function generateRecoveryPlan(input: ReplannerPromptInput): Promise<ActionPlan> {
+	const choice = resolveModelChoice("planner");
+	const model = toLanguageModel(choice);
+
+	const { text } = await generateText({
+		model,
+		prompt: buildReplannerPrompt(input),
+	});
+
+	return parseActionPlan(text);
 }
 
 export function isMailCountIntent(intent: string): boolean {

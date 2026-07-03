@@ -297,7 +297,18 @@ function summarizeTaskResult(
 	const mailStep = steps.find((s) => s.skill === "mail.draft");
 	const unreadStep = steps.find((s) => s.skill === "mail.countUnread" && s.status === "success");
 	const pdfStep = steps.find((s) => s.skill === "pdf.extract");
-	const shellStep = steps.find((s) => s.skill === "os.shell" && s.status === "success");
+	const shellStep = steps.find(
+		(s) =>
+			s.skill === "os.shell" &&
+			s.status === "success" &&
+			(s.output as { exitCode?: number } | undefined)?.exitCode === 0,
+	);
+	const pythonStep = steps.find(
+		(s) =>
+			s.skill === "os.python" &&
+			s.status === "success" &&
+			(s.output as { exitCode?: number } | undefined)?.exitCode === 0,
+	);
 	const screenshotStep = steps.find((s) => s.skill === "os.screenshot" && s.status === "success");
 	const fields = pdfStep?.output as Record<string, unknown> | undefined;
 	const fieldCount = fields ? Object.keys(fields).filter((k) => fields[k]).length : 0;
@@ -321,6 +332,10 @@ function summarizeTaskResult(
 		if (wantsCount) return `已找到 ${lineCount} 条结果`;
 		if (stdout) return lineCount > 1 ? `已找到 ${lineCount} 条结果` : `结果：${stdout.slice(0, 120)}`;
 		return "命令执行完成";
+	}
+	const pythonStdout = (pythonStep?.output as { stdout?: string } | undefined)?.stdout?.trim();
+	if (pythonStdout) {
+		return pythonStdout.split(/\r?\n/).slice(0, 3).join(" ").slice(0, 200);
 	}
 	return validationOk ? `已完成：${intent}` : `部分完成：${intent}`;
 }
