@@ -3,6 +3,7 @@ export {
 	collectSkillValidators,
 	executeSkill,
 	labelForSkill,
+	labelForStep,
 	listSkillManifests,
 	listSkills,
 	type SkillContext,

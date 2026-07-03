@@ -1,6 +1,50 @@
 export { runTask, runMockTask } from "./orchestrator.js";
-export { formatThinkingText, buildResultDetail } from "./format-result.js";
-export { labelForSkill } from "./step-labels.js";
+export {
+	buildPredictions,
+	buildSituationFingerprint,
+	clearPredictCache,
+	episodeSituationFingerprint,
+	getPredictCacheKey,
+	getPredictions,
+	needsScreenCalibration,
+	refreshPredictCache,
+	similarityScore,
+	type PredictEnrichment,
+	type PredictMode,
+	type PredictResult,
+	type PredictSuggestion,
+	type SituationFingerprint,
+} from "./predict.js";
+export { extractEntityTokens } from "./entity-extract.js";
+export {
+	formatPlannerMemory,
+	formatTracesForPlanner,
+	retrieveSimilarTraces,
+	type EpisodeTrace,
+} from "./trace-retrieval.js";
+export {
+	anchorFromObjects,
+	primaryInformationObject,
+	resolveInformationObjects,
+	type InformationObject,
+	type InformationObjectInput,
+	type InformationObjectKind,
+} from "./information-object.js";
+export {
+	matchRoutinesForTrail,
+	mineRoutinesFromEpisodes,
+	trailTokensFromEpisode,
+	type MinedRoutine,
+} from "./routine-mining.js";
+export {
+	buildResultDetail,
+	buildUserVisibleSummary,
+	formatEpisodeSummaryDisplay,
+	formatThinkingText,
+	isRawPayloadText,
+	summaryFromJsonPayload,
+} from "./format-result.js";
+export { labelForSkill, labelForStep } from "./step-labels.js";
 export { runPlan } from "./executor.js";
 export { formatRelevantEpisodes } from "./episode-context.js";
 export { formatProbeSummary, runProbes } from "./probe-runner.js";

@@ -362,6 +362,36 @@ export function labelForSkill(skill: string): string {
 	return REGISTRY.find((s) => s.id === skill)?.label ?? skill;
 }
 
+const OFFICE_CHANNEL_LABELS: Record<string, string> = {
+	feishu: "飞书",
+	github: "GitHub",
+	dingtalk: "钉钉",
+	wecom: "企业微信",
+	slack: "Slack",
+};
+
+/** 带上下文的中文步骤名（如 office.cli → 飞书 CLI）。 */
+export function labelForStep(
+	skill: string,
+	ctx?: { output?: unknown; args?: Record<string, unknown> },
+): string {
+	if (skill === "office.cli") {
+		const channel =
+			(ctx?.output as { channel?: string } | undefined)?.channel ??
+			(typeof ctx?.args?.channel === "string" ? ctx.args.channel : undefined);
+		if (channel && OFFICE_CHANNEL_LABELS[channel]) {
+			return `${OFFICE_CHANNEL_LABELS[channel]} CLI`;
+		}
+	}
+	if (skill === "plugin.cli") {
+		const plugin =
+			(ctx?.output as { plugin?: string } | undefined)?.plugin ??
+			(typeof ctx?.args?.plugin === "string" ? ctx.args.plugin : undefined);
+		if (typeof plugin === "string" && plugin.trim()) return `${plugin} CLI`;
+	}
+	return labelForSkill(skill);
+}
+
 /** 合并全部 manifest 的验证规则表。 */
 export function collectSkillValidators(): Record<string, SkillValidator> {
 	const rules: Record<string, SkillValidator> = {};

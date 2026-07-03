@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { FoldStateEvent } from "@fold/runtime";
+import type { FoldStateEvent, PredictSuggestion } from "@fold/runtime";
 
 interface OverlayStore extends FoldStateEvent {
 	voiceLevel: number;
@@ -22,6 +22,9 @@ export const useOverlayStore = create<OverlayStore>((set) => ({
 	askMessage: null,
 	askHint: null,
 	askOptions: undefined,
+	predictMode: null,
+	predictAnchor: null,
+	predictSuggestions: undefined,
 	voiceLevel: 0,
 	setState: (partial) => set((s) => ({ ...s, ...partial })),
 	setVoiceLevel: (level) => set({ voiceLevel: level }),
@@ -40,6 +43,11 @@ export const useOverlayStore = create<OverlayStore>((set) => ({
 			askMessage: null,
 			askHint: null,
 			askOptions: undefined,
+			predictMode: null,
+			predictAnchor: null,
+			predictSuggestions: undefined,
 			voiceLevel: 0,
 		}),
 }));
+
+export type { PredictSuggestion };

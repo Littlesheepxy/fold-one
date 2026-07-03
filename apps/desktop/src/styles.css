@@ -154,6 +154,27 @@ body.fold-home #root {
   padding-right: 8px;
 }
 
+.fold-shell-predict {
+  height: auto;
+  min-height: 48px;
+  align-items: flex-start;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.fold-predict-chip {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 0.08);
+  border: 1px solid rgb(255 255 255 / 0.1);
+  transition: background 120ms ease;
+}
+
+.fold-predict-chip:hover {
+  background: rgb(255 255 255 / 0.14);
+}
+
 .fold-idle-actions {
   display: flex;
   align-items: center;
@@ -1065,6 +1086,22 @@ body:has(.react-grid-item.resizing) {
   font-size: 12px;
   line-height: 1.5;
   color: #3a3a3c;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.fold-episode-summary {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #1d1d1f;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 100%;
 }
 
 .fold-tasks-card-section {
@@ -1177,7 +1214,10 @@ body:has(.react-grid-item.resizing) {
 
 .fold-episode-pre {
   margin: 0;
+  max-width: 100%;
+  overflow-x: auto;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   word-break: break-word;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;

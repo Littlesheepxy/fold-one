@@ -35,11 +35,14 @@ export {
 	connectBrowser,
 	getChromeCdpUrl,
 	getCurrentBrowserPage,
+	listChromeTabsViaAppleScript,
+	pickActiveChromeTab,
 	probeBrowserCdp,
 	withBrowserSession,
 	type BrowserCdpProbe,
 	type BrowserPageInfo,
 	type BrowserSession,
+	type ChromeTabInfo,
 } from "./browser/index.js";
 export {
 	browserInteract,
@@ -134,6 +137,8 @@ export {
 export {
 	captureScreenshot,
 	probeScreenCapture,
+	readFrontWindowAccessibilityText,
+	type FrontWindowAccessibility,
 	type ScreenshotResult,
 	type ScreenshotTarget,
 	type ScreenCaptureProbe,

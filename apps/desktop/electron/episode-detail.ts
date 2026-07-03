@@ -1,5 +1,14 @@
 import { getEpisodeById, listRecentEpisodes, type Episode, type EpisodeSummary as MemoryEpisodeSummary } from "@fold/memory";
-import { buildResultDetail, formatThinkingText, labelForSkill, type StepResult } from "@fold/runtime";
+import {
+	buildResultDetail,
+	formatEpisodeSummaryDisplay,
+	formatThinkingText,
+	isRawPayloadText,
+	labelForStep,
+	summaryFromJsonPayload,
+	type StepResult,
+} from "@fold/runtime";
+import type { ActionPlan } from "@fold/ai";
 import { resolveAppBundlePath } from "./app-icon.js";
 
 export interface EpisodeListItem {
@@ -58,10 +67,13 @@ export function listEpisodesForHome(limit = 50): EpisodeListItem[] {
 function buildEpisodeListItem(ep: Episode): EpisodeListItem {
 	const summaryObj = parseJson<MemoryEpisodeSummary | null>(ep.summaryJson, null);
 	const rawSteps = parseJson<EpisodeStep[]>(ep.stepsJson, []);
+	const plan = parseJson<ActionPlan | null>(ep.planJson, null);
 	const steps = rawSteps.map((step) => ({
 		stepId: step.stepId,
 		skill: step.skill,
-		label: labelForSkill(step.skill),
+		label:
+			step.label ??
+			labelForStep(step.skill, { args: plan?.steps.find((s) => s.id === step.stepId)?.args }),
 		status: step.status,
 	}));
 	const contextEvents = parseJson<Array<{ type?: string; data?: { appName?: string; appPath?: string } }>>(
@@ -91,7 +103,7 @@ function buildEpisodeListItem(ep: Episode): EpisodeListItem {
 		goal: ep.goal,
 		status: ep.status,
 		timestamp: ep.timestamp,
-		summary: ep.summary,
+		summary: resolveEpisodeSummary(ep, rawSteps),
 		durationMs: ep.durationMs,
 		steps,
 		apps: [...apps.values()],
@@ -120,12 +132,31 @@ function resolveThinkingText(ep: Episode): string {
 }
 
 function resolveResultDetail(ep: Episode, rawSteps: EpisodeStep[]): string | null {
-	if (ep.resultDetail?.trim()) return ep.resultDetail.trim();
-	if (rawSteps.length === 0) return ep.summary || null;
-	return buildResultDetail(
-		ep.intent,
-		rawSteps as Array<Pick<StepResult, "skill" | "status" | "output" | "error">>,
-	);
+	const stored = ep.resultDetail?.trim();
+	if (stored && !isRawPayloadText(stored)) return stored;
+
+	if (rawSteps.length > 0) {
+		const built = buildResultDetail(
+			ep.intent,
+			rawSteps as Array<Pick<StepResult, "skill" | "status" | "output" | "error">>,
+		);
+		if (built && !isRawPayloadText(built)) return built;
+	}
+
+	if (stored) {
+		const fromJson = summaryFromJsonPayload(stored);
+		if (fromJson) return fromJson;
+	}
+	return null;
+}
+
+function resolveEpisodeSummary(ep: Episode, rawSteps: EpisodeStep[]): string {
+	return formatEpisodeSummaryDisplay({
+		summary: ep.summary,
+		resultDetail: resolveResultDetail(ep, rawSteps),
+		intent: ep.intent,
+		status: ep.status,
+	});
 }
 
 type EpisodeStep = {
@@ -134,6 +165,7 @@ type EpisodeStep = {
 	status: string;
 	durationMs: number;
 	error?: string;
+	label?: string;
 };
 
 export function buildEpisodeDetail(id: string): EpisodeDetailDTO | null {
@@ -141,9 +173,12 @@ export function buildEpisodeDetail(id: string): EpisodeDetailDTO | null {
 	if (!ep) return null;
 
 	const rawSteps = parseJson<EpisodeStep[]>(ep.stepsJson, []);
+	const plan = parseJson<ActionPlan | null>(ep.planJson, null);
 	const steps = rawSteps.map((step) => ({
 		...step,
-		label: labelForSkill(step.skill),
+		label:
+			step.label ??
+			labelForStep(step.skill, { args: plan?.steps.find((s) => s.id === step.stepId)?.args }),
 	}));
 	const resultDetail = resolveResultDetail(ep, rawSteps);
 
@@ -153,7 +188,7 @@ export function buildEpisodeDetail(id: string): EpisodeDetailDTO | null {
 		goal: ep.goal,
 		status: ep.status,
 		timestamp: ep.timestamp,
-		summary: ep.summary,
+		summary: resolveEpisodeSummary(ep, rawSteps),
 		durationMs: ep.durationMs,
 		thinkingText: resolveThinkingText(ep),
 		resultDetail,

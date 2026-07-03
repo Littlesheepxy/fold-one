@@ -130,9 +130,12 @@ function EpisodeDetailView({
 								{statusBadge(detail.status).label}
 							</span>
 						</div>
-						<div className="mt-3.5 border-t border-black/5 pt-3.5">
-							<p className="text-[13px] leading-relaxed text-[#1d1d1f]">{detail.summary || "—"}</p>
-						</div>
+						{detail.summary && (
+							<div className="fold-tasks-result-box mt-3.5">
+								<span className="fold-tasks-result-label">结果</span>
+								<p className="fold-episode-summary">{detail.summary}</p>
+							</div>
+						)}
 					</Card>
 
 					<Card title="执行步骤">
@@ -161,8 +164,8 @@ function EpisodeDetailView({
 						)}
 					</Card>
 
-					{detail.resultDetail && (
-						<Collapse title="结果详情" defaultOpen>
+					{detail.resultDetail && detail.resultDetail !== detail.summary && (
+						<Collapse title="结果详情">
 							<pre className="fold-episode-pre">{detail.resultDetail}</pre>
 						</Collapse>
 					)}
@@ -254,7 +257,7 @@ function TaskEpisodeCard({ ep, onClick }: { ep: EpisodeSummary; onClick: () => v
 			{ep.summary && (
 				<div className="fold-tasks-result-box">
 					<span className="fold-tasks-result-label">结果</span>
-					<p className="line-clamp-3">{ep.summary}</p>
+					<p className="fold-tasks-result-text">{ep.summary}</p>
 				</div>
 			)}
 

@@ -1,7 +1,7 @@
 import type { ActionPlan, ActionStep } from "@fold/ai";
 import { connectorLabel, resolveMailConnector } from "@fold/connectors";
 import { executeSkill, type SkillContext } from "@fold/skills";
-import { labelForSkill } from "./step-labels.js";
+import { labelForStep } from "./step-labels.js";
 import type { StepResult, StateEmitter, StepView } from "./types.js";
 
 export interface StepFailure extends StepResult {
@@ -16,7 +16,7 @@ function stepViews(
 ): StepView[] {
 	return plan.steps.map((s) => ({
 		id: s.id,
-		label: labelForSkill(s.skill),
+		label: labelForStep(s.skill, { args: s.args }),
 		status:
 			s.id === runningId
 				? "running"

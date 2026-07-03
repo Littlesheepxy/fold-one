@@ -13,6 +13,11 @@ export {
 	type BrowserSession,
 } from "./cdp.js";
 export {
+	listChromeTabsViaAppleScript,
+	pickActiveChromeTab,
+	type ChromeTabInfo,
+} from "./chrome-tabs.js";
+export {
 	browserInteract,
 	type BrowserInteractAction,
 	type BrowserInteractInput,

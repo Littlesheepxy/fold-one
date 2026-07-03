@@ -11,6 +11,8 @@ export interface EpisodeStep {
 	status: string;
 	durationMs: number;
 	error?: string;
+	/** 展示用步骤名（含渠道，如「飞书 CLI」） */
+	label?: string;
 }
 
 export interface EpisodeSummary {

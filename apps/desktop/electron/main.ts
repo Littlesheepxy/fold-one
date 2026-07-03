@@ -5,6 +5,7 @@ import { ContextEngine } from "@fold/context";
 import { createNangoConnectLink, openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal, openOfficeSetupInTerminal, cancelConnectFlow, pollConnectFlow, resolveConnectTarget, startConnectFlow } from "@fold/connectors";
 import { saveContextEvent } from "@fold/memory";
 import { runTask, type FoldStateEvent, type UserActionRequest } from "@fold/runtime";
+import { refreshPredictCacheEnriched, resolvePredictions } from "./predict-enrich.js";
 import { getAppIconDataUrl, resolveAppBundlePath } from "./app-icon.js";
 import { applyConfigToEnv, hasRealAsr, loadConfig, saveConfig, type FoldConfig } from "./config.js";
 import { buildHomeSnapshot } from "./home-snapshot.js";
@@ -24,6 +25,10 @@ const contextEngine = new ContextEngine({
 			// Raw retention should never break foreground agent execution.
 		}
 		settingsWindow?.webContents.send("fold:context-event", event);
+		if (predictRefreshTimer) clearTimeout(predictRefreshTimer);
+		predictRefreshTimer = setTimeout(() => {
+			void refreshPredictCacheEnriched(contextEngine.getLiveContext());
+		}, 4000);
 	},
 });
 let overlayWindow: BrowserWindow | null = null;
@@ -37,6 +42,7 @@ let pendingUserAction: {
 	reject: (error: Error) => void;
 	runContext?: Record<string, unknown>;
 } | null = null;
+let predictRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 const appIconCache = new Map<string, string | null>();
 let lastOverlayState: FoldStateEvent = { status: "idle" };
 
@@ -243,10 +249,11 @@ function requestUserAction(req: UserActionRequest): Promise<string> {
 
 async function executeTask(intent: string) {
 	if (!intent.trim()) {
-		emitState({ status: "idle" });
+		emitState({ status: "idle", ...clearPredictState() });
 		return;
 	}
 	lastIntent = intent.trim();
+	emitState({ ...clearPredictState() });
 	try {
 		await runTask(lastIntent, emitState, {
 			getLiveContext: () => contextEngine.getLiveContext(),
@@ -255,7 +262,37 @@ async function executeTask(intent: string) {
 		});
 	} catch (err) {
 		emitState({ status: "error", error: (err as Error).message });
+	} finally {
+		void refreshPredictCacheEnriched(contextEngine.getLiveContext());
 	}
+}
+
+function clearPredictState(): Partial<FoldStateEvent> {
+	return {
+		predictMode: null,
+		predictAnchor: null,
+		predictSuggestions: undefined,
+	};
+}
+
+function showPredictions() {
+	createOverlayWindow();
+	emitState({
+		status: "predict",
+		...clearPredictState(),
+		predictMode: "fast",
+		predictAnchor: "正在读取 Chrome 标签与历史…",
+		predictSuggestions: [],
+	});
+	void resolvePredictions(contextEngine.getLiveContext()).then((result) => {
+		emitState({
+			status: "predict",
+			...clearPredictState(),
+			predictMode: result.mode,
+			predictAnchor: result.anchor,
+			predictSuggestions: result.suggestions,
+		});
+	});
 }
 
 const IPC_HANDLE_CHANNELS = [
@@ -396,7 +433,7 @@ function registerIpc() {
 			pendingUserAction.reject(new Error("用户取消了授权"));
 			pendingUserAction = null;
 		}
-		emitState({ status: "idle" });
+		emitState({ status: "idle", ...clearPredictState() });
 	});
 
 	ipcMain.handle("fold:toggle-voice", () => {
@@ -434,11 +471,17 @@ function registerHotkeys() {
 	stopHotkey = startToggleHotkey(
 		toggleVoiceRecording,
 		() => {
-			if (!isRecording) return;
-			isRecording = false;
-			overlayWindow?.webContents.send("fold:hotkey-cancel");
-			emitState({ status: "idle" });
+			if (isRecording) {
+				isRecording = false;
+				overlayWindow?.webContents.send("fold:hotkey-cancel");
+				emitState({ status: "idle", ...clearPredictState() });
+				return;
+			}
+			if (lastOverlayState.status === "predict") {
+				emitState({ status: "idle", ...clearPredictState() });
+			}
 		},
+		showPredictions,
 	);
 }
 
@@ -451,6 +494,7 @@ app.whenReady().then(() => {
 	contextEngine.start();
 	createOverlayWindow();
 	registerHotkeys();
+	void refreshPredictCacheEnriched(contextEngine.getLiveContext());
 
 	createTray({
 		onOpenSettings: openSettingsWindow,

@@ -213,6 +213,87 @@ function compactSummary(result: string | null | undefined) {
 	return result ?? "Fold 已完成任务";
 }
 
+function PredictSuggestions({
+	anchor,
+	suggestions,
+	mode,
+	onRun,
+	onDismiss,
+}: {
+	anchor: string | null | undefined;
+	suggestions: Array<{ intent: string; label: string; confidence: number; reason: string }>;
+	mode: string | null | undefined;
+	onRun: (intent: string) => void;
+	onDismiss: () => void;
+}) {
+	if (mode === "silent" || !suggestions.length) {
+		const isLoading = anchor?.includes("正在读取");
+		return (
+			<div className="min-w-0 flex-1">
+				<p className="text-sm font-medium whitespace-nowrap">
+					{isLoading ? anchor : "暂无高把握推荐"}
+				</p>
+				{!isLoading && (
+					<p className="mt-1 text-xs text-white/45">多执行几次任务后，Fold 会根据你的习惯预测下一步</p>
+				)}
+				{!isLoading && (
+					<button
+						type="button"
+						onClick={(e) => {
+							e.stopPropagation();
+							onDismiss();
+						}}
+						className="mt-2 rounded-full bg-white/10 px-2.5 py-1 text-xs text-white/70 hover:bg-white/20"
+					>
+						关闭
+					</button>
+				)}
+			</div>
+		);
+	}
+
+	return (
+		<div className="min-w-0 flex-1 space-y-2">
+			<div>
+				<p className="text-sm font-medium">猜你想做</p>
+				{anchor && (
+					<p className="mt-0.5 truncate text-xs text-white/50" title={anchor}>
+						📍 {anchor}
+					</p>
+				)}
+			</div>
+			<ul className="space-y-1.5">
+				{suggestions.map((s) => (
+					<li key={s.intent}>
+						<button
+							type="button"
+							className="fold-predict-chip w-full text-left"
+							title={`${s.reason} · ${s.intent}`}
+							onClick={(e) => {
+								e.stopPropagation();
+								onRun(s.intent);
+							}}
+						>
+							<span className="block truncate text-[13px] font-medium text-white">{s.label}</span>
+							<span className="mt-0.5 block truncate text-[10px] text-white/45">{s.reason}</span>
+						</button>
+					</li>
+				))}
+			</ul>
+			<button
+				type="button"
+				onClick={(e) => {
+					e.stopPropagation();
+					onDismiss();
+				}}
+				className="text-[10px] text-white/40 hover:text-white/60"
+			>
+				Esc 关闭
+			</button>
+		</div>
+	);
+}
+
 const EDGE_GAP = 12;
 const ORB_SIZE = 48;
 const DOCKED_WIDTH = 78;
@@ -276,6 +357,9 @@ export function OverlayApp() {
 		askMessage,
 		askHint,
 		askOptions,
+		predictMode,
+		predictAnchor,
+		predictSuggestions,
 		setState,
 	} = useOverlayStore();
 
@@ -319,8 +403,11 @@ export function OverlayApp() {
 		if (prevStatusRef.current === "idle" && status !== "idle") {
 			playExpandSound();
 		}
+		if (status === "predict") {
+			playExpandSound();
+		}
 		if (status !== "done") setDetailsOpen(false);
-		if (status !== "idle") setPanelOpen(false);
+		if (status !== "idle" && status !== "predict") setPanelOpen(false);
 		if (status !== "idle") setIdleRailOpen(false);
 		prevStatusRef.current = status;
 	}, [status]);
@@ -351,6 +438,8 @@ export function OverlayApp() {
 			? 360
 			: status === "idle"
 				? idleShellWidth
+			: status === "predict"
+				? 400
 			: status === "working" || status === "planning" || status === "understanding"
 				? 300
 				: status === "done"
@@ -437,6 +526,8 @@ export function OverlayApp() {
 					} ${
 						!collapsed && status === "idle" ? "fold-shell-idle" : ""
 					} ${
+						status === "predict" ? "fold-shell-predict fold-shell-expanded" : ""
+					} ${
 						dockedSide ? `fold-shell-docked fold-shell-docked-${dockedSide}` : ""
 					} ${
 						!collapsed && anchorPosition.snapSide ? `fold-shell-expanded-docked-${anchorPosition.snapSide}` : ""
@@ -481,7 +572,7 @@ export function OverlayApp() {
 									<>
 										<div className="min-w-0 flex-1">
 											<p className="text-sm font-medium whitespace-nowrap">Fold 准备好了</p>
-											<p className="mt-1 text-xs text-white/45 whitespace-nowrap">点开始语音，或按 ⌥ Space</p>
+											<p className="mt-1 text-xs text-white/45 whitespace-nowrap">⌥ Space 语音 · ⌥ Z 猜你想做</p>
 										</div>
 										<button
 											type="button"
@@ -495,6 +586,16 @@ export function OverlayApp() {
 										</button>
 										<IdleActionRail onOpenChange={setIdleRailOpen} />
 									</>
+								)}
+
+								{status === "predict" && (
+									<PredictSuggestions
+										anchor={predictAnchor}
+										suggestions={predictSuggestions ?? []}
+										mode={predictMode}
+										onRun={(intent) => void window.fold.runTask(intent)}
+										onDismiss={() => void window.fold.dismiss()}
+									/>
 								)}
 
 								{status === "listening" && (

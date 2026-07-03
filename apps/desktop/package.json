@@ -14,6 +14,7 @@
     "@fold/context": "workspace:*",
     "@fold/memory": "workspace:*",
     "@fold/runtime": "workspace:*",
+    "@fold/skills": "workspace:*",
     "@fold/voice": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@playwright/mcp": "^0.0.77",

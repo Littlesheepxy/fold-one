@@ -3,12 +3,23 @@ import type { ActionPlan } from "@fold/ai";
 export type OverlayStatus =
 	| "idle"
 	| "listening"
+	| "predict"
 	| "understanding"
 	| "planning"
 	| "working"
 	| "done"
 	| "error"
 	| "ask";
+
+export type PredictMode = "silent" | "fast" | "full";
+
+export interface PredictSuggestion {
+	intent: string;
+	label: string;
+	confidence: number;
+	reason: string;
+	sourceEpisodeId?: string;
+}
 
 export interface StepView {
 	id: string;
@@ -34,6 +45,10 @@ export interface FoldStateEvent {
 	askMessage?: string | null;
 	askHint?: string | null;
 	askOptions?: Array<{ id: string; label: string }>;
+	/** ⌥Z 情境预测 */
+	predictMode?: PredictMode | null;
+	predictAnchor?: string | null;
+	predictSuggestions?: PredictSuggestion[];
 }
 
 export interface UserActionOption {
