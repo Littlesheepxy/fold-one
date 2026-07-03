@@ -7,6 +7,7 @@ Safety policy:
 - Prefer Gmail vendor CLI (gog/gws) when installed; use browser CDP only when no CLI binary is on PATH.
 - For 飞书/GitHub/钉钉/企业微信/Slack operations (多维表格、文档、日历、issue、PR、待办、群消息), prefer office.cli when probe office.channels shows the channel installed+authed; use browser automation only as fallback.
 - office.cli is read-write: creating/updating records or sending messages is allowed when the user asked for it.
+- plugin.cli may only reference plugin ids listed under "Installed plugins"; check probe plugin.channels for auth state. Use plugin.scout only when the user explicitly asks to integrate a new service.
 - When the user names Gmail explicitly, mail skills must target Gmail CLI first, not Apple Mail.
 - Complete the user's intent with a concrete outcome; do not stop at partial progress if another catalog skill can finish the job.
 - Completion mandate: when the user states a clear, actionable request, the plan must produce a user-visible answer or artifact (count, list summary, draft, extracted text, screenshot readout). If faster skills fail validation, escalate: os.screenshot (ocr) before gui.uitars for read-only tasks.

@@ -21,6 +21,16 @@ const BRIDGE_EXTENSION_PREFIX = "chrome-extension://mmlmfjhmonkocbjadbfplnigmagl
 
 let clientPromise: Promise<Client> | null = null;
 
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+	return Promise.race([
+		promise,
+		new Promise<never>((_, reject) => {
+			const timer = setTimeout(() => reject(new Error(message)), ms);
+			timer.unref?.();
+		}),
+	]);
+}
+
 export function getPlaywrightExtensionToken(): string | undefined {
 	return process.env.PLAYWRIGHT_MCP_EXTENSION_TOKEN?.trim() || undefined;
 }
@@ -78,7 +88,12 @@ export async function probePlaywrightExtension(): Promise<ExtensionProbe> {
 		return { configured: false, connected: false, tabCount: 0, tabs: [] };
 	}
 	try {
-		const tabs = await callTabsList();
+		// 扩展未连接时 MCP 连接会无限等待，必须限时，否则拖死整个 probe 阶段
+		const tabs = await withTimeout(
+			callTabsList(),
+			8000,
+			"Playwright Bridge 连接超时：扩展未安装或未连接。请检查扩展状态，或打开一个普通网页标签",
+		);
 		const userTabs = tabs.filter((t) => !t.url.startsWith(BRIDGE_EXTENSION_PREFIX));
 		return {
 			configured: true,

@@ -111,6 +111,15 @@ export {
 	type OfficeCliResult,
 } from "./office/index.js";
 export {
+	getPluginsDir,
+	loadPluginManifests,
+	probePlugins,
+	runPluginCli,
+	type PluginCliResult,
+	type PluginManifest,
+	type PluginProbe,
+} from "./plugins/index.js";
+export {
 	cancelConnectFlow,
 	getConnectFlowSession,
 	pollConnectFlow,
