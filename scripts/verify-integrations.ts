@@ -6,6 +6,7 @@
  *   pnpm dotenv -c -- pnpm exec tsx scripts/verify-integrations.ts --live   # 额外对已登录渠道跑一条只读真实命令
  */
 import {
+	hasNangoGmailConnection,
 	isAgentSubagentsEnabled,
 	listAvailableAgents,
 	loadPluginManifests,
@@ -94,20 +95,22 @@ async function main() {
 			: "装 Playwright MCP Bridge 扩展并在设置里填 Token；或 chrome://inspect 开 Allow remote debugging 后重启 Chrome",
 	});
 
-	// 4. Gmail CLI
+	// 4. Gmail（链路：CLI → Nango 托管 → 浏览器 CDP）
 	const gmail = await probeGmailCli();
+	const nangoGmail = !gmail.available && (await hasNangoGmailConnection());
 	rows.push({
-		name: "Gmail CLI (gog/gws)",
-		ok: gmail.available,
-		warn: !gmail.available && !gmail.backend,
+		name: "Gmail (CLI → Nango → CDP)",
+		ok: gmail.available || nangoGmail,
+		warn: !gmail.available && !gmail.backend && !nangoGmail,
 		detail: gmail.available
-			? `已授权 ${gmail.account ?? ""} (${gmail.backend})`
-			: (gmail.error ?? (gmail.backend ? `${gmail.backend} 未授权` : "未安装")),
-		fix: gmail.available
-			? undefined
-			: gmail.backend
-				? `运行: ${gmail.backend === "gws" ? "gws auth setup" : "gog auth add <email>"}`
-				: "安装 gog（brew install steipete/tap/gog）后 gog auth add",
+			? `CLI 已授权 ${gmail.account ?? ""} (${gmail.backend})`
+			: nangoGmail
+				? "CLI 未授权，走 Nango 托管连接（读未读数/建草稿可用）"
+				: (gmail.error ?? (gmail.backend ? `${gmail.backend} 未授权` : "未安装")),
+		fix:
+			gmail.available || nangoGmail
+				? undefined
+				: "推荐：Nango 授权页连一次 Gmail（连接页「授权新应用」）；或 gog auth add <email>",
 	});
 
 	// 5. 办公渠道
