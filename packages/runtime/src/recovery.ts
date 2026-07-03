@@ -14,7 +14,13 @@ import { buildRepairBrief } from "./repair.js";
 
 export { isWorkflowIntent } from "./capability-resolver.js";
 
-export type RepairBackend = "agent" | "browser" | "uitars" | "workbuddy" | "screenshot";
+export type RepairBackend =
+	| "replan"
+	| "agent"
+	| "browser"
+	| "uitars"
+	| "workbuddy"
+	| "screenshot";
 
 export interface RepairBudget {
 	maxAttempts: number;

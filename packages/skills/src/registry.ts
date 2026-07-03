@@ -236,8 +236,17 @@ const REGISTRY: SkillDefinition[] = [
 		id: "os.python",
 		handler: osPython,
 		label: "运行 Python",
-		catalogDoc:
+		catalogDoc: [
 			"os.python: { code?: string, scriptPath?: string, args?: string[] } -> { stdout, stderr, exitCode }",
+			"  Prefer inline code; only pass scriptPath for a file that already exists. Print the final answer to stdout.",
+		].join("\n"),
+		validators: {
+			"os.python.exitOk": (results) => {
+				const step = findStep(results, "os.python");
+				const output = step?.output as { exitCode?: number } | undefined;
+				return step?.status === "success" && output?.exitCode === 0;
+			},
+		},
 	},
 ];
 

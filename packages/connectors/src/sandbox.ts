@@ -110,7 +110,8 @@ export async function runSandboxedPython(
 	const scriptPath = join(dir, "script.py");
 	try {
 		await writeFile(scriptPath, input.code, "utf8");
-		return runShellDetailed("python3", [scriptPath, ...(input.args ?? [])], timeoutMs);
+		// 必须 await：直接 return promise 会让 finally 提前删掉临时目录
+		return await runShellDetailed("python3", [scriptPath, ...(input.args ?? [])], timeoutMs);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
