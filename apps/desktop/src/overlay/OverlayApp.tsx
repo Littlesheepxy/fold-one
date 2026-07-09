@@ -3,10 +3,10 @@ import { useEffect, useRef, useState } from "react";
 import { useOverlayStore } from "./useOverlayStore";
 import { useVoiceHandlers } from "./useVoice";
 import { useMousePassthrough } from "./useMousePassthrough";
-import { DotMatrixLoader } from "./components/DotMatrixLoader";
+import { GreenCheckMark } from "./components/GreenCheckMark";
+import { VoiceWave } from "./components/VoiceWave";
 import { StepList } from "./components/StepList";
 import { ProgressLine } from "./components/ProgressLine";
-import { TranscriptScroll } from "./components/TranscriptScroll";
 import { AskOptions } from "./components/AskOptions";
 import { PredictConfirmCard } from "./components/PredictConfirmCard";
 import { playFoldSoundForStatus, preloadFoldSounds } from "./sounds.js";
@@ -336,6 +336,7 @@ export function OverlayApp() {
 		askMessage,
 		askHint,
 		askOptions,
+		voiceMode,
 		predictMode,
 		predictPhase,
 		predictSurface,
@@ -345,7 +346,9 @@ export function OverlayApp() {
 		predictSelectedIntent,
 		predictDraftsLoading,
 		predictCursor,
+		voiceLevel,
 		setState,
+		setVoiceLevel,
 	} = useOverlayStore();
 
 	const [mockAsr, setMockAsr] = useState(true);
@@ -402,23 +405,43 @@ export function OverlayApp() {
 	}, [setState]);
 
 	useEffect(() => {
-		const tHandler = (e: Event) => {
-			const text = (e as CustomEvent<string>).detail;
-			setState({ transcript: text, status: "listening" });
+		const handler = (e: Event) => {
+			const level = (e as CustomEvent<number>).detail;
+			if (typeof level === "number") setVoiceLevel(level);
 		};
-		window.addEventListener("fold:transcript-local", tHandler);
+		window.addEventListener("fold:voice-level-local", handler);
+		const off = window.fold.onVoiceLevel((level) => setVoiceLevel(level));
 		return () => {
-			window.removeEventListener("fold:transcript-local", tHandler);
+			window.removeEventListener("fold:voice-level-local", handler);
+			off();
 		};
-	}, [setState]);
+	}, [setVoiceLevel]);
+
+	useEffect(() => {
+		if (status !== "listening") setVoiceLevel(0);
+	}, [status, setVoiceLevel]);
 
 	const isExecuting = status === "understanding" || status === "planning" || status === "working";
 	const isAuthPrompt = status === "ask";
 	const isPredictCard = status === "predict" && Boolean(predictCursor);
+	const inputScene =
+		voiceMode !== "agent" &&
+		(status === "listening" || isExecuting || status === "done");
+	const predictCardPosition =
+		isPredictCard && predictSurface === "reply" && typeof window !== "undefined"
+			? {
+					x: Math.max(12, window.innerWidth / 2 - 184),
+					y: Math.max(12, window.innerHeight - 360),
+				}
+			: predictCursor;
 	const collapsed = (status === "idle" && !panelOpen) || isPredictCard;
 	const dockedSide = collapsed ? anchorPosition.snapSide : null;
 	const idleShellWidth = idleRailOpen ? 424 : 360;
-	const shellWidth = collapsed
+	const shellWidth = inputScene
+		? status === "done"
+			? 58
+			: 118
+		: collapsed
 		? (dockedSide ? DOCKED_WIDTH : ORB_SIZE)
 		: status === "error"
 			? 360
@@ -438,6 +461,7 @@ export function OverlayApp() {
 	const expandedLeft = expandedX(anchorPosition.x, shellWidth, anchorPosition.snapSide ?? null);
 
 	useEffect(() => {
+		if (inputScene) return;
 		if (document.body.dataset.foldDragging === "true") return;
 		const target = {
 			x: collapsed
@@ -451,7 +475,7 @@ export function OverlayApp() {
 		positionRef.current = target;
 		setAnchorPosition(target);
 		window.localStorage.setItem("fold-widget-position", JSON.stringify(target));
-	}, [collapsed, expandedLeft, x, y, shellWidth]);
+	}, [collapsed, expandedLeft, inputScene, x, y, shellWidth]);
 
 	const onDragStart = () => {
 		dragMovedRef.current = true;
@@ -487,7 +511,7 @@ export function OverlayApp() {
 		<div className="fixed inset-0 pointer-events-none">
 			<motion.div
 				data-fold-interactive=""
-				drag
+				drag={!inputScene}
 				dragMomentum={false}
 				onDragStart={onDragStart}
 				onDragEnd={onDragEnd}
@@ -501,12 +525,16 @@ export function OverlayApp() {
 						window.fold.setMousePassthrough(true);
 					}
 				}}
-				style={{ x, y }}
-				className="absolute pointer-events-auto select-none"
+				style={inputScene ? undefined : { x, y }}
+				className={`${inputScene ? "fold-input-tab-anchor" : "absolute"} pointer-events-auto select-none`}
 			>
 				<motion.div
 					className={`fold-shell ${collapsed ? "fold-shell-collapsed" : ""} ${
-						isExecuting ? "fold-shell-executing" : ""
+						inputScene ? "fold-input-tab" : ""
+					} ${
+						isExecuting ? "fold-shell-executing fold-shell-fill" : ""
+					} ${
+						status === "done" ? "fold-shell-fill is-done" : ""
 					} ${
 						!collapsed && (status === "error" || status === "ask") ? "fold-shell-expanded" : ""
 					} ${
@@ -524,10 +552,9 @@ export function OverlayApp() {
 						if (collapsed && !dragMovedRef.current) setPanelOpen(true);
 					}}
 				>
-					{isExecuting && <MultiColorBorderBeam />}
 					{isAuthPrompt && <MultiColorBorderBeam duration={5} />}
 
-					{!isExecuting && !isAuthPrompt && (
+					{!inputScene && !isExecuting && !isAuthPrompt && status !== "done" && (
 						<button
 							type="button"
 							className="fold-logo-button"
@@ -536,11 +563,24 @@ export function OverlayApp() {
 								if (dragMovedRef.current) return;
 								if (collapsed) setPanelOpen(true);
 								else if (status === "idle") setPanelOpen(false);
-								else if (status === "done") void window.fold.dismiss();
 							}}
 							aria-label={collapsed ? "打开 Fold" : "收起 Fold"}
 						>
 							<FoldLogo />
+						</button>
+					)}
+
+					{status === "done" && (
+						<button
+							type="button"
+							className="fold-logo-button"
+							onClick={(e) => {
+								e.stopPropagation();
+								if (status === "done") void window.fold.dismiss();
+							}}
+							aria-label="关闭"
+						>
+							<GreenCheckMark phase="done" />
 						</button>
 					)}
 
@@ -558,7 +598,7 @@ export function OverlayApp() {
 									<>
 										<div className="min-w-0 flex-1">
 											<p className="text-sm font-medium whitespace-nowrap">Fold 准备好了</p>
-											<p className="mt-1 text-xs text-white/45 whitespace-nowrap">⌥ Space 语音 · ⌥ Z 猜你想做</p>
+											<p className="mt-1 text-xs text-white/45 whitespace-nowrap">⌥Space Agent · 右⌘ 整理/拟回复</p>
 										</div>
 										<button
 											type="button"
@@ -585,29 +625,39 @@ export function OverlayApp() {
 								)}
 
 								{status === "listening" && (
-									<>
-										<div className="w-[200px]">
-											<TranscriptScroll text={transcript ?? ""} placeholder="Fold 正在聆听…" />
-											{mockAsr && (
-												<p className="mt-1 text-[10px] text-amber-300/90">Demo 语音 · Settings 填 Key 启用真 ASR</p>
-											)}
-										</div>
-										<button
-											type="button"
-											onClick={(e) => {
-												e.stopPropagation();
-												void window.fold.toggleVoice();
-											}}
-											className="rounded-full bg-white px-3 py-1.5 text-xs font-medium text-black hover:bg-white/90"
-										>
-											结束
-										</button>
-									</>
+									inputScene ? (
+										<>
+											<span className="fold-input-mode">
+												{voiceMode === "reply" ? "代回" : "净化"}
+											</span>
+											<span className="fold-input-separator" />
+											<VoiceWave level={voiceLevel} />
+										</>
+									) : (
+										<>
+											<VoiceWave level={voiceLevel} />
+											<div className="min-w-0 flex-1">
+												<p className="text-sm font-medium whitespace-nowrap">Agent 正在聆听…</p>
+												{mockAsr && (
+													<p className="mt-0.5 text-[10px] text-amber-300/90">Demo 语音 · Settings 填 Key 启用真 ASR</p>
+												)}
+											</div>
+											<button
+												type="button"
+												onClick={(e) => {
+													e.stopPropagation();
+													void window.fold.toggleVoice();
+												}}
+												className="rounded-full bg-white px-3 py-1.5 text-xs font-medium text-black hover:bg-white/90"
+											>
+												结束
+											</button>
+										</>
+									)
 								)}
 
-								{isExecuting && (
+								{isExecuting && !inputScene && (
 									<div className="fold-exec-row">
-										<DotMatrixLoader />
 										<ProgressLine
 											status={status}
 											transcript={transcript}
@@ -619,7 +669,7 @@ export function OverlayApp() {
 									</div>
 								)}
 
-								{status === "done" && (
+								{status === "done" && !inputScene && (
 									<button
 										type="button"
 										className="min-w-0 flex-1 text-left"
@@ -750,10 +800,10 @@ export function OverlayApp() {
 				</AnimatePresence>
 			</motion.div>
 
-			{isPredictCard && predictCursor && (
+			{isPredictCard && predictCardPosition && (
 				<PredictConfirmCard
-					x={predictCursor.x}
-					y={predictCursor.y}
+					x={predictCardPosition.x}
+					y={predictCardPosition.y}
 					phase={predictPhase}
 					surface={predictSurface}
 					anchor={predictAnchor}

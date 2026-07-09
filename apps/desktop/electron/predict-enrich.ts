@@ -125,6 +125,41 @@ export async function resolvePredictions(ctx: LiveContext, dataDir?: string): Pr
 	return attachDraftsIfNeeded(result, rich);
 }
 
+export async function resolveReplyPredictions(ctx: LiveContext): Promise<PredictResult> {
+	const enrichment = await gatherPredictEnrichment();
+	lastPredictTargetApp = enrichment.accessibilityApp ?? ctx.activeApp ?? null;
+	const intent = "帮我回复当前对话";
+	const anchor =
+		enrichment.accessibilityWindowTitle ??
+		enrichment.accessibilityApp ??
+		ctx.activeWindow ??
+		ctx.activeApp ??
+		"当前对话";
+	const drafts = await generatePredictDrafts({
+		intent,
+		surface: "reply",
+		contextSnippet: predictContextSnippet(enrichment) || enrichment.accessibilityText,
+		anchor,
+	});
+	return {
+		mode: "full",
+		phase: "result",
+		surface: "reply",
+		anchor,
+		suggestions: [
+			{
+				intent,
+				label: "替我回复",
+				confidence: 0.88,
+				reason: "长按右⌘",
+			},
+		],
+		drafts,
+		topConfidence: 0.88,
+		computedAt: Date.now(),
+	};
+}
+
 export async function resolvePredictDraftsForIntent(
 	ctx: LiveContext,
 	intent: string,
@@ -138,6 +173,28 @@ export async function resolvePredictDraftsForIntent(
 		contextSnippet: predictContextSnippet(rich) || undefined,
 	});
 	return { surface, drafts };
+}
+
+export async function resolveReplyDraftsForInstruction(
+	ctx: LiveContext,
+	intent: string,
+): Promise<NonNullable<PredictResult["drafts"]>> {
+	const enrichment = await gatherPredictEnrichment();
+	const screenText = await screenTextViaOcr();
+	const rich = screenText
+		? {
+				...enrichment,
+				screenText,
+				entities: [...new Set([...(enrichment.entities ?? []), ...extractEntityTokens(screenText)])],
+			}
+		: enrichment;
+	lastPredictTargetApp = rich.accessibilityApp ?? ctx.activeApp ?? null;
+	return generatePredictDrafts({
+		intent,
+		surface: "reply",
+		contextSnippet: predictContextSnippet(rich) || rich.accessibilityText,
+		anchor: rich.accessibilityWindowTitle ?? rich.accessibilityApp ?? ctx.activeWindow ?? ctx.activeApp,
+	});
 }
 
 export async function refreshPredictCacheEnriched(

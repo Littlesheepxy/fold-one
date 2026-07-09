@@ -115,7 +115,7 @@ export function PredictConfirmCard({
 				<div className="space-y-2 py-1">
 					<p className="text-[12px] leading-relaxed text-white/60">暂时看不清你想做什么</p>
 					<button type="button" className="fold-predict-card-btn" onClick={onVoiceOther}>
-						⌥Space 说说你想做什么
+						短按 右⌘ 语音整理
 					</button>
 				</div>
 			)}
@@ -175,9 +175,9 @@ export function PredictConfirmCard({
 
 			<div className="fold-predict-card-foot">
 				<button type="button" className="fold-predict-card-link" onClick={onVoiceOther}>
-					⌥Space 说别的
+					短按 右⌘ 语音整理
 				</button>
-				<span className="text-[10px] text-white/30">Esc 关闭</span>
+				<span className="text-[10px] text-white/30">⌥Space Agent · 长按右⌘ 拟回复 · Esc</span>
 			</div>
 		</motion.div>
 	);

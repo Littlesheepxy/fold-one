@@ -49,6 +49,8 @@ export interface FoldStateEvent {
 	askMessage?: string | null;
 	askHint?: string | null;
 	askOptions?: Array<{ id: string; label: string }>;
+	/** structure=语音整理 · reply=语音拟回复 · agent=执行任务 */
+	voiceMode?: "structure" | "reply" | "agent" | null;
 	/** ⌥Z 情境预测 */
 	predictMode?: PredictMode | null;
 	predictPhase?: PredictPhase | null;

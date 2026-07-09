@@ -25,6 +25,8 @@ interface FoldApi {
 	onVoiceLevel(cb: (level: number) => void): () => void;
 	getUseMockAsr(): Promise<boolean>;
 	runTask(intent: string): Promise<void>;
+	structureVoice(transcript: string): Promise<void>;
+	replyVoice(transcript: string): Promise<void>;
 	retryTask(): Promise<void>;
 	askResponse(optionId: string): Promise<void>;
 	getConfig(): Promise<FoldConfig>;
@@ -76,8 +78,8 @@ interface FoldApi {
 	voiceError(message: string): Promise<void>;
 	openSettings(section?: string): Promise<void>;
 	quit(): Promise<void>;
-	onHotkeyDown(cb: () => void): () => void;
-	onHotkeyUp(cb: () => void): () => void;
+	onHotkeyDown(cb: (mode: "structure" | "reply" | "agent") => void): () => void;
+	onHotkeyUp(cb: (mode: "structure" | "reply" | "agent") => void): () => void;
 	onHotkeyCancel(cb: () => void): () => void;
 	onHomeNavigate(cb: (section: string) => void): () => void;
 }

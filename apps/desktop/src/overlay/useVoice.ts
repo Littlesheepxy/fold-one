@@ -7,6 +7,7 @@ export function useVoiceHandlers() {
 	const asrRef = useRef<AsrController | null>(null);
 	const useMockRef = useRef(true);
 	const wsBaseRef = useRef(WS_BASE);
+	const voiceModeRef = useRef<"structure" | "reply" | "agent">("structure");
 
 	useEffect(() => {
 		void (async () => {
@@ -24,11 +25,13 @@ export function useVoiceHandlers() {
 						workletPath: "/asr-pcm-worklet.js",
 					});
 			asrRef.current = asr;
+			asr.onLevel?.((level) => {
+				window.dispatchEvent(new CustomEvent("fold:voice-level-local", { detail: level }));
+			});
 			try {
 				await asr.start({
-					onPartial: (text) => {
-						window.dispatchEvent(new CustomEvent("fold:transcript-local", { detail: text }));
-					},
+					// 界面用音波，不再推实时字幕；ASR 仍在后台出最终文本
+					onPartial: () => {},
 					onError: (err) => {
 						asrRef.current = null;
 						void window.fold.voiceError(err.message);
@@ -46,7 +49,7 @@ export function useVoiceHandlers() {
 			asrRef.current = null;
 		};
 
-		const stopRecording = async () => {
+		const stopRecording = async (mode: "structure" | "reply" | "agent") => {
 			const asr = asrRef.current;
 			if (!asr) {
 				await window.fold.dismiss();
@@ -56,7 +59,9 @@ export function useVoiceHandlers() {
 				const text = await asr.stop();
 				asrRef.current = null;
 				if (text.trim()) {
-					await window.fold.runTask(text);
+					if (mode === "agent") await window.fold.runTask(text);
+					else if (mode === "reply") await window.fold.replyVoice(text);
+					else await window.fold.structureVoice(text);
 				} else {
 					await window.fold.dismiss();
 				}
@@ -67,8 +72,11 @@ export function useVoiceHandlers() {
 		};
 
 		const unsubs = [
-			window.fold.onHotkeyDown(() => void startRecording()),
-			window.fold.onHotkeyUp(() => void stopRecording()),
+			window.fold.onHotkeyDown((mode) => {
+				voiceModeRef.current = mode;
+				void startRecording();
+			}),
+			window.fold.onHotkeyUp((mode) => void stopRecording(mode)),
 			window.fold.onHotkeyCancel(cancelRecording),
 		];
 

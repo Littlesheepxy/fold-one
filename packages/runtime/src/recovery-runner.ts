@@ -317,8 +317,9 @@ export async function runRecoveryLoop(input: {
 		input.emit({ status: "working" });
 		const repairRun = await runPlan(repairPlan, input.skillCtx, input.emit);
 		steps = [...steps, ...repairRun.steps];
-		validation = validatePlan(repairPlan, repairRun.steps);
-		failures = repairRun.failures;
+		// 规则修复只验原目标；不能用 browser.page.ready 等无关规则盖掉主计划失败
+		validation = validatePlan(input.plan, steps);
+		failures = steps.filter((s): s is StepFailure => s.status === "failed");
 
 		const agentOutput = repairRun.steps.find((s) => s.skill === "agent.execute")?.output as
 			| { handoff?: SubagentHandoff }

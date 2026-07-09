@@ -4,13 +4,14 @@ import { pathToFileURL } from "node:url";
 import { ContextEngine } from "@fold/context";
 import { createNangoConnectLink, openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal, openOfficeSetupInTerminal, cancelConnectFlow, pollConnectFlow, resolveConnectTarget, startConnectFlow } from "@fold/connectors";
 import { saveContextEvent } from "@fold/memory";
-import { runTask, type FoldStateEvent, type UserActionRequest } from "@fold/runtime";
+import { runTask, structureSpeechText, type FoldStateEvent, type UserActionRequest } from "@fold/runtime";
 import {
 	clearPredictTargetApp,
 	getPredictTargetApp,
 	refreshPredictCacheEnriched,
+	resolveReplyDraftsForInstruction,
 	resolvePredictDraftsForIntent,
-	resolvePredictions,
+	resolveReplyPredictions,
 	setPredictTargetApp,
 } from "./predict-enrich.js";
 import { insertTextToFrontApp } from "./insert-text.js";
@@ -27,7 +28,7 @@ import {
 	listProfileImportOptions,
 	saveProfileFromResponse,
 } from "./profile-import.js";
-import { startToggleHotkey } from "./hotkey.js";
+import { startHoldHotkey } from "./hotkey.js";
 import { createTray } from "./tray.js";
 import { createFoldAppIcon } from "./tray-icon.js";
 
@@ -52,6 +53,8 @@ let overlayWindow: BrowserWindow | null = null;
 let settingsWindow: BrowserWindow | null = null;
 let pendingHomeSection: string | null = null;
 let isRecording = false;
+let voiceOutcome: "structure" | "reply" | "agent" = "structure";
+let voiceTargetApp: string | null = null;
 let lastIntent = "";
 let stopHotkey: (() => void) | null = null;
 let pendingUserAction: {
@@ -276,7 +279,7 @@ async function executeTask(intent: string) {
 		return;
 	}
 	lastIntent = intent.trim();
-	emitState({ ...clearPredictState() });
+	emitState({ status: "understanding", ...clearPredictState() });
 	try {
 		await runTask(lastIntent, emitState, {
 			getLiveContext: () => contextEngine.getLiveContext(),
@@ -310,7 +313,7 @@ function clearPredictState(): Partial<FoldStateEvent> {
 	};
 }
 
-function emitPredictResult(result: Awaited<ReturnType<typeof resolvePredictions>>) {
+function emitPredictResult(result: Awaited<ReturnType<typeof resolveReplyPredictions>>) {
 	emitState({
 		status: "predict",
 		...clearPredictState(),
@@ -324,19 +327,90 @@ function emitPredictResult(result: Awaited<ReturnType<typeof resolvePredictions>
 	});
 }
 
-function showPredictions() {
+function showReplyPredictions() {
 	createOverlayWindow();
-	setPredictTargetApp(contextEngine.getLiveContext().activeApp);
 	emitState({
 		status: "predict",
 		...clearPredictState(),
 		predictMode: "fast",
 		predictPhase: "pick",
-		predictAnchor: "正在读取情境…",
+		predictSurface: "reply",
+		predictAnchor: "正在读取对话…",
 		predictSuggestions: [],
 		predictCursor: getCursorInOverlay(),
 	});
-	void resolvePredictions(contextEngine.getLiveContext()).then(emitPredictResult);
+	void resolveReplyPredictions(contextEngine.getLiveContext()).then(emitPredictResult);
+}
+
+async function structureVoiceTranscript(transcript: string) {
+	const text = transcript.trim();
+	if (!text) {
+		emitState({ status: "idle", ...clearPredictState() });
+		return;
+	}
+	emitState({ status: "understanding", transcript: text, ...clearPredictState() });
+	try {
+		const ctx = contextEngine.getLiveContext();
+		const structured = await structureSpeechText(text, {
+			app: ctx.activeApp,
+			windowTitle: ctx.activeWindow,
+		});
+		const body = [structured.headline, structured.detail]
+			.map((part) => part.trim())
+			.filter(Boolean)
+			.filter((part, index, arr) => index === 0 || part !== arr[0])
+			.join("\n\n");
+		const output = body || text;
+		const targetApp = voiceTargetApp ?? ctx.activeApp;
+		await insertTextToFrontApp(output, targetApp);
+		emitState({
+			status: "done",
+			transcript: text,
+			result: "已输入",
+			resultDetail: output,
+		});
+		setTimeout(() => {
+			if (lastOverlayState.status === "done" && lastOverlayState.voiceMode === "structure") {
+				emitState({ status: "idle", voiceMode: null, ...clearPredictState() });
+			}
+		}, 850);
+	} catch (err) {
+		emitState({ status: "error", error: (err as Error).message, transcript: text });
+	} finally {
+		voiceTargetApp = null;
+	}
+}
+
+async function replyVoiceTranscript(transcript: string) {
+	const text = transcript.trim();
+	if (!text) {
+		emitState({ status: "idle", ...clearPredictState() });
+		return;
+	}
+	emitState({ status: "understanding", transcript: text, voiceMode: "reply", ...clearPredictState() });
+	try {
+		const ctx = contextEngine.getLiveContext();
+		const drafts = await resolveReplyDraftsForInstruction(ctx, text);
+		const output = drafts[0]?.text?.trim() || text;
+		const targetApp = voiceTargetApp ?? ctx.activeApp;
+		await insertTextToFrontApp(output, targetApp);
+		emitState({
+			status: "done",
+			transcript: text,
+			voiceMode: "reply",
+			result: "已输入回复",
+			resultDetail: output,
+		});
+		setTimeout(() => {
+			if (lastOverlayState.status === "done" && lastOverlayState.voiceMode === "reply") {
+				emitState({ status: "idle", voiceMode: null, ...clearPredictState() });
+			}
+		}, 850);
+	} catch (err) {
+		emitState({ status: "error", error: (err as Error).message, transcript: text });
+	} finally {
+		voiceTargetApp = null;
+	}
 }
 
 const IPC_HANDLE_CHANNELS = [
@@ -354,6 +428,8 @@ const IPC_HANDLE_CHANNELS = [
 	"fold:connect-flow-cancel",
 	"fold:open-external",
 	"fold:run-task",
+	"fold:structure-voice",
+	"fold:reply-voice",
 	"fold:retry-task",
 	"fold:ask-response",
 	"fold:dismiss",
@@ -490,6 +566,16 @@ function registerIpc() {
 		await executeTask(intent);
 	});
 
+	ipcMain.handle("fold:structure-voice", async (_e, transcript: string) => {
+		isRecording = false;
+		await structureVoiceTranscript(transcript);
+	});
+
+	ipcMain.handle("fold:reply-voice", async (_e, transcript: string) => {
+		isRecording = false;
+		await replyVoiceTranscript(transcript);
+	});
+
 	ipcMain.handle("fold:retry-task", async () => {
 		if (lastIntent) await executeTask(lastIntent);
 	});
@@ -551,21 +637,25 @@ function registerIpc() {
 
 registerIpc();
 
-function toggleVoiceRecording() {
+function toggleVoiceRecording(outcome: "structure" | "reply" | "agent" = "structure") {
 	if (isRecording) {
 		isRecording = false;
-		overlayWindow?.webContents.send("fold:hotkey-up");
+		overlayWindow?.webContents.send("fold:hotkey-up", voiceOutcome);
 	} else {
+		voiceOutcome = outcome;
+		voiceTargetApp = contextEngine.getLiveContext().activeApp ?? null;
 		isRecording = true;
-		emitState({ status: "listening", transcript: "" });
-		overlayWindow?.webContents.send("fold:hotkey-down");
+		emitState({ status: "listening", transcript: "", voiceMode: outcome });
+		overlayWindow?.webContents.send("fold:hotkey-down", outcome);
 	}
 }
 
 function registerHotkeys() {
-	stopHotkey = startToggleHotkey(
-		toggleVoiceRecording,
-		() => {
+	stopHotkey = startHoldHotkey({
+		onAgentToggle: () => toggleVoiceRecording("agent"),
+		onStructureToggle: () => toggleVoiceRecording("structure"),
+		onReply: () => toggleVoiceRecording("reply"),
+		onCancel: () => {
 			if (isRecording) {
 				isRecording = false;
 				overlayWindow?.webContents.send("fold:hotkey-cancel");
@@ -576,8 +666,7 @@ function registerHotkeys() {
 				emitState({ status: "idle", ...clearPredictState() });
 			}
 		},
-		showPredictions,
-	);
+	});
 }
 
 app.whenReady().then(() => {

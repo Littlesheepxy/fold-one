@@ -17,6 +17,7 @@ export {
 	type SituationFingerprint,
 } from "./predict.js";
 export { generatePredictDrafts, type PredictDraftLine } from "./predict-drafts.js";
+export { structureSpeechText, type StructuredSpeech } from "@fold/ai";
 export { inferPredictSurface, surfaceActionLabel, type PredictSurface } from "./predict-surface.js";
 export { predictContextSnippet } from "./predict-fallback.js";
 export { extractEntityTokens } from "./entity-extract.js";

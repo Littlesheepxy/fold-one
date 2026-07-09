@@ -27,9 +27,9 @@ function heuristicDrafts(input: PredictDraftInput): PredictDraftLine[] {
 	const { intent, surface } = input;
 	if (surface === "reply") {
 		return [
-			{ id: "d1", text: "好的，我今天下午前发给你。" },
-			{ id: "d2", text: "收到，我整理一下稍后回复你。" },
-			{ id: "d3", text: "谢谢，我确认后尽快给你答复。" },
+			{ id: "d1", text: "好的，没问题。" },
+			{ id: "d2", text: "不好意思，这次可能不太方便，我们改天再说？" },
+			{ id: "d3", text: "收到，我确认一下稍后回复你。" },
 		];
 	}
 	if (surface === "todo") {
@@ -80,7 +80,7 @@ export async function generatePredictDrafts(input: PredictDraftInput): Promise<P
 	const prompt = `你是 Fold 桌面助手。根据用户当前情境，为「${input.intent}」生成${action}候选。
 要求：
 - 只输出 JSON 数组，每项是一句可直接复制/插入的中文文本字符串
-- ${input.surface === "reply" ? "2-3 条不同语气的回复草案，不要包含发送按钮或元说明" : input.surface === "todo" ? "1-2 条待办/跟进表述" : "1-2 条可执行摘要"}
+- ${input.surface === "reply" ? "用户意图是写作指令，不是要原样发给对方。结合页面摘要/截图 OCR 里的最近聊天内容，生成 2-3 条可直接发送的回复。语气要像即时聊天，短、自然、有上下文；不要像客服/公文。若用户指定同意、拒绝、推迟、确认、解释、幽默等立场/语气，必须严格遵循；不要反问“你指哪方面”，除非聊天里确实无法判断；不要强行混入相反立场，不要包含发送按钮或元说明" : input.surface === "todo" ? "1-2 条待办/跟进表述" : "1-2 条可执行摘要"}
 - 不要代用户发送，只给文本
 
 情境锚点：${input.anchor ?? "未知"}

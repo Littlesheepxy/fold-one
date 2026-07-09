@@ -381,7 +381,7 @@ export function TasksSection({
 				</div>
 			) : (
 				<Card>
-					<p className="text-[13px] text-[#86868b]">还没有执行记录。按 ⌥ Space 开始第一个任务。</p>
+					<p className="text-[13px] text-[#86868b]">还没有执行记录。按 ⌥Space 开始第一个任务。</p>
 				</Card>
 			)}
 		</div>
