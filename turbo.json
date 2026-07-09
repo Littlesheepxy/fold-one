@@ -1,5 +1,31 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalPassThroughEnv": [
+    "DASHSCOPE_API_KEY",
+    "DASHSCOPE_ASR_MODEL",
+    "DASHSCOPE_WS_URL",
+    "ASR_PROXY_PORT",
+    "FOLD_ASR_WS_URL",
+    "FOLD_PLANNER_PROVIDER",
+    "FOLD_PLANNER_MODEL",
+    "OPENROUTER_API_KEY",
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "ZHIPU_API_KEY",
+    "ZHIPU_OCR_MODEL",
+    "FOLD_DATA_DIR",
+    "FOLD_MAIL_PROVIDER",
+    "FOLD_CHROME_CDP_URL",
+    "FOLD_ALLOW_SCRIPT_EXECUTION",
+    "FOLD_ALLOW_FILE_WRITE",
+    "FOLD_ALLOW_AGENT_SUBAGENTS",
+    "FOLD_ALLOW_UITARS",
+    "FOLD_ALLOW_WORKBUDDY",
+    "FOLD_NANGO_SECRET_KEY",
+    "FOLD_HUB_API_KEY",
+    "PLAYWRIGHT_MCP_EXTENSION_TOKEN"
+  ],
   "tasks": {
     "dev": {
       "cache": false,

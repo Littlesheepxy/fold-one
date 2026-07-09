@@ -126,3 +126,14 @@ export interface LiveContextLite {
 	activeAppPath: string | null;
 	events: HomeContextEvent[];
 }
+
+export interface UserProfileData {
+	summary?: string;
+	role?: string;
+	domains?: string[];
+	preferredTools?: string[];
+	workPatterns?: string[];
+	communicationStyle?: string;
+	constraints?: string[];
+	updatedAt?: number;
+}

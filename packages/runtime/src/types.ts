@@ -1,14 +1,29 @@
 import type { ActionPlan } from "@fold/ai";
 
+import type { PredictDraftLine } from "./predict-drafts.js";
+import type { PredictPhase } from "./predict.js";
+import type { PredictSurface } from "./predict-surface.js";
+
 export type OverlayStatus =
 	| "idle"
 	| "listening"
+	| "predict"
 	| "understanding"
 	| "planning"
 	| "working"
 	| "done"
 	| "error"
 	| "ask";
+
+export type PredictMode = "silent" | "fast" | "full";
+
+export interface PredictSuggestion {
+	intent: string;
+	label: string;
+	confidence: number;
+	reason: string;
+	sourceEpisodeId?: string;
+}
 
 export interface StepView {
 	id: string;
@@ -34,6 +49,18 @@ export interface FoldStateEvent {
 	askMessage?: string | null;
 	askHint?: string | null;
 	askOptions?: Array<{ id: string; label: string }>;
+	/** structure=语音整理 · reply=语音拟回复 · agent=执行任务 */
+	voiceMode?: "structure" | "reply" | "agent" | null;
+	/** ⌥Z 情境预测 */
+	predictMode?: PredictMode | null;
+	predictPhase?: PredictPhase | null;
+	predictSurface?: PredictSurface | null;
+	predictAnchor?: string | null;
+	predictSuggestions?: PredictSuggestion[];
+	predictDrafts?: PredictDraftLine[];
+	predictSelectedIntent?: string | null;
+	predictDraftsLoading?: boolean;
+	predictCursor?: { x: number; y: number } | null;
 }
 
 export interface UserActionOption {

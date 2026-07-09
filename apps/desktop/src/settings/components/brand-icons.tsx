@@ -9,12 +9,26 @@ export const BRAND_ICONS = {
 	google: lobeIcon("google-color"),
 	chrome: "/brand-icons/chrome.svg",
 	openai: lobeIcon("openai"),
+	deepseek: lobeIcon("deepseek-color"),
+	doubao: lobeIcon("doubao-color"),
+	qwen: lobeIcon("qwen-color"),
+	kimi: lobeIcon("kimi-color"),
 	cursor: lobeIcon("cursor"),
 	codex: lobeIcon("codex-color"),
 	openrouter: lobeIcon("openrouter"),
 	zhipu: lobeIcon("zhipu-color"),
 	bytedance: lobeIcon("bytedance-color"),
 } as const;
+
+/** 画像导入弹窗：各 AI 聊天平台 logo（与 Lobe 同源图标库） */
+export const CHAT_PLATFORM_ICONS: Record<string, string> = {
+	chatgpt: BRAND_ICONS.openai,
+	claude: BRAND_ICONS.claude,
+	doubao: BRAND_ICONS.doubao,
+	deepseek: BRAND_ICONS.deepseek,
+	tongyi: BRAND_ICONS.qwen,
+	kimi: BRAND_ICONS.kimi,
+};
 
 export function BrandIcon({
 	src,

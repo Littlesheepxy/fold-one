@@ -1,6 +1,8 @@
 import { pcm16AudioLevel } from "./audio-level.js";
 import type { VoiceAdapter, VoiceConfig } from "./types.js";
 
+const ASR_FINISH_TIMEOUT_MS = 1500;
+
 export interface AsrController extends VoiceAdapter {
 	done: Promise<{ fullText: string }>;
 }
@@ -178,7 +180,7 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 				}
 			}
 			const timeout = new Promise<{ fullText: string }>((_, rej) =>
-				setTimeout(() => rej(new Error("ASR finish timeout")), 8000),
+				setTimeout(() => rej(new Error("ASR finish timeout")), ASR_FINISH_TIMEOUT_MS),
 			);
 			try {
 				const r = await Promise.race([done, timeout]);
@@ -198,8 +200,16 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 export function createMockAsr(): AsrController {
 	let partial = "";
 	let timer: ReturnType<typeof setInterval> | null = null;
+	let levelTimer: ReturnType<typeof setInterval> | null = null;
 	const sample = "帮我整理刚下载的报价发给 Jason";
 	let onPartial: ((t: string) => void) | null = null;
+
+	const clearTimers = () => {
+		if (timer) clearInterval(timer);
+		if (levelTimer) clearInterval(levelTimer);
+		timer = null;
+		levelTimer = null;
+	};
 
 	return {
 		async start(opts) {
@@ -214,16 +224,18 @@ export function createMockAsr(): AsrController {
 			}, 120);
 		},
 		cancel() {
-			if (timer) clearInterval(timer);
+			clearTimers();
 			partial = "";
 		},
 		async stop() {
-			if (timer) clearInterval(timer);
+			clearTimers();
 			return sample;
 		},
 		onLevel(cb) {
-			const t = setInterval(() => cb(Math.random() * 0.5 + 0.2), 95);
-			setTimeout(() => clearInterval(t), 5000);
+			levelTimer = setInterval(() => {
+				const pulse = 0.25 + Math.abs(Math.sin(Date.now() / 220)) * 0.55;
+				cb(pulse * (0.7 + Math.random() * 0.3));
+			}, 80);
 		},
 		done: Promise.resolve({ fullText: sample }),
 	};

@@ -4,12 +4,31 @@ import { pathToFileURL } from "node:url";
 import { ContextEngine } from "@fold/context";
 import { createNangoConnectLink, openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal, openOfficeSetupInTerminal, cancelConnectFlow, pollConnectFlow, resolveConnectTarget, startConnectFlow } from "@fold/connectors";
 import { saveContextEvent } from "@fold/memory";
-import { runTask, type FoldStateEvent, type UserActionRequest } from "@fold/runtime";
+import { runTask, structureSpeechText, type FoldStateEvent, type UserActionRequest } from "@fold/runtime";
+import {
+	clearPredictTargetApp,
+	getPredictTargetApp,
+	refreshPredictCacheEnriched,
+	resolveReplyDraftsForInstruction,
+	resolvePredictDraftsForIntent,
+	resolveReplyPredictions,
+	setPredictTargetApp,
+} from "./predict-enrich.js";
+import { insertTextToFrontApp } from "./insert-text.js";
 import { getAppIconDataUrl, resolveAppBundlePath } from "./app-icon.js";
 import { applyConfigToEnv, hasRealAsr, loadConfig, saveConfig, type FoldConfig } from "./config.js";
 import { buildHomeSnapshot } from "./home-snapshot.js";
+import { openAccessibilitySettings, probeAccessibility, ensureAccessibilityPermission } from "./permissions.js";
 import { buildEpisodeDetail, listEpisodesForHome } from "./episode-detail.js";
-import { startToggleHotkey } from "./hotkey.js";
+import {
+	buildProfilePrompt,
+	copyProfilePrompt,
+	executeProfileImport,
+	getStoredProfile,
+	listProfileImportOptions,
+	saveProfileFromResponse,
+} from "./profile-import.js";
+import { startHoldHotkey } from "./hotkey.js";
 import { createTray } from "./tray.js";
 import { createFoldAppIcon } from "./tray-icon.js";
 
@@ -24,12 +43,18 @@ const contextEngine = new ContextEngine({
 			// Raw retention should never break foreground agent execution.
 		}
 		settingsWindow?.webContents.send("fold:context-event", event);
+		if (predictRefreshTimer) clearTimeout(predictRefreshTimer);
+		predictRefreshTimer = setTimeout(() => {
+			void refreshPredictCacheEnriched(contextEngine.getLiveContext());
+		}, 4000);
 	},
 });
 let overlayWindow: BrowserWindow | null = null;
 let settingsWindow: BrowserWindow | null = null;
 let pendingHomeSection: string | null = null;
 let isRecording = false;
+let voiceOutcome: "structure" | "reply" | "agent" = "structure";
+let voiceTargetApp: string | null = null;
 let lastIntent = "";
 let stopHotkey: (() => void) | null = null;
 let pendingUserAction: {
@@ -37,6 +62,7 @@ let pendingUserAction: {
 	reject: (error: Error) => void;
 	runContext?: Record<string, unknown>;
 } | null = null;
+let predictRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 const appIconCache = new Map<string, string | null>();
 let lastOverlayState: FoldStateEvent = { status: "idle" };
 
@@ -195,6 +221,12 @@ async function runUserAction(optionId: string, context?: Record<string, unknown>
 				"x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
 			);
 			break;
+		case "accessibility:request":
+			void ensureAccessibilityPermission();
+			break;
+		case "accessibility:open-settings":
+			await openAccessibilitySettings();
+			break;
 		case "cdp:open-chrome-help":
 			await shell.openExternal(
 				"https://playwright.dev/mcp/configuration/browser-extension",
@@ -243,10 +275,11 @@ function requestUserAction(req: UserActionRequest): Promise<string> {
 
 async function executeTask(intent: string) {
 	if (!intent.trim()) {
-		emitState({ status: "idle" });
+		emitState({ status: "idle", ...clearPredictState() });
 		return;
 	}
 	lastIntent = intent.trim();
+	emitState({ status: "understanding", ...clearPredictState() });
 	try {
 		await runTask(lastIntent, emitState, {
 			getLiveContext: () => contextEngine.getLiveContext(),
@@ -255,6 +288,128 @@ async function executeTask(intent: string) {
 		});
 	} catch (err) {
 		emitState({ status: "error", error: (err as Error).message });
+	} finally {
+		void refreshPredictCacheEnriched(contextEngine.getLiveContext());
+	}
+}
+
+function getCursorInOverlay(): { x: number; y: number } {
+	const { workArea } = screen.getPrimaryDisplay();
+	const pt = screen.getCursorScreenPoint();
+	return { x: pt.x - workArea.x, y: pt.y - workArea.y };
+}
+
+function clearPredictState(): Partial<FoldStateEvent> {
+	return {
+		predictMode: null,
+		predictPhase: null,
+		predictSurface: null,
+		predictAnchor: null,
+		predictSuggestions: undefined,
+		predictDrafts: undefined,
+		predictSelectedIntent: null,
+		predictDraftsLoading: false,
+		predictCursor: null,
+	};
+}
+
+function emitPredictResult(result: Awaited<ReturnType<typeof resolveReplyPredictions>>) {
+	emitState({
+		status: "predict",
+		...clearPredictState(),
+		predictMode: result.mode,
+		predictPhase: result.phase,
+		predictSurface: result.surface,
+		predictAnchor: result.anchor,
+		predictSuggestions: result.suggestions,
+		predictDrafts: result.drafts,
+		predictCursor: getCursorInOverlay(),
+	});
+}
+
+function showReplyPredictions() {
+	createOverlayWindow();
+	emitState({
+		status: "predict",
+		...clearPredictState(),
+		predictMode: "fast",
+		predictPhase: "pick",
+		predictSurface: "reply",
+		predictAnchor: "正在读取对话…",
+		predictSuggestions: [],
+		predictCursor: getCursorInOverlay(),
+	});
+	void resolveReplyPredictions(contextEngine.getLiveContext()).then(emitPredictResult);
+}
+
+async function structureVoiceTranscript(transcript: string) {
+	const text = transcript.trim();
+	if (!text) {
+		emitState({ status: "idle", ...clearPredictState() });
+		return;
+	}
+	emitState({ status: "understanding", transcript: text, ...clearPredictState() });
+	try {
+		const ctx = contextEngine.getLiveContext();
+		const structured = await structureSpeechText(text, {
+			app: ctx.activeApp,
+			windowTitle: ctx.activeWindow,
+		});
+		const body = [structured.headline, structured.detail]
+			.map((part) => part.trim())
+			.filter(Boolean)
+			.filter((part, index, arr) => index === 0 || part !== arr[0])
+			.join("\n\n");
+		const output = body || text;
+		const targetApp = voiceTargetApp ?? ctx.activeApp;
+		await insertTextToFrontApp(output, targetApp);
+		emitState({
+			status: "done",
+			transcript: text,
+			result: "已输入",
+			resultDetail: output,
+		});
+		setTimeout(() => {
+			if (lastOverlayState.status === "done" && lastOverlayState.voiceMode === "structure") {
+				emitState({ status: "idle", voiceMode: null, ...clearPredictState() });
+			}
+		}, 850);
+	} catch (err) {
+		emitState({ status: "error", error: (err as Error).message, transcript: text });
+	} finally {
+		voiceTargetApp = null;
+	}
+}
+
+async function replyVoiceTranscript(transcript: string) {
+	const text = transcript.trim();
+	if (!text) {
+		emitState({ status: "idle", ...clearPredictState() });
+		return;
+	}
+	emitState({ status: "understanding", transcript: text, voiceMode: "reply", ...clearPredictState() });
+	try {
+		const ctx = contextEngine.getLiveContext();
+		const drafts = await resolveReplyDraftsForInstruction(ctx, text);
+		const output = drafts[0]?.text?.trim() || text;
+		const targetApp = voiceTargetApp ?? ctx.activeApp;
+		await insertTextToFrontApp(output, targetApp);
+		emitState({
+			status: "done",
+			transcript: text,
+			voiceMode: "reply",
+			result: "已输入回复",
+			resultDetail: output,
+		});
+		setTimeout(() => {
+			if (lastOverlayState.status === "done" && lastOverlayState.voiceMode === "reply") {
+				emitState({ status: "idle", voiceMode: null, ...clearPredictState() });
+			}
+		}, 850);
+	} catch (err) {
+		emitState({ status: "error", error: (err as Error).message, transcript: text });
+	} finally {
+		voiceTargetApp = null;
 	}
 }
 
@@ -273,6 +428,8 @@ const IPC_HANDLE_CHANNELS = [
 	"fold:connect-flow-cancel",
 	"fold:open-external",
 	"fold:run-task",
+	"fold:structure-voice",
+	"fold:reply-voice",
 	"fold:retry-task",
 	"fold:ask-response",
 	"fold:dismiss",
@@ -329,6 +486,56 @@ function registerIpc() {
 		return buildEpisodeDetail(id);
 	});
 
+	ipcMain.handle("fold:profile-import-options", () => listProfileImportOptions());
+	ipcMain.handle("fold:profile-build-prompt", () => buildProfilePrompt());
+	ipcMain.handle("fold:profile-copy-prompt", () => ({ prompt: copyProfilePrompt() }));
+	ipcMain.handle("fold:profile-get", () => getStoredProfile());
+	ipcMain.handle("fold:profile-run-import", (_e, platformId: string, tabUrl?: string) =>
+		executeProfileImport(platformId, tabUrl),
+	);
+	ipcMain.handle("fold:profile-save-response", (_e, responseText: string) =>
+		saveProfileFromResponse(responseText),
+	);
+
+	ipcMain.handle("fold:predict-pick-intent", async (_e, intent: string) => {
+		if (!intent?.trim()) return { ok: false };
+		emitState({
+			...lastOverlayState,
+			status: "predict",
+			predictDraftsLoading: true,
+			predictSelectedIntent: intent.trim(),
+			predictCursor: getCursorInOverlay(),
+		});
+		const ctx = contextEngine.getLiveContext();
+		const { surface, drafts } = await resolvePredictDraftsForIntent(ctx, intent.trim());
+		emitState({
+			...lastOverlayState,
+			status: "predict",
+			predictPhase: "result",
+			predictSurface: surface,
+			predictSelectedIntent: intent.trim(),
+			predictDrafts: drafts,
+			predictDraftsLoading: false,
+			predictCursor: getCursorInOverlay(),
+		});
+		return { ok: true };
+	});
+
+	ipcMain.handle("fold:predict-insert-draft", async (_e, text: string) => {
+		const targetApp = getPredictTargetApp() ?? contextEngine.getLiveContext().activeApp;
+		overlayWindow?.setIgnoreMouseEvents(true, { forward: true });
+		const result = await insertTextToFrontApp(text, targetApp);
+		clearPredictTargetApp();
+		emitState({ status: "idle", ...clearPredictState() });
+		return result;
+	});
+
+	ipcMain.handle("fold:predict-start-voice", () => {
+		emitState({ status: "idle", ...clearPredictState() });
+		toggleVoiceRecording();
+		return { ok: true };
+	});
+
 	ipcMain.handle("fold:connection-action", async (_e, action: string, context?: Record<string, unknown>) => {
 		await runUserAction(action, context);
 		return { ok: true };
@@ -357,6 +564,16 @@ function registerIpc() {
 	ipcMain.handle("fold:run-task", async (_e, intent: string) => {
 		isRecording = false;
 		await executeTask(intent);
+	});
+
+	ipcMain.handle("fold:structure-voice", async (_e, transcript: string) => {
+		isRecording = false;
+		await structureVoiceTranscript(transcript);
+	});
+
+	ipcMain.handle("fold:reply-voice", async (_e, transcript: string) => {
+		isRecording = false;
+		await replyVoiceTranscript(transcript);
 	});
 
 	ipcMain.handle("fold:retry-task", async () => {
@@ -396,7 +613,8 @@ function registerIpc() {
 			pendingUserAction.reject(new Error("用户取消了授权"));
 			pendingUserAction = null;
 		}
-		emitState({ status: "idle" });
+		clearPredictTargetApp();
+		emitState({ status: "idle", ...clearPredictState() });
 	});
 
 	ipcMain.handle("fold:toggle-voice", () => {
@@ -419,27 +637,36 @@ function registerIpc() {
 
 registerIpc();
 
-function toggleVoiceRecording() {
+function toggleVoiceRecording(outcome: "structure" | "reply" | "agent" = "structure") {
 	if (isRecording) {
 		isRecording = false;
-		overlayWindow?.webContents.send("fold:hotkey-up");
+		overlayWindow?.webContents.send("fold:hotkey-up", voiceOutcome);
 	} else {
+		voiceOutcome = outcome;
+		voiceTargetApp = contextEngine.getLiveContext().activeApp ?? null;
 		isRecording = true;
-		emitState({ status: "listening", transcript: "" });
-		overlayWindow?.webContents.send("fold:hotkey-down");
+		emitState({ status: "listening", transcript: "", voiceMode: outcome });
+		overlayWindow?.webContents.send("fold:hotkey-down", outcome);
 	}
 }
 
 function registerHotkeys() {
-	stopHotkey = startToggleHotkey(
-		toggleVoiceRecording,
-		() => {
-			if (!isRecording) return;
-			isRecording = false;
-			overlayWindow?.webContents.send("fold:hotkey-cancel");
-			emitState({ status: "idle" });
+	stopHotkey = startHoldHotkey({
+		onAgentToggle: () => toggleVoiceRecording("agent"),
+		onStructureToggle: () => toggleVoiceRecording("structure"),
+		onReply: () => toggleVoiceRecording("reply"),
+		onCancel: () => {
+			if (isRecording) {
+				isRecording = false;
+				overlayWindow?.webContents.send("fold:hotkey-cancel");
+				emitState({ status: "idle", ...clearPredictState() });
+				return;
+			}
+			if (lastOverlayState.status === "predict") {
+				emitState({ status: "idle", ...clearPredictState() });
+			}
 		},
-	);
+	});
 }
 
 app.whenReady().then(() => {
@@ -451,11 +678,15 @@ app.whenReady().then(() => {
 	contextEngine.start();
 	createOverlayWindow();
 	registerHotkeys();
+	void refreshPredictCacheEnriched(contextEngine.getLiveContext());
 
 	createTray({
 		onOpenSettings: openSettingsWindow,
 		onQuit: () => app.quit(),
 	});
+
+	// 未授权时弹系统对话框并打开辅助功能设置（开发模式登记为 Electron）
+	setTimeout(() => void ensureAccessibilityPermission(), 1200);
 });
 
 app.on("will-quit", () => {

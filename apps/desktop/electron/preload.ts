@@ -28,6 +28,10 @@ contextBridge.exposeInMainWorld("fold", {
 	},
 	getUseMockAsr: () => ipcRenderer.invoke("fold:get-mock-asr") as Promise<boolean>,
 	runTask: (intent: string) => ipcRenderer.invoke("fold:run-task", intent) as Promise<void>,
+	structureVoice: (transcript: string) =>
+		ipcRenderer.invoke("fold:structure-voice", transcript) as Promise<void>,
+	replyVoice: (transcript: string) =>
+		ipcRenderer.invoke("fold:reply-voice", transcript) as Promise<void>,
 	retryTask: () => ipcRenderer.invoke("fold:retry-task") as Promise<void>,
 	askResponse: (optionId: string) =>
 		ipcRenderer.invoke("fold:ask-response", optionId) as Promise<void>,
@@ -39,6 +43,41 @@ contextBridge.exposeInMainWorld("fold", {
 	listEpisodes: () => ipcRenderer.invoke("fold:list-episodes") as Promise<Record<string, unknown>[]>,
 	getEpisode: (id: string) =>
 		ipcRenderer.invoke("fold:get-episode", id) as Promise<Record<string, unknown> | null>,
+	predictPickIntent: (intent: string) =>
+		ipcRenderer.invoke("fold:predict-pick-intent", intent) as Promise<{ ok: boolean }>,
+	predictInsertDraft: (text: string) =>
+		ipcRenderer.invoke("fold:predict-insert-draft", text) as Promise<{ ok: boolean; pasted: boolean }>,
+	predictStartVoice: () =>
+		ipcRenderer.invoke("fold:predict-start-voice") as Promise<{ ok: boolean }>,
+	profileImportOptions: () =>
+		ipcRenderer.invoke("fold:profile-import-options") as Promise<
+			Array<{
+				id: string;
+				label: string;
+				hasOpenTab: boolean;
+				tabUrl?: string;
+				tabTitle?: string;
+				defaultUrl: string;
+				automationSupported: boolean;
+			}>
+		>,
+	profileBuildPrompt: () => ipcRenderer.invoke("fold:profile-build-prompt") as Promise<string>,
+	profileCopyPrompt: () =>
+		ipcRenderer.invoke("fold:profile-copy-prompt") as Promise<{ prompt: string }>,
+	profileGet: () => ipcRenderer.invoke("fold:profile-get") as Promise<Record<string, unknown> | null>,
+	profileRunImport: (platformId: string, tabUrl?: string) =>
+		ipcRenderer.invoke("fold:profile-run-import", platformId, tabUrl) as Promise<{
+			ok: boolean;
+			response?: string;
+			error?: string;
+			prompt: string;
+		}>,
+	profileSaveResponse: (responseText: string) =>
+		ipcRenderer.invoke("fold:profile-save-response", responseText) as Promise<{
+			ok: boolean;
+			error?: string;
+			profile?: Record<string, unknown>;
+		}>,
 	onContextEvent(cb: (event: Record<string, unknown>) => void) {
 		const handler = (_: unknown, event: Record<string, unknown>) => cb(event);
 		ipcRenderer.on("fold:context-event", handler);
@@ -75,13 +114,13 @@ contextBridge.exposeInMainWorld("fold", {
 	openSettings: (section?: string) =>
 		ipcRenderer.invoke("fold:open-settings", section) as Promise<void>,
 	quit: () => ipcRenderer.invoke("fold:quit") as Promise<void>,
-	onHotkeyDown(cb: () => void) {
-		const handler = () => cb();
+	onHotkeyDown(cb: (mode: "structure" | "reply" | "agent") => void) {
+		const handler = (_: unknown, mode?: "structure" | "reply" | "agent") => cb(mode ?? "structure");
 		ipcRenderer.on("fold:hotkey-down", handler);
 		return () => ipcRenderer.removeListener("fold:hotkey-down", handler);
 	},
-	onHotkeyUp(cb: () => void) {
-		const handler = () => cb();
+	onHotkeyUp(cb: (mode: "structure" | "reply" | "agent") => void) {
+		const handler = (_: unknown, mode?: "structure" | "reply" | "agent") => cb(mode ?? "structure");
 		ipcRenderer.on("fold:hotkey-up", handler);
 		return () => ipcRenderer.removeListener("fold:hotkey-up", handler);
 	},

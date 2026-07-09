@@ -39,8 +39,8 @@ const CONNECTION_GROUPS: ConnectionGroup[] = [
 	{
 		id: "computer",
 		title: "操作电脑",
-		description: "截屏读屏，或用 UI-TARS 在桌面 App 里点按",
-		match: (conn) => conn.id === "screen" || conn.id === "uitars",
+		description: "辅助功能、截屏读屏，或用 UI-TARS 在桌面 App 里点按",
+		match: (conn) => conn.id === "accessibility" || conn.id === "screen" || conn.id === "uitars",
 	},
 	{
 		id: "subagents",
@@ -133,6 +133,14 @@ function actionsFor(conn: HomeConnection, summary: HomeSnapshot["configSummary"]
 		case "screen":
 			if (conn.status !== "ok") {
 				return [{ id: "screen:open-settings", label: "打开系统设置", primary: true }];
+			}
+			return [{ id: "refresh", label: "重新检测" }];
+		case "accessibility":
+			if (conn.status !== "ok") {
+				return [
+					{ id: "accessibility:request", label: "请求授权", primary: true },
+					{ id: "accessibility:open-settings", label: "打开系统设置" },
+				];
 			}
 			return [{ id: "refresh", label: "重新检测" }];
 		case "uitars":

@@ -3,14 +3,12 @@ import type { AgentId } from "@fold/connectors";
 import type { LiveContext } from "@fold/context";
 import {
 	hasNativeAppHint,
-	isCodeRepairHint,
 	isGuiIntent,
 	isWorkflowIntent,
 	needsClickGui,
 	needsVisualRead,
 } from "./capability-resolver.js";
 import type { StepFailure } from "./executor.js";
-import { buildRepairBrief } from "./repair.js";
 
 export { isWorkflowIntent } from "./capability-resolver.js";
 
@@ -118,7 +116,12 @@ export function selectRepairBackend(ctx: RecoveryContext, attempt: number): Repa
 		if (attempt === 1 && ctx.cdpConnected) return "uitars";
 	}
 
-	return "agent";
+	if (needsVisualRead(ctx.intent) && ctx.screenCaptureAvailable) {
+		return "screenshot";
+	}
+	if (ctx.cdpConnected) return "browser";
+
+	return "screenshot";
 }
 
 export function resolveRepairBudget(ctx: RecoveryContext): RepairBudget {
@@ -195,33 +198,6 @@ export function handleFailure(ctx: RecoveryContext): RecoveryAction | null {
 			type: "repair",
 			backend: "uitars",
 			brief: buildNativeGuiRepairBrief(ctx.intent, ctx.liveContext),
-			budget,
-		};
-	}
-
-	if (!ctx.agentsEnabled) {
-		return { type: "abort", reason: "本地 Agent Subagent 未启用" };
-	}
-	if (ctx.availableAgents.length === 0) {
-		return { type: "abort", reason: "未检测到可用的本地 Agent CLI" };
-	}
-
-	if (isRepairCandidate(ctx.intent, ctx.failures) || ctx.validationFailed) {
-		return {
-			type: "repair",
-			backend: "agent",
-			brief: buildRepairBrief(ctx.intent, ctx.liveContext, ctx.failures),
-			agent: "auto",
-			budget,
-		};
-	}
-
-	if (isGuiIntent(ctx.intent) || hasNativeAppHint(ctx.intent)) {
-		return {
-			type: "repair",
-			backend: "agent",
-			brief: buildGuiRepairBrief(ctx.intent, ctx.liveContext),
-			agent: "auto",
 			budget,
 		};
 	}
@@ -360,11 +336,6 @@ function buildWorkbuddyRecoveryPlan(action: Extract<RecoveryAction, { type: "rep
 		],
 		validate: ["workbuddy.run.ok"],
 	};
-}
-
-function isRepairCandidate(intent: string, failures: StepFailure[]): boolean {
-	if (!failures.length) return isCodeRepairHint(intent);
-	return failures.some((failure) => isCodeRepairHint(`${intent} ${failure.error ?? ""}`));
 }
 
 function buildGuiRepairBrief(intent: string, context: LiveContext): string {

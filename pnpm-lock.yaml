@@ -57,6 +57,9 @@ importers:
       '@fold/runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
+      '@fold/skills':
+        specifier: workspace:*
+        version: link:../../packages/skills
       '@fold/voice':
         specifier: workspace:*
         version: link:../../packages/voice

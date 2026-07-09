@@ -85,6 +85,21 @@ function screenshotSucceeded(steps: StepResult[]): boolean {
 	return steps.some((s) => s.skill === "os.screenshot" && s.status === "success");
 }
 
+/**
+ * 失败签名：skill + 错误前缀 + 未过的验证规则。
+ * 连续两轮签名相同 = 没有新信息 = 无进展，继续重试只会烧预算。
+ */
+export function failureSignature(failures: StepFailure[], validation: ValidationResult): string {
+	const failParts = failures
+		.map((f) => `${f.skill}:${(f.error ?? "").replace(/\d+/g, "#").slice(0, 80)}`)
+		.sort();
+	const checkParts = validation.checks
+		.filter((c) => !c.passed)
+		.map((c) => c.rule)
+		.sort();
+	return [...failParts, ...checkParts].join("|");
+}
+
 const MAX_REPLAN_STEPS = 4;
 
 function isValidReplan(plan: ActionPlan): boolean {
@@ -222,16 +237,26 @@ export async function runRecoveryLoop(input: {
 	let failures = steps.filter((s): s is StepFailure => s.status === "failed");
 	let handoff: SubagentHandoff | undefined;
 	let repairAttempts = 0;
+	let lastSignature = failureSignature(failures, validation);
 
 	// 第一优先：LLM 重规划（有 planner key 时）。失败不计入规则式预算，直接回落。
 	if (!validation.ok && hasPlannerApiKey()) {
-		const replan = await tryLlmReplan(input, failures, validation);
-		if (replan) {
+		for (let attempt = 0; attempt < 2 && !validation.ok; attempt += 1) {
+			const replan = await tryLlmReplan(input, failures, validation);
+			if (!replan) break;
 			actions.push(replan.action);
 			steps = [...steps, ...replan.steps];
 			validation = replan.validation;
 			failures = replan.failures;
 			handoff = replan.handoff ?? handoff;
+
+			// 无进展检测：重规划后失败原因和上一轮完全一致，换路线也没用，停
+			const signature = failureSignature(failures, validation);
+			if (!validation.ok && signature === lastSignature) {
+				actions.push({ type: "abort", reason: "两轮失败原因相同，停止重规划" });
+				return { steps, validation, handoff, actions };
+			}
+			lastSignature = signature;
 		}
 	}
 
@@ -292,13 +317,21 @@ export async function runRecoveryLoop(input: {
 		input.emit({ status: "working" });
 		const repairRun = await runPlan(repairPlan, input.skillCtx, input.emit);
 		steps = [...steps, ...repairRun.steps];
-		validation = validatePlan(repairPlan, repairRun.steps);
-		failures = repairRun.failures;
+		// 规则修复只验原目标；不能用 browser.page.ready 等无关规则盖掉主计划失败
+		validation = validatePlan(input.plan, steps);
+		failures = steps.filter((s): s is StepFailure => s.status === "failed");
 
 		const agentOutput = repairRun.steps.find((s) => s.skill === "agent.execute")?.output as
 			| { handoff?: SubagentHandoff }
 			| undefined;
 		handoff = agentOutput?.handoff;
+
+		const signature = failureSignature(failures, validation);
+		if (!validation.ok && signature === lastSignature) {
+			actions.push({ type: "abort", reason: "修复后失败原因未变，停止重试" });
+			break;
+		}
+		lastSignature = signature;
 	}
 
 	return { steps, validation, handoff, actions };

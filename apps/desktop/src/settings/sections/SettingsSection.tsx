@@ -180,7 +180,7 @@ export function SettingsSection({
 				{saved && <span className="text-[13px] font-medium text-emerald-600">已保存</span>}
 			</div>
 
-			<p className="fold-home-footnote">快捷键：⌥ Space 开始/结束语音；Esc 取消。</p>
+			<p className="fold-home-footnote">快捷键：⌥Space Agent；右⌘ 短按整理 / 长按拟回复；Esc 取消。</p>
 		</div>
 	);
 }

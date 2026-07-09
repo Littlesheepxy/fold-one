@@ -31,14 +31,25 @@ export {
 	type MailConnectorId,
 } from "./mail/index.js";
 export {
+	browserEvaluate,
 	connectBrowser,
 	getChromeCdpUrl,
 	getCurrentBrowserPage,
+	listChromeTabsViaAppleScript,
+	pickActiveChromeTab,
 	probeBrowserCdp,
 	withBrowserSession,
+	CHAT_PLATFORMS,
+	detectChatPlatforms,
+	getChatPlatform,
+	runChatProfileImport,
 	type BrowserCdpProbe,
 	type BrowserPageInfo,
 	type BrowserSession,
+	type ChromeTabInfo,
+	type ChatPlatform,
+	type ChatPlatformMatch,
+	type ChatProfileImportResult,
 } from "./browser/index.js";
 export {
 	browserInteract,
@@ -133,6 +144,8 @@ export {
 export {
 	captureScreenshot,
 	probeScreenCapture,
+	readFrontWindowAccessibilityText,
+	type FrontWindowAccessibility,
 	type ScreenshotResult,
 	type ScreenshotTarget,
 	type ScreenCaptureProbe,

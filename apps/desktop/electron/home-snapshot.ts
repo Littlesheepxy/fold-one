@@ -3,6 +3,7 @@ import { isAgentSubagentsEnabled, probeAllAgents } from "@fold/connectors";
 import { listRecentEpisodes } from "@fold/memory";
 import { runProbes } from "@fold/runtime";
 import { hasRealAsr, loadConfig } from "./config.js";
+import { probeAccessibility } from "./permissions.js";
 
 export interface HomeEpisode {
 	id: string;
@@ -149,6 +150,17 @@ function buildConnections(
 		label: "屏幕读取",
 		status: screen?.available ? "ok" : "warn",
 		detail: screen?.available ? "截屏与 OCR 可用" : (screen?.error ?? "需授予屏幕录制权限"),
+	});
+
+	const ax = probeAccessibility(false);
+	rows.push({
+		id: "accessibility",
+		label: "辅助功能",
+		status: ax.available ? "ok" : "error",
+		detail: ax.available
+			? `已授权 · ${ax.appLabel}`
+			: (ax.error ?? `需在系统设置中开启「${ax.appLabel}」`),
+		meta: ax.bundlePath ? { bundlePath: ax.bundlePath } : undefined,
 	});
 
 	const uitars = probeOk<{ enabled?: boolean; available?: boolean; model?: string }>(

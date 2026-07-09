@@ -11,6 +11,8 @@ export interface EpisodeStep {
 	status: string;
 	durationMs: number;
 	error?: string;
+	/** 展示用步骤名（含渠道，如「飞书 CLI」） */
+	label?: string;
 }
 
 export interface EpisodeSummary {
@@ -119,7 +121,7 @@ export interface RawContextEventInput {
 
 let db: Database.Database | null = null;
 
-function getDb(dataDir?: string): Database.Database {
+export function getDb(dataDir?: string): Database.Database {
 	if (db) return db;
 	const dir = (dataDir ?? process.env.FOLD_DATA_DIR ?? join(homedir(), ".fold")).replace(
 		/^~/,
