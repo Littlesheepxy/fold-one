@@ -3,6 +3,7 @@
   "private": true,
   "description": "Fold Runtime — Local Context Agent for macOS",
   "scripts": {
+    "postinstall": "node apps/desktop/scripts/prepare-whisper-addon.mjs",
     "dev": "dotenv -c -- turbo dev --concurrency 12",
     "build": "turbo build",
     "lint": "turbo lint",

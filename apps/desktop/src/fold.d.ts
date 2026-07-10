@@ -24,6 +24,25 @@ interface FoldApi {
 	onTranscript(cb: (text: string) => void): () => void;
 	onVoiceLevel(cb: (level: number) => void): () => void;
 	getUseMockAsr(): Promise<boolean>;
+	getVoiceSetup(): Promise<{
+		planTier: "free" | "pro" | "ultra";
+		mode: "cloud" | "local" | "download-needed";
+		ready: boolean;
+		title: string;
+		detail: string;
+		downloadSizeMb?: number;
+		trialRemaining?: number;
+	}>;
+	downloadVoicePack(): Promise<{ ok: true; path: string } | { ok: false; error: string }>;
+	getAsrRuntime(): Promise<{
+		provider: "mock" | "dashscope" | "local-whisper";
+		modelPath?: string;
+		ready: boolean;
+	}>;
+	localAsrStart(): Promise<{ ok: boolean }>;
+	localAsrAudio(chunk: ArrayBuffer): void;
+	localAsrFinish(): Promise<string>;
+	localAsrCancel(): Promise<{ ok: boolean }>;
 	runTask(intent: string): Promise<void>;
 	structureVoice(transcript: string): Promise<void>;
 	replyVoice(transcript: string): Promise<void>;

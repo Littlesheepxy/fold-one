@@ -63,6 +63,9 @@ importers:
       '@fold/voice':
         specifier: workspace:*
         version: link:../../packages/voice
+      '@kutalia/whisper-node-addon':
+        specifier: ^1.1.0
+        version: 1.1.0
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@3.25.76)
@@ -1030,6 +1033,9 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
+
+  '@kutalia/whisper-node-addon@1.1.0':
+    resolution: {integrity: sha512-tfTQcvllmgO+X5Vmk+a+iF/dXj0LCS/oJgbLALPA2T8JKOQ2LhCozj5wjFZyEZ8JqivNhlewSpTSFlV/A/ofbA==}
 
   '@malept/cross-spawn-promise@2.0.0':
     resolution: {integrity: sha512-1DpKU0Z5ThltBwjNySMC14g0CkbyhCaz9FkhxqNsZI6uAPJXFS8cMXlBKo26FJ8ZuW6S9GCMcR9IO5k2X5/9Fg==}
@@ -2481,6 +2487,10 @@ packages:
 
   node-addon-api@5.0.0:
     resolution: {integrity: sha512-CvkDw2OEnme7ybCykJpVcKH+uAOLV2qLqiyla128dN9TkEWfrYmxG6C2boDe5KcNQqZF3orkqzGgOMvZ/JNekA==}
+
+  node-addon-api@8.9.0:
+    resolution: {integrity: sha512-ekZMeaaIzSQTSpr7X2X3iJM7lTzgnx8ahAG9pJfT/7+14mlEM8ZYQ9cgCDvSSRbReFK0oHli3WrZdCiRsgAT9Q==}
+    engines: {node: ^18 || ^20 || >= 21}
 
   node-api-version@0.1.4:
     resolution: {integrity: sha512-KGXihXdUChwJAOHO53bv9/vXcLmdUsZ6jIptbvYvkpKfth+r7jw44JkVxQFA3kX5nQjzjmGu1uAu/xNNLNlI5g==}
@@ -4070,6 +4080,11 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
+  '@kutalia/whisper-node-addon@1.1.0':
+    dependencies:
+      node-abi: 3.93.0
+      node-addon-api: 8.9.0
+
   '@malept/cross-spawn-promise@2.0.0':
     dependencies:
       cross-spawn: 7.0.6
@@ -5557,6 +5572,8 @@ snapshots:
 
   node-addon-api@5.0.0:
     optional: true
+
+  node-addon-api@8.9.0: {}
 
   node-api-version@0.1.4:
     dependencies:

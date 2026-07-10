@@ -43,8 +43,18 @@ export function playFoldSound(id: FoldSoundId) {
 	}
 }
 
+export type FoldVoiceMode = "structure" | "reply" | "agent" | null | undefined;
+
+function isVoiceAssistMode(voiceMode: FoldVoiceMode): boolean {
+	return voiceMode === "structure" || voiceMode === "reply";
+}
+
 /** 根据 overlay 状态切换播放对应音效。 */
-export function playFoldSoundForStatus(prev: string, next: string) {
+export function playFoldSoundForStatus(
+	prev: string,
+	next: string,
+	voiceMode?: FoldVoiceMode,
+) {
 	if (next === prev) return;
 
 	if (next === "listening" && prev !== "listening") {
@@ -52,6 +62,7 @@ export function playFoldSoundForStatus(prev: string, next: string) {
 		return;
 	}
 
+	// 松键结束录音：保留现有「嘚嘚」；净化/代回完成后不再另播结束音
 	if (
 		prev === "listening" &&
 		(next === "understanding" || next === "planning" || next === "working")
@@ -60,7 +71,9 @@ export function playFoldSoundForStatus(prev: string, next: string) {
 		return;
 	}
 
+	// 净化/代回完成：内容直接出来，不再播 Agent 任务完成音
 	if (next === "done" && prev !== "done") {
+		if (isVoiceAssistMode(voiceMode)) return;
 		playFoldSound("taskDone");
 		return;
 	}

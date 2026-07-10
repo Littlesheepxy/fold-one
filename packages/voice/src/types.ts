@@ -14,3 +14,5 @@ export interface VoiceConfig {
 	languageHints?: string[];
 	model?: string;
 }
+
+export type AsrProvider = "mock" | "dashscope" | "local-whisper";

@@ -11,6 +11,8 @@ export interface StructuredSpeech {
 export interface SpeechFormatContext {
 	app?: string | null;
 	windowTitle?: string | null;
+	allowCloud?: boolean;
+	onCloudSuccess?: () => void;
 }
 
 function isChatContext(context: SpeechFormatContext): boolean {
@@ -59,7 +61,7 @@ function heuristicStructure(transcript: string): StructuredSpeech {
 	};
 }
 
-function shouldCleanLocally(text: string): boolean {
+export function shouldCleanSpeechLocally(text: string): boolean {
 	const singleLine = !text.includes("\n");
 	const sentenceCount = text.split(/[。！？!?；;]/).filter((part) => part.trim()).length;
 	if (singleLine && text.length <= 120 && sentenceCount <= 2) return true;
@@ -112,8 +114,8 @@ export async function structureSpeechText(
 	const text = transcript.trim();
 	if (!text) return { headline: "", detail: "" };
 	const cleaned = formatCleanedText(cleanSpeechText(text), context);
-	if (shouldCleanLocally(text)) return { headline: cleaned, detail: "" };
-	if (!hasPlannerApiKey()) return heuristicStructure(text);
+	if (shouldCleanSpeechLocally(text)) return { headline: cleaned, detail: "" };
+	if (context.allowCloud === false || !hasPlannerApiKey()) return heuristicStructure(text);
 
 	const app = [context.app, context.windowTitle].filter(Boolean).join(" · ") || "未知";
 	const prompt = `用户刚说完一段语音输入。请做“输入净化”，不是总结，不要扩写，不要补充事实。
@@ -140,7 +142,10 @@ ${text}`;
 	try {
 		const model = toLanguageModel(resolveModelChoice("planner"));
 		const { text: out } = await generateText({ model, prompt });
-		return parseStructureJson(out, text) ?? heuristicStructure(text);
+		const parsed = parseStructureJson(out, text);
+		if (!parsed) return heuristicStructure(text);
+		context.onCloudSuccess?.();
+		return parsed;
 	} catch {
 		return heuristicStructure(text);
 	}

@@ -1,5 +1,16 @@
 export { runTask, runMockTask } from "./orchestrator.js";
 export {
+	canUseSmartAction,
+	consumeTrialSmartAction,
+	INITIAL_TRIAL_SMART_ACTIONS,
+	normalizePlanTier,
+	remainingTrialSmartActions,
+	resolveEntitlements,
+	type Entitlements,
+	type PlanTier,
+	type UpgradeReason,
+} from "./entitlements.js";
+export {
 	buildPredictions,
 	buildSituationFingerprint,
 	clearPredictCache,
@@ -17,7 +28,12 @@ export {
 	type SituationFingerprint,
 } from "./predict.js";
 export { generatePredictDrafts, type PredictDraftLine } from "./predict-drafts.js";
-export { structureSpeechText, type StructuredSpeech } from "@fold/ai";
+export {
+	shouldCleanSpeechLocally,
+	structureSpeechText,
+	type StructuredSpeech,
+} from "@fold/ai";
+export { hasPlannerApiKey } from "@fold/ai";
 export { inferPredictSurface, surfaceActionLabel, type PredictSurface } from "./predict-surface.js";
 export { predictContextSnippet } from "./predict-fallback.js";
 export { extractEntityTokens } from "./entity-extract.js";

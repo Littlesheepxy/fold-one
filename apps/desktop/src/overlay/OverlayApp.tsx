@@ -393,12 +393,12 @@ export function OverlayApp() {
 
 	useEffect(() => {
 		const prev = prevStatusRef.current;
-		playFoldSoundForStatus(prev, status);
+		playFoldSoundForStatus(prev, status, voiceMode);
 		if (status !== "done") setDetailsOpen(false);
 		if (status !== "idle" && status !== "predict") setPanelOpen(false);
 		if (status !== "idle") setIdleRailOpen(false);
 		prevStatusRef.current = status;
-	}, [status]);
+	}, [status, voiceMode]);
 
 	useEffect(() => {
 		return window.fold.onState((state) => setState(state));
@@ -440,7 +440,7 @@ export function OverlayApp() {
 	const shellWidth = inputScene
 		? status === "done"
 			? 58
-			: 118
+			: 124
 		: collapsed
 		? (dockedSide ? DOCKED_WIDTH : ORB_SIZE)
 		: status === "error"
@@ -525,7 +525,19 @@ export function OverlayApp() {
 						window.fold.setMousePassthrough(true);
 					}
 				}}
-				style={inputScene ? undefined : { x, y }}
+				style={
+					inputScene
+						? {
+								// 覆盖拖拽残留的 translate，保证相对屏幕水平居中
+								x: "-50%",
+								y: 0,
+								left: "50%",
+								right: "auto",
+								top: "auto",
+								bottom: 30,
+							}
+						: { x, y }
+				}
 				className={`${inputScene ? "fold-input-tab-anchor" : "absolute"} pointer-events-auto select-none`}
 			>
 				<motion.div

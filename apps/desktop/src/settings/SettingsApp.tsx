@@ -7,7 +7,9 @@ import { ProfileSection } from "./sections/ProfileSection.js";
 import { WorkTrailSection } from "./sections/WorkTrailSection.js";
 import { TasksSection } from "./sections/TasksSection.js";
 import { ConnectionsSection } from "./sections/ConnectionsSection.js";
+import { AccountSection } from "./sections/AccountSection.js";
 import { SettingsSection } from "./sections/SettingsSection.js";
+import { AccountSidebar } from "./components/AccountSidebar.js";
 
 const NAV: Array<{ id: HomeSection; label: string }> = [
 	{ id: "overview", label: "主页" },
@@ -44,7 +46,7 @@ const SIDEBAR_MAX = 320;
 function loadSidebarWidth(): number {
 	const raw = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY));
 	if (Number.isFinite(raw) && raw >= SIDEBAR_MIN && raw <= SIDEBAR_MAX) return raw;
-	return 220;
+	return 236;
 }
 
 export function SettingsApp() {
@@ -99,6 +101,7 @@ export function SettingsApp() {
 				s === "work" ||
 				s === "tasks" ||
 				s === "connections" ||
+				s === "account" ||
 				s === "settings"
 			) {
 				setSection(s);
@@ -117,7 +120,7 @@ export function SettingsApp() {
 	}, []);
 
 	useEffect(() => {
-		if (section !== "settings") {
+		if (section !== "settings" && section !== "account") {
 			void refreshSnapshot();
 		}
 	}, [section]);
@@ -189,6 +192,13 @@ export function SettingsApp() {
 					})}
 				</nav>
 
+				<AccountSidebar
+					config={config}
+					active={section === "account"}
+					onOpenAccount={() => setSection("account")}
+					onUpgrade={() => setSection("account")}
+				/>
+
 				<div
 					className="fold-home-sidebar-resizer"
 					onMouseDown={onSidebarResizeStart}
@@ -232,6 +242,9 @@ export function SettingsApp() {
 							onRefresh={refreshSnapshot}
 							onOpenSettings={() => setSection("settings")}
 						/>
+					)}
+					{section === "account" && (
+						<AccountSection config={config} onUpdate={update} />
 					)}
 					{section === "settings" && (
 						<SettingsSection

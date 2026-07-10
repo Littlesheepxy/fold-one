@@ -4,7 +4,14 @@ import { pathToFileURL } from "node:url";
 import { ContextEngine } from "@fold/context";
 import { createNangoConnectLink, openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal, openOfficeSetupInTerminal, cancelConnectFlow, pollConnectFlow, resolveConnectTarget, startConnectFlow } from "@fold/connectors";
 import { saveContextEvent } from "@fold/memory";
-import { runTask, structureSpeechText, type FoldStateEvent, type UserActionRequest } from "@fold/runtime";
+import {
+	hasPlannerApiKey,
+	resolveEntitlements,
+	runTask,
+	structureSpeechText,
+	type FoldStateEvent,
+	type UserActionRequest,
+} from "@fold/runtime";
 import {
 	clearPredictTargetApp,
 	getPredictTargetApp,
@@ -16,7 +23,15 @@ import {
 } from "./predict-enrich.js";
 import { insertTextToFrontApp } from "./insert-text.js";
 import { getAppIconDataUrl, resolveAppBundlePath } from "./app-icon.js";
-import { applyConfigToEnv, hasRealAsr, loadConfig, saveConfig, type FoldConfig } from "./config.js";
+import {
+	applyConfigToEnv,
+	consumeSmartActionTrial,
+	hasRealAsr,
+	loadConfig,
+	resolveSmartActionAccess,
+	saveConfig,
+	type FoldConfig,
+} from "./config.js";
 import { buildHomeSnapshot } from "./home-snapshot.js";
 import { openAccessibilitySettings, probeAccessibility, ensureAccessibilityPermission } from "./permissions.js";
 import { buildEpisodeDetail, listEpisodesForHome } from "./episode-detail.js";
@@ -31,6 +46,16 @@ import {
 import { startHoldHotkey } from "./hotkey.js";
 import { createTray } from "./tray.js";
 import { createFoldAppIcon } from "./tray-icon.js";
+import {
+	appendLocalWhisperAudio,
+	cancelLocalWhisperSession,
+	finishLocalWhisperSession,
+	getDefaultLocalModelPath,
+	hasLocalWhisperModel,
+	resolveLocalModelPath,
+	startLocalWhisperSession,
+} from "./local-whisper.js";
+import { downloadVoicePack, getVoiceSetupStatus } from "./voice-setup.js";
 
 applyConfigToEnv();
 
@@ -153,12 +178,12 @@ function openSettingsWindow(section?: string) {
 	}
 
 	settingsWindow = new BrowserWindow({
-		width: 920,
-		height: 680,
+		width: 1120,
+		height: 780,
 		title: "Fold",
 		resizable: true,
-		minWidth: 720,
-		minHeight: 520,
+		minWidth: 880,
+		minHeight: 640,
 		show: false,
 		...(process.platform === "darwin"
 			? {
@@ -279,6 +304,23 @@ async function executeTask(intent: string) {
 		return;
 	}
 	lastIntent = intent.trim();
+	const smartAccess = resolveSmartActionAccess();
+	if (!smartAccess.allowed && !hasPlannerApiKey()) {
+		emitState({
+			status: "error",
+			transcript: lastIntent,
+			error: "智能体验次数已用完。可升级版本，或在设置中启用 BYOK 使用自己的模型。",
+		});
+		return;
+	}
+	if (!smartAccess.allowed) {
+		emitState({
+			status: "error",
+			transcript: lastIntent,
+			error: "智能体验次数已用完。启用 BYOK 后可继续使用你配置的 Planner。",
+		});
+		return;
+	}
 	emitState({ status: "understanding", ...clearPredictState() });
 	try {
 		await runTask(lastIntent, emitState, {
@@ -286,6 +328,7 @@ async function executeTask(intent: string) {
 			requestUserAction,
 			runUserAction,
 		});
+		if (smartAccess.usesTrial && hasPlannerApiKey()) consumeSmartActionTrial();
 	} catch (err) {
 		emitState({ status: "error", error: (err as Error).message });
 	} finally {
@@ -348,12 +391,24 @@ async function structureVoiceTranscript(transcript: string) {
 		emitState({ status: "idle", ...clearPredictState() });
 		return;
 	}
-	emitState({ status: "understanding", transcript: text, ...clearPredictState() });
+	emitState({
+		status: "understanding",
+		transcript: text,
+		voiceMode: "structure",
+		...clearPredictState(),
+	});
 	try {
 		const ctx = contextEngine.getLiveContext();
+		const smartAccess = resolveSmartActionAccess();
 		const structured = await structureSpeechText(text, {
 			app: ctx.activeApp,
 			windowTitle: ctx.activeWindow,
+			allowCloud: smartAccess.allowed,
+			onCloudSuccess: smartAccess.usesTrial
+				? () => {
+						consumeSmartActionTrial();
+					}
+				: undefined,
 		});
 		const body = [structured.headline, structured.detail]
 			.map((part) => part.trim())
@@ -366,6 +421,7 @@ async function structureVoiceTranscript(transcript: string) {
 		emitState({
 			status: "done",
 			transcript: text,
+			voiceMode: "structure",
 			result: "已输入",
 			resultDetail: output,
 		});
@@ -417,6 +473,12 @@ const IPC_HANDLE_CHANNELS = [
 	"fold:get-config",
 	"fold:save-config",
 	"fold:get-mock-asr",
+	"fold:get-asr-runtime",
+	"fold:get-voice-setup",
+	"fold:download-voice-pack",
+	"fold:local-asr-start",
+	"fold:local-asr-finish",
+	"fold:local-asr-cancel",
 	"fold:get-home-snapshot",
 	"fold:get-live-context",
 	"fold:get-app-icon",
@@ -439,6 +501,39 @@ const IPC_HANDLE_CHANNELS = [
 	"fold:quit",
 ] as const;
 
+function resolveAsrRuntime() {
+	const config = loadConfig();
+	const requested = config.asrProvider ?? "auto";
+	const modelPath =
+		config.localWhisperModelPath ?? getDefaultLocalModelPath();
+	const resolvedModelPath = resolveLocalModelPath(modelPath);
+	const hasLocal = hasLocalWhisperModel(modelPath);
+	const hasCloud = hasRealAsr(config);
+	const tier = resolveEntitlements(config.planTier);
+
+	if (requested === "local-whisper" || requested === "local-funasr") {
+		return { provider: "local-whisper" as const, modelPath: resolvedModelPath, ready: hasLocal };
+	}
+	if (requested === "dashscope") {
+		return {
+			provider: hasCloud ? ("dashscope" as const) : ("mock" as const),
+			ready: hasCloud,
+		};
+	}
+	// 会员版：自动走云端
+	if (tier.cloudAsr) {
+		return {
+			provider: hasCloud ? ("dashscope" as const) : ("dashscope" as const),
+			ready: hasCloud,
+		};
+	}
+	// 免费版：仅本地语音包
+	if (hasLocal) {
+		return { provider: "local-whisper" as const, modelPath: resolvedModelPath, ready: true };
+	}
+	return { provider: "local-whisper" as const, modelPath: resolvedModelPath, ready: false };
+}
+
 function registerIpc() {
 	for (const channel of IPC_HANDLE_CHANNELS) {
 		ipcMain.removeHandler(channel);
@@ -452,7 +547,35 @@ function registerIpc() {
 		return { ok: true };
 	});
 
-	ipcMain.handle("fold:get-mock-asr", () => !hasRealAsr());
+	ipcMain.handle("fold:get-mock-asr", () => resolveAsrRuntime().provider === "mock");
+
+	ipcMain.handle("fold:get-voice-setup", () => getVoiceSetupStatus());
+
+	ipcMain.handle("fold:download-voice-pack", () => downloadVoicePack());
+
+	ipcMain.handle("fold:get-asr-runtime", resolveAsrRuntime);
+
+	ipcMain.handle("fold:local-asr-start", () => {
+		startLocalWhisperSession();
+		return { ok: true };
+	});
+
+	ipcMain.removeAllListeners("fold:local-asr-audio");
+	ipcMain.on("fold:local-asr-audio", (_event, chunk: ArrayBuffer | Uint8Array) => {
+		appendLocalWhisperAudio(chunk);
+	});
+
+	ipcMain.handle("fold:local-asr-finish", async () => {
+		const config = loadConfig();
+		return finishLocalWhisperSession(
+			resolveLocalModelPath(config.localWhisperModelPath),
+		);
+	});
+
+	ipcMain.handle("fold:local-asr-cancel", () => {
+		cancelLocalWhisperSession();
+		return { ok: true };
+	});
 
 	ipcMain.handle("fold:get-home-snapshot", () =>
 		buildHomeSnapshot(() => contextEngine.getLiveContext()),

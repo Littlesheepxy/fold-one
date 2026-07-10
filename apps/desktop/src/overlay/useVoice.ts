@@ -1,34 +1,56 @@
 import { useEffect, useRef } from "react";
-import { createAliyunAsr, createMockAsr, type AsrController } from "@fold/voice";
+import {
+	createAliyunAsr,
+	createLocalAsr,
+	createMockAsr,
+	type AsrController,
+} from "@fold/voice";
 
 const WS_BASE = import.meta.env.VITE_ASR_WS_URL ?? "ws://localhost:3003";
 
 export function useVoiceHandlers() {
 	const asrRef = useRef<AsrController | null>(null);
-	const useMockRef = useRef(true);
 	const wsBaseRef = useRef(WS_BASE);
 	const voiceModeRef = useRef<"structure" | "reply" | "agent">("structure");
 
 	useEffect(() => {
 		void (async () => {
 			const config = await window.fold.getConfig();
-			useMockRef.current = await window.fold.getUseMockAsr();
 			if (config.asrWsUrl) wsBaseRef.current = config.asrWsUrl;
 		})();
 
 		const startRecording = async () => {
 			if (asrRef.current) return;
-			const asr = useMockRef.current
-				? createMockAsr()
-				: createAliyunAsr({
-						wsBaseUrl: wsBaseRef.current,
-						workletPath: "/asr-pcm-worklet.js",
-					});
-			asrRef.current = asr;
-			asr.onLevel?.((level) => {
-				window.dispatchEvent(new CustomEvent("fold:voice-level-local", { detail: level }));
-			});
 			try {
+				const runtime = await window.fold.getAsrRuntime();
+				if (runtime.provider === "local-whisper" && !runtime.ready) {
+					throw new Error("请先在设置中下载语音包，才能使用本地语音识别。");
+				}
+				const asr =
+					runtime.provider === "local-whisper"
+						? createLocalAsr({
+								workletPath: "/asr-pcm-worklet.js",
+								transport: {
+									start: async () => {
+										await window.fold.localAsrStart();
+									},
+									sendAudio: (chunk) => window.fold.localAsrAudio(chunk),
+									finish: () => window.fold.localAsrFinish(),
+									cancel: async () => {
+										await window.fold.localAsrCancel();
+									},
+								},
+							})
+						: runtime.provider === "dashscope"
+							? createAliyunAsr({
+									wsBaseUrl: wsBaseRef.current,
+									workletPath: "/asr-pcm-worklet.js",
+								})
+							: createMockAsr();
+				asrRef.current = asr;
+				asr.onLevel?.((level) => {
+					window.dispatchEvent(new CustomEvent("fold:voice-level-local", { detail: level }));
+				});
 				await asr.start({
 					// 界面用音波，不再推实时字幕；ASR 仍在后台出最终文本
 					onPartial: () => {},
@@ -38,7 +60,7 @@ export function useVoiceHandlers() {
 					},
 				});
 			} catch (err) {
-				asr.cancel();
+				asrRef.current?.cancel();
 				asrRef.current = null;
 				void window.fold.voiceError((err as Error).message);
 			}

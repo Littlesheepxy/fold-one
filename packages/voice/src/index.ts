@@ -1,3 +1,4 @@
-export type { VoiceAdapter, VoiceConfig } from "./types.js";
+export type { AsrProvider, VoiceAdapter, VoiceConfig } from "./types.js";
 export { createAliyunAsr, createMockAsr, type AsrController } from "./aliyun-asr.js";
+export { createLocalAsr, type LocalAsrTransport } from "./local-asr.js";
 export { pcm16AudioLevel, smoothAudioLevel } from "./audio-level.js";

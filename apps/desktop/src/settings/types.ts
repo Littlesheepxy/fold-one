@@ -1,6 +1,20 @@
-export type HomeSection = "overview" | "profile" | "work" | "tasks" | "connections" | "settings";
+export type HomeSection =
+	| "overview"
+	| "profile"
+	| "work"
+	| "tasks"
+	| "connections"
+	| "account"
+	| "settings";
+export type PlanTier = "free" | "pro" | "ultra";
+export type AsrProvider = "auto" | "local-funasr" | "local-whisper" | "dashscope";
 
 export interface FoldConfig {
+	planTier?: PlanTier;
+	asrProvider?: AsrProvider;
+	localWhisperModelPath?: string;
+	trialSmartActionsRemaining?: number;
+	byokOverrides?: boolean;
 	dashscopeApiKey?: string;
 	openrouterApiKey?: string;
 	openaiApiKey?: string;

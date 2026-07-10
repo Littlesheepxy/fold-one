@@ -17,6 +17,25 @@ import {
 	type PredictEnrichment,
 	type PredictResult,
 } from "@fold/runtime";
+import {
+	consumeSmartActionTrial,
+	resolveSmartActionAccess,
+} from "./config.js";
+
+async function generateTieredPredictDrafts(
+	input: Parameters<typeof generatePredictDrafts>[0],
+) {
+	const access = resolveSmartActionAccess();
+	return generatePredictDrafts({
+		...input,
+		allowCloud: access.allowed,
+		onCloudSuccess: access.usesTrial
+			? () => {
+					consumeSmartActionTrial();
+				}
+			: undefined,
+	});
+}
 
 function attachTraceReasons(
 	result: PredictResult,
@@ -74,6 +93,7 @@ export async function gatherPredictEnrichment(): Promise<PredictEnrichment> {
 }
 
 async function screenTextViaOcr(): Promise<string | undefined> {
+	if (!resolveSmartActionAccess().allowed) return undefined;
 	if (!process.env.ZHIPU_API_KEY?.trim()) return undefined;
 	try {
 		const shot = await captureScreenshot({ target: "frontmost" });
@@ -92,7 +112,7 @@ async function attachDraftsIfNeeded(
 ): Promise<PredictResult> {
 	if (result.phase !== "result" || !result.suggestions[0]) return result;
 	const top = result.suggestions[0];
-	const drafts = await generatePredictDrafts({
+	const drafts = await generateTieredPredictDrafts({
 		intent: top.intent,
 		surface: result.surface,
 		contextSnippet: predictContextSnippet(enrichment) || undefined,
@@ -135,7 +155,7 @@ export async function resolveReplyPredictions(ctx: LiveContext): Promise<Predict
 		ctx.activeWindow ??
 		ctx.activeApp ??
 		"当前对话";
-	const drafts = await generatePredictDrafts({
+	const drafts = await generateTieredPredictDrafts({
 		intent,
 		surface: "reply",
 		contextSnippet: predictContextSnippet(enrichment) || enrichment.accessibilityText,
@@ -167,7 +187,7 @@ export async function resolvePredictDraftsForIntent(
 ): Promise<{ surface: PredictResult["surface"]; drafts: NonNullable<PredictResult["drafts"]> }> {
 	const rich = enrichment ?? (await gatherPredictEnrichment());
 	const surface = inferPredictSurface(ctx, rich, intent);
-	const drafts = await generatePredictDrafts({
+	const drafts = await generateTieredPredictDrafts({
 		intent,
 		surface,
 		contextSnippet: predictContextSnippet(rich) || undefined,
@@ -189,7 +209,7 @@ export async function resolveReplyDraftsForInstruction(
 			}
 		: enrichment;
 	lastPredictTargetApp = rich.accessibilityApp ?? ctx.activeApp ?? null;
-	return generatePredictDrafts({
+	return generateTieredPredictDrafts({
 		intent,
 		surface: "reply",
 		contextSnippet: predictContextSnippet(rich) || rich.accessibilityText,

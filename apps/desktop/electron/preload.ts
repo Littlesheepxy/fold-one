@@ -27,6 +27,35 @@ contextBridge.exposeInMainWorld("fold", {
 		return () => ipcRenderer.removeListener("fold:voice-level", handler);
 	},
 	getUseMockAsr: () => ipcRenderer.invoke("fold:get-mock-asr") as Promise<boolean>,
+	getVoiceSetup: () =>
+		ipcRenderer.invoke("fold:get-voice-setup") as Promise<{
+			planTier: "free" | "pro" | "ultra";
+			mode: "cloud" | "local" | "download-needed";
+			ready: boolean;
+			title: string;
+			detail: string;
+			downloadSizeMb?: number;
+			trialRemaining?: number;
+		}>,
+	downloadVoicePack: () =>
+		ipcRenderer.invoke("fold:download-voice-pack") as Promise<
+			{ ok: true; path: string } | { ok: false; error: string }
+		>,
+	getAsrRuntime: () =>
+		ipcRenderer.invoke("fold:get-asr-runtime") as Promise<{
+			provider: "mock" | "dashscope" | "local-whisper";
+			modelPath?: string;
+			ready: boolean;
+		}>,
+	localAsrStart: () =>
+		ipcRenderer.invoke("fold:local-asr-start") as Promise<{ ok: boolean }>,
+	localAsrAudio: (chunk: ArrayBuffer) => {
+		ipcRenderer.send("fold:local-asr-audio", chunk);
+	},
+	localAsrFinish: () =>
+		ipcRenderer.invoke("fold:local-asr-finish") as Promise<string>,
+	localAsrCancel: () =>
+		ipcRenderer.invoke("fold:local-asr-cancel") as Promise<{ ok: boolean }>,
 	runTask: (intent: string) => ipcRenderer.invoke("fold:run-task", intent) as Promise<void>,
 	structureVoice: (transcript: string) =>
 		ipcRenderer.invoke("fold:structure-voice", transcript) as Promise<void>,

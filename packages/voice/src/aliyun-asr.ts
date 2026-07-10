@@ -201,6 +201,7 @@ export function createMockAsr(): AsrController {
 	let partial = "";
 	let timer: ReturnType<typeof setInterval> | null = null;
 	let levelTimer: ReturnType<typeof setInterval> | null = null;
+	let typingIndex = 0;
 	const sample = "帮我整理刚下载的报价发给 Jason";
 	let onPartial: ((t: string) => void) | null = null;
 
@@ -214,11 +215,11 @@ export function createMockAsr(): AsrController {
 	return {
 		async start(opts) {
 			onPartial = opts.onPartial;
-			let i = 0;
+			typingIndex = 0;
 			partial = "";
 			timer = setInterval(() => {
-				if (i < sample.length) {
-					partial += sample[i++];
+				if (typingIndex < sample.length) {
+					partial += sample[typingIndex++];
 					onPartial?.(partial);
 				}
 			}, 120);
@@ -226,16 +227,14 @@ export function createMockAsr(): AsrController {
 		cancel() {
 			clearTimers();
 			partial = "";
+			typingIndex = 0;
 		},
 		async stop() {
 			clearTimers();
 			return sample;
 		},
 		onLevel(cb) {
-			levelTimer = setInterval(() => {
-				const pulse = 0.25 + Math.abs(Math.sin(Date.now() / 220)) * 0.55;
-				cb(pulse * (0.7 + Math.random() * 0.3));
-			}, 80);
+			levelTimer = setInterval(() => cb(0), 80);
 		},
 		done: Promise.resolve({ fullText: sample }),
 	};

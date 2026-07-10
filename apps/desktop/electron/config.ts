@@ -1,8 +1,24 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+	canUseSmartAction,
+	consumeTrialSmartAction,
+	INITIAL_TRIAL_SMART_ACTIONS,
+	normalizePlanTier,
+	remainingTrialSmartActions,
+	resolveEntitlements,
+	type PlanTier,
+} from "@fold/runtime";
+
+export type AsrProvider = "auto" | "local-funasr" | "local-whisper" | "dashscope";
 
 export interface FoldConfig {
+	planTier?: PlanTier;
+	asrProvider?: AsrProvider;
+	localWhisperModelPath?: string;
+	trialSmartActionsRemaining?: number;
+	byokOverrides?: boolean;
 	dashscopeApiKey?: string;
 	openrouterApiKey?: string;
 	openaiApiKey?: string;
@@ -39,20 +55,54 @@ export function getConfigPath(): string {
 
 export function loadConfig(): FoldConfig {
 	try {
-		if (!existsSync(CONFIG_PATH)) return {};
-		return JSON.parse(readFileSync(CONFIG_PATH, "utf8")) as FoldConfig;
+		if (!existsSync(CONFIG_PATH)) {
+			return {
+				planTier: "free",
+				asrProvider: "auto",
+				trialSmartActionsRemaining: INITIAL_TRIAL_SMART_ACTIONS,
+			};
+		}
+		const config = JSON.parse(readFileSync(CONFIG_PATH, "utf8")) as FoldConfig;
+		return {
+			...config,
+			planTier: normalizePlanTier(config.planTier),
+			asrProvider: config.asrProvider ?? "auto",
+			trialSmartActionsRemaining: remainingTrialSmartActions(
+				config.trialSmartActionsRemaining,
+			),
+		};
 	} catch {
-		return {};
+		return {
+			planTier: "free",
+			asrProvider: "auto",
+			trialSmartActionsRemaining: INITIAL_TRIAL_SMART_ACTIONS,
+		};
 	}
 }
 
 export function saveConfig(config: FoldConfig): void {
 	if (!existsSync(CONFIG_DIR)) mkdirSync(CONFIG_DIR, { recursive: true });
-	writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), "utf8");
+	const normalized: FoldConfig = {
+		...config,
+		planTier: normalizePlanTier(config.planTier),
+		asrProvider: config.asrProvider ?? "auto",
+		trialSmartActionsRemaining: remainingTrialSmartActions(
+			config.trialSmartActionsRemaining,
+		),
+	};
+	writeFileSync(CONFIG_PATH, JSON.stringify(normalized, null, 2), "utf8");
 }
 
 /** Merge saved config into process.env for runtime packages. */
 export function applyConfigToEnv(config: FoldConfig = loadConfig()): void {
+	process.env.FOLD_PLAN_TIER = normalizePlanTier(config.planTier);
+	process.env.FOLD_ASR_PROVIDER = config.asrProvider ?? "auto";
+	if (config.localWhisperModelPath) {
+		process.env.FOLD_LOCAL_WHISPER_MODEL_PATH = config.localWhisperModelPath;
+	}
+	process.env.FOLD_TRIAL_SMART_ACTIONS_REMAINING = String(
+		remainingTrialSmartActions(config.trialSmartActionsRemaining),
+	);
 	if (config.dashscopeApiKey) process.env.DASHSCOPE_API_KEY = config.dashscopeApiKey;
 	if (config.openrouterApiKey) process.env.OPENROUTER_API_KEY = config.openrouterApiKey;
 	if (config.openaiApiKey) process.env.OPENAI_API_KEY = config.openaiApiKey;
@@ -100,4 +150,34 @@ export function applyConfigToEnv(config: FoldConfig = loadConfig()): void {
 export function hasRealAsr(config: FoldConfig = loadConfig()): boolean {
 	const key = config.dashscopeApiKey ?? process.env.DASHSCOPE_API_KEY;
 	return Boolean(key?.trim());
+}
+
+export function resolveSmartActionAccess(config: FoldConfig = loadConfig()): {
+	allowed: boolean;
+	usesTrial: boolean;
+} {
+	const entitlements = resolveEntitlements(config.planTier);
+	const hasByok = config.byokOverrides === true;
+	return {
+		allowed: canUseSmartAction(
+			entitlements,
+			config.trialSmartActionsRemaining,
+			hasByok,
+		),
+		usesTrial: entitlements.tier === "free" && !hasByok,
+	};
+}
+
+export function consumeSmartActionTrial(config: FoldConfig = loadConfig()): FoldConfig {
+	const access = resolveSmartActionAccess(config);
+	if (!access.usesTrial || !access.allowed) return config;
+	const next = {
+		...config,
+		trialSmartActionsRemaining: consumeTrialSmartAction(
+			config.trialSmartActionsRemaining,
+		),
+	};
+	saveConfig(next);
+	applyConfigToEnv(next);
+	return next;
 }

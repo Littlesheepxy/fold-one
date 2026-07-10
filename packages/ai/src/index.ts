@@ -22,7 +22,11 @@ export {
 	type PredictDraftLine,
 	type PredictSurface,
 } from "./predict-drafts.js";
-export { structureSpeechText, type StructuredSpeech } from "./structure-speech.js";
+export {
+	shouldCleanSpeechLocally,
+	structureSpeechText,
+	type StructuredSpeech,
+} from "./structure-speech.js";
 export {
 	PROVIDER_TABLE,
 	resolveModelChoice,

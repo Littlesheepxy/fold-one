@@ -15,6 +15,8 @@ export interface PredictDraftInput {
 	surface: PredictSurface;
 	contextSnippet?: string;
 	anchor?: string | null;
+	allowCloud?: boolean;
+	onCloudSuccess?: () => void;
 }
 
 function surfaceActionLabel(surface: PredictSurface): string {
@@ -73,7 +75,7 @@ function parseDraftJson(text: string): PredictDraftLine[] | null {
 }
 
 export async function generatePredictDrafts(input: PredictDraftInput): Promise<PredictDraftLine[]> {
-	if (!hasPlannerApiKey()) return heuristicDrafts(input);
+	if (input.allowCloud === false || !hasPlannerApiKey()) return heuristicDrafts(input);
 
 	const action = surfaceActionLabel(input.surface);
 	const context = input.contextSnippet?.trim().slice(0, 1200) ?? "（无页面文本）";
@@ -92,7 +94,10 @@ ${context}
 	try {
 		const model = toLanguageModel(resolveModelChoice("planner"));
 		const { text } = await generateText({ model, prompt });
-		return parseDraftJson(text) ?? heuristicDrafts(input);
+		const parsed = parseDraftJson(text);
+		if (!parsed) return heuristicDrafts(input);
+		input.onCloudSuccess?.();
+		return parsed;
 	} catch {
 		return heuristicDrafts(input);
 	}

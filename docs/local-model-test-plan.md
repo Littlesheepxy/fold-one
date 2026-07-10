@@ -17,6 +17,9 @@
 
 ## ASR
 
+- 免费版默认本地：目标架构为 FunASR 主、Whisper 备。
+- 付费版 / 升级版默认 DashScope 云端；断网或失败时回落本地。
+- 当前第一阶段先跑通 Whisper GGML（Electron Main 托管推理），FunASR 复用 provider 接口接入。
 - 继续测试 DashScope 当前链路，确认 `finish` 后 1.5s timeout 的体感。
 - 测本地 ASR，目标是松开后 1-2s 内有最终文本。
 - 保留当前音波 UI：录音中不展示实时字幕，只展示音量波形。
@@ -32,4 +35,13 @@
 - `packages/ai/src/structure-speech.ts`：复杂净化走 fast model。
 - `packages/ai/src/predict-drafts.ts`：代回走 fast model。
 - `packages/voice` / `apps/asr-proxy`：抽象 ASR provider，方便 DashScope 与本地 ASR 切换。
+- `apps/desktop/electron/local-whisper.ts`：缓冲 PCM，在 Electron Main 中串行执行 whisper.cpp。
+- `FOLD_LOCAL_WHISPER_MODEL_PATH`：本地 GGML 模型路径；建议从 `small` 中文样例开始验证。
+
+## 版本验收
+
+- Free：无云端 Key 也能使用本地 ASR、Context 和基础净化。
+- Pro：云端 ASR、复杂净化、情境代回与 OCR 可用。
+- Ultra：在 Pro 基础上开放跨应用 Agent、Subagent 和高级恢复。
+- 新用户 20 次智能体验成功后扣减；失败不扣；BYOK 不扣。
 
