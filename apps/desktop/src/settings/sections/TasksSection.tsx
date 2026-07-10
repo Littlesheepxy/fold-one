@@ -5,13 +5,17 @@ import {
 	ChevronDown,
 	Circle,
 	Clipboard,
+	Clock3,
 	FileText,
 	Globe,
+	MessageCircleReply,
+	Mic2,
 	XCircle,
 } from "lucide-react";
 import { AppIconImg } from "../components/AppIcon.js";
 import { Card, formatTime } from "../components/FormFields.js";
 import { SkillIcon } from "../components/SkillIcon.js";
+import { estimateHomeMetrics, formatSavedDuration } from "../lib/home-metrics.js";
 import type { EpisodeDetail, EpisodeSummary } from "../types.js";
 
 function formatClock(ts: number) {
@@ -367,9 +371,41 @@ export function TasksSection({
 	return (
 		<div className="fold-tasks-page">
 			<div className="fold-tasks-page-head">
-				<h2 className="text-[15px] font-semibold tracking-[-0.01em] text-[#1d1d1f]">任务记录</h2>
+				<h2 className="text-[15px] font-semibold tracking-[-0.01em] text-[#1d1d1f]">活动</h2>
 				<span className="text-[11px] text-[#aeaeb2]">{episodes.length} 条</span>
 			</div>
+
+			{episodes.length > 0 ? (
+				<section className="fold-tasks-stats" aria-label="本周统计">
+					{(() => {
+						const metrics = estimateHomeMetrics(episodes);
+						return (
+							<>
+								<div className="fold-tasks-stat">
+									<Mic2 size={16} strokeWidth={1.8} />
+									<span>字数</span>
+									<strong>{metrics.characters.toLocaleString("zh-CN")}</strong>
+								</div>
+								<div className="fold-tasks-stat">
+									<MessageCircleReply size={16} strokeWidth={1.8} />
+									<span>回复</span>
+									<strong>{metrics.replies}</strong>
+								</div>
+								<div className="fold-tasks-stat">
+									<CheckCircle2 size={16} strokeWidth={1.8} />
+									<span>行动</span>
+									<strong>{metrics.actions}</strong>
+								</div>
+								<div className="fold-tasks-stat is-highlight">
+									<Clock3 size={16} strokeWidth={1.8} />
+									<span>节省</span>
+									<strong>{formatSavedDuration(metrics.savedMinutes)}</strong>
+								</div>
+							</>
+						);
+					})()}
+				</section>
+			) : null}
 
 			{loadingList ? (
 				<p className="text-[13px] text-[#86868b]">加载中…</p>

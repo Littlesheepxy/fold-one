@@ -1,7 +1,8 @@
 import type { LiveContext } from "@fold/context";
 import { isAgentSubagentsEnabled, probeAllAgents } from "@fold/connectors";
 import { listRecentEpisodes } from "@fold/memory";
-import { runProbes } from "@fold/runtime";
+import { loadProfileMemories } from "@fold/memory";
+import { buildCapabilitySnapshot, runProbes, type CapabilitySnapshot } from "@fold/runtime";
 import { hasRealAsr, loadConfig } from "./config.js";
 import { probeAccessibility } from "./permissions.js";
 
@@ -39,7 +40,9 @@ export interface HomeSnapshot {
 		recentFiles: Array<{ path: string; name: string }>;
 	};
 	connections: HomeConnection[];
+	capabilitySnapshot: CapabilitySnapshot;
 	configSummary: HomeConfigSummary;
+	userProfile: ReturnType<typeof loadProfileMemories>;
 }
 
 function probeOk<T>(probes: Awaited<ReturnType<typeof runProbes>>, id: string): T | undefined {
@@ -208,10 +211,26 @@ function buildConfigSummary(): HomeConfigSummary {
 
 export async function buildHomeSnapshot(getLiveContext: () => LiveContext): Promise<HomeSnapshot> {
 	const liveContext = getLiveContext();
+	const config = loadConfig();
+	const nango = { configured: Boolean(config.hubApiKey?.trim() || config.nangoSecretKey?.trim()) };
 	const [probes, agentStatuses] = await Promise.all([
 		runProbes("", liveContext),
 		probeAllAgents(),
 	]);
+	const ax = probeAccessibility(false);
+	const capabilitySnapshot = buildCapabilitySnapshot(probes, agentStatuses, {
+		executionMode: config.executionMode,
+		enabledCapabilities: config.enabledCapabilities,
+		preferredExecutor: config.preferredExecutor,
+		skipLocalAgent: config.skipLocalAgent,
+		hasPlannerKey: Boolean(
+			config.openrouterApiKey?.trim() ||
+				config.openaiApiKey?.trim() ||
+				process.env.OPENROUTER_API_KEY?.trim() ||
+				process.env.OPENAI_API_KEY?.trim(),
+		),
+		hubConfigured: nango.configured,
+	}, ax.available);
 	const episodes = listRecentEpisodes(10).map((ep) => ({
 		id: ep.id,
 		intent: ep.intent,
@@ -235,6 +254,8 @@ export async function buildHomeSnapshot(getLiveContext: () => LiveContext): Prom
 			})),
 		},
 		connections: buildConnections(probes, agentStatuses),
+		capabilitySnapshot,
 		configSummary: buildConfigSummary(),
+		userProfile: loadProfileMemories(),
 	};
 }

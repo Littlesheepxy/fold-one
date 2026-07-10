@@ -8,9 +8,18 @@ export type HomeSection =
 	| "settings";
 export type PlanTier = "free" | "pro" | "ultra";
 export type AsrProvider = "auto" | "local-funasr" | "local-whisper" | "dashscope";
+export type ExecutionMode = "auto" | "local_agent" | "fold_only";
+
+import type { CapabilityItem, CapabilitySnapshot } from "@fold/runtime";
+
+export type { CapabilityItem, CapabilitySnapshot };
 
 export interface FoldConfig {
 	planTier?: PlanTier;
+	executionMode?: ExecutionMode;
+	enabledCapabilities?: string[];
+	preferredExecutor?: "claude-code" | "codex" | "cursor" | "workbuddy" | "auto";
+	skipLocalAgent?: boolean;
 	asrProvider?: AsrProvider;
 	localWhisperModelPath?: string;
 	trialSmartActionsRemaining?: number;
@@ -108,6 +117,31 @@ export interface HomeConfigSummary {
 	allowUitars: boolean;
 }
 
+export interface HomeAhaGuess {
+	reply: string;
+	confidenceLevel?: "high" | "medium" | "low";
+	confidenceScore?: number;
+	suggestions: Array<{
+		label: string;
+		intent: string;
+		reason: string;
+		confidence: number;
+	}>;
+}
+
+export interface HomePredictPreview {
+	anchor: string | null;
+	phase: "silent" | "pick" | "result";
+	activeApp: string | null;
+	activeWindow: string | null;
+	suggestions: Array<{
+		label: string;
+		intent: string;
+		reason: string;
+		confidence: number;
+	}>;
+}
+
 export interface HomeSnapshot {
 	episodes: HomeEpisode[];
 	liveContext: {
@@ -117,7 +151,9 @@ export interface HomeSnapshot {
 		recentFiles: Array<{ path: string; name: string }>;
 	};
 	connections: HomeConnection[];
+	capabilitySnapshot: CapabilitySnapshot;
 	configSummary: HomeConfigSummary;
+	userProfile: UserProfileData | null;
 }
 
 export interface HomeContextEvent {
@@ -138,6 +174,14 @@ export interface LiveContextLite {
 	activeApp: string | null;
 	activeWindow: string | null;
 	activeAppPath: string | null;
+	recentUrls: Array<{ url: string; title: string }>;
+	recentFiles: Array<{ path: string; name: string }>;
+	clipboardPreview: string | null;
+	focusDwells?: Array<{
+		app: string;
+		windowTitle?: string;
+		dwellMs: number;
+	}>;
 	events: HomeContextEvent[];
 }
 

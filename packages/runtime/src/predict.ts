@@ -1,4 +1,5 @@
 import type { LiveContext } from "@fold/context";
+import { computeFocusDwells } from "@fold/context";
 import { listRecentEpisodes, type Episode, type EpisodeSummary } from "@fold/memory";
 import { extractEntityTokens } from "./entity-extract.js";
 import {
@@ -181,6 +182,10 @@ export function buildSituationFingerprint(
 			fileKinds.add(fileKind(evt.data.filePath));
 			trail.push("file");
 		}
+		if (evt.type === "file.modified" && evt.data.filePath) {
+			fileKinds.add(fileKind(evt.data.filePath));
+			trail.push("file");
+		}
 	}
 
 	if (enrichment.screenText) {
@@ -197,6 +202,13 @@ export function buildSituationFingerprint(
 	}
 	if (ctx.clipboard?.text) {
 		for (const e of extractEntityTokens(ctx.clipboard.text)) entities.add(e);
+	}
+
+	for (const dwell of computeFocusDwells(ctx.events).slice(0, 4)) {
+		if (dwell.dwellMs < 90_000) continue;
+		apps.add(dwell.app);
+		if (dwell.windowTitle) windowTitles.add(dwell.windowTitle);
+		trail.push(dwell.app);
 	}
 
 	return {

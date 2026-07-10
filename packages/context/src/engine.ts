@@ -5,11 +5,16 @@ import { promisify } from "node:util";
 import chokidar, { type FSWatcher } from "chokidar";
 import type { ContextEvent } from "./types.js";
 import { ContextStore } from "./store.js";
+import { defaultWatchRoots, FILE_WATCH_IGNORED, mergeWatchRoots, watchRootsFromEnv, type WatchRoot } from "./watch-paths.js";
 
 const execFileAsync = promisify(execFile);
 
+const FILE_MODIFIED_DEBOUNCE_MS = 2_000;
+
 export interface ContextEngineOptions {
 	downloadsDir?: string;
+	/** 额外监听目录（绝对路径） */
+	watchDirs?: string[];
 	/** 前台轮询忽略的 App（如 Fold 自身），避免打开 Home 窗口时锚点变成自己 */
 	ignoreApps?: string[];
 	onEvent?: (event: ContextEvent) => void;
@@ -22,11 +27,17 @@ export class ContextEngine {
 	private appTimer: ReturnType<typeof setInterval> | null = null;
 	private lastClipboard = "";
 	private lastBrowserUrl = "";
+	private modifiedTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 	constructor(private opts: ContextEngineOptions = {}) {}
 
 	getLiveContext() {
 		return this.store.get();
+	}
+
+	/** 启动时从 DB 回放近期 context_events。 */
+	hydrate(events: ContextEvent[]) {
+		this.store.hydrate(events);
 	}
 
 	/** Test / dev: inject a context event */
@@ -35,27 +46,7 @@ export class ContextEngine {
 	}
 
 	start() {
-		const downloads = this.opts.downloadsDir ?? join(homedir(), "Downloads");
-
-		const watcher = chokidar.watch(downloads, {
-			ignored: /(^|[/\\])\../,
-			persistent: true,
-			ignoreInitial: true,
-			depth: 0,
-			awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 },
-		});
-
-		watcher.on("add", (filePath) => {
-			this.push({
-				type: "file.created",
-				source: "finder",
-				timestamp: Date.now(),
-				data: { filePath, appName: "Finder" },
-			});
-		});
-
-		this.watchers.push(watcher);
-
+		this.startFileWatchers();
 		this.appTimer = setInterval(() => void this.pollActiveApp(), 2000);
 		this.clipboardTimer = setInterval(() => void this.pollClipboard(), 1500);
 		void this.pollActiveApp();
@@ -64,8 +55,67 @@ export class ContextEngine {
 	stop() {
 		for (const w of this.watchers) void w.close();
 		this.watchers = [];
+		for (const timer of this.modifiedTimers.values()) clearTimeout(timer);
+		this.modifiedTimers.clear();
 		if (this.appTimer) clearInterval(this.appTimer);
 		if (this.clipboardTimer) clearInterval(this.clipboardTimer);
+	}
+
+	private resolveWatchRoots(): WatchRoot[] {
+		const downloads = this.opts.downloadsDir ?? join(homedir(), "Downloads");
+		const extras = (this.opts.watchDirs ?? [])
+			.filter(Boolean)
+			.map((path) => ({ path, depth: 5 as const }));
+
+		return mergeWatchRoots(
+			defaultWatchRoots(),
+			[{ path: downloads, depth: 2 }],
+			watchRootsFromEnv(),
+			extras,
+		);
+	}
+
+	private startFileWatchers() {
+		for (const root of this.resolveWatchRoots()) {
+			const watcher = chokidar.watch(root.path, {
+				ignored: FILE_WATCH_IGNORED,
+				persistent: true,
+				ignoreInitial: true,
+				depth: root.depth,
+				awaitWriteFinish: { stabilityThreshold: 600, pollInterval: 120 },
+			});
+
+			watcher.on("add", (filePath) => {
+				this.pushFileEvent("file.created", filePath);
+			});
+
+			watcher.on("change", (filePath) => {
+				this.scheduleFileModified(filePath);
+			});
+
+			this.watchers.push(watcher);
+		}
+	}
+
+	private pushFileEvent(type: "file.created" | "file.modified", filePath: string) {
+		this.push({
+			type,
+			source: "finder",
+			timestamp: Date.now(),
+			data: { filePath, appName: "Finder" },
+		});
+	}
+
+	private scheduleFileModified(filePath: string) {
+		const pending = this.modifiedTimers.get(filePath);
+		if (pending) clearTimeout(pending);
+		this.modifiedTimers.set(
+			filePath,
+			setTimeout(() => {
+				this.modifiedTimers.delete(filePath);
+				this.pushFileEvent("file.modified", filePath);
+			}, FILE_MODIFIED_DEBOUNCE_MS),
+		);
 	}
 
 	private async pollActiveApp() {

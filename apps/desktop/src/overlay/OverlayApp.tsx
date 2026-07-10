@@ -2,6 +2,7 @@ import { animate, motion, AnimatePresence, useMotionValue } from "framer-motion"
 import { useEffect, useRef, useState } from "react";
 import { useOverlayStore } from "./useOverlayStore";
 import { useVoiceHandlers } from "./useVoice";
+import { useProcessingFill, PROCESSING_FILL_COMPLETE } from "./useProcessingFill";
 import { useMousePassthrough } from "./useMousePassthrough";
 import { GreenCheckMark } from "./components/GreenCheckMark";
 import { VoiceWave } from "./components/VoiceWave";
@@ -9,7 +10,9 @@ import { StepList } from "./components/StepList";
 import { ProgressLine } from "./components/ProgressLine";
 import { AskOptions } from "./components/AskOptions";
 import { PredictConfirmCard } from "./components/PredictConfirmCard";
+import { ContextAppIcon } from "./components/ContextAppIcon";
 import { playFoldSoundForStatus, preloadFoldSounds } from "./sounds.js";
+import { FoldLogoMark } from "../components/FoldLogoMark.js";
 
 function friendlyError(raw: string | null | undefined): string {
 	if (!raw) return "出错了";
@@ -21,25 +24,6 @@ function friendlyError(raw: string | null | undefined): string {
 	}
 	if (raw.includes("mail.draft.exists")) return "邮件草稿创建失败";
 	return raw.replace(/^Validation failed:\s*/i, "");
-}
-
-function FoldLogo({ className = "" }: { className?: string }) {
-	return (
-		<svg
-			className={`fold-logo-mark ${className}`}
-			viewBox="0 0 32 28"
-			fill="none"
-			aria-hidden="true"
-		>
-			<path
-				d="M6 7.5L16 18.5L26 7.5"
-				stroke="currentColor"
-				strokeWidth="8"
-				strokeLinecap="round"
-				strokeLinejoin="round"
-			/>
-		</svg>
-	);
 }
 
 function HomeIcon() {
@@ -346,6 +330,11 @@ export function OverlayApp() {
 		predictSelectedIntent,
 		predictDraftsLoading,
 		predictCursor,
+		contextAppName,
+		contextAppPath,
+		contextWindowTitle,
+		predictRefining,
+		voiceTabPlacement,
 		voiceLevel,
 		setState,
 		setVoiceLevel,
@@ -421,12 +410,24 @@ export function OverlayApp() {
 		if (status !== "listening") setVoiceLevel(0);
 	}, [status, setVoiceLevel]);
 
-	const isExecuting = status === "understanding" || status === "planning" || status === "working";
+	const isAgentExecuting =
+		status === "understanding" || status === "planning" || status === "working";
+	const isVoiceFormatting = status === "formatting";
+	const isVoiceAssist = voiceMode === "structure" || voiceMode === "reply";
+	const usesFillProgress =
+		isVoiceAssist && (status === "formatting" || status === "done");
+	const fillProgress = useProcessingFill(status, usesFillProgress);
+	const fillComplete = fillProgress >= PROCESSING_FILL_COMPLETE;
 	const isAuthPrompt = status === "ask";
 	const isPredictCard = status === "predict" && Boolean(predictCursor);
 	const inputScene =
-		voiceMode !== "agent" &&
-		(status === "listening" || isExecuting || status === "done");
+		isVoiceAssist &&
+		(status === "listening" || isVoiceFormatting || status === "done");
+	const inputSettling = inputScene && status === "done" && !fillComplete;
+	const isVoiceFormattingActive = isVoiceFormatting || inputSettling;
+	const isExecuting = isAgentExecuting || isVoiceFormattingActive;
+	const isProcessingFill = isVoiceFormattingActive;
+	const showCheckmark = status === "done" && (inputScene ? fillComplete : true);
 	const predictCardPosition =
 		isPredictCard && predictSurface === "reply" && typeof window !== "undefined"
 			? {
@@ -438,9 +439,15 @@ export function OverlayApp() {
 	const dockedSide = collapsed ? anchorPosition.snapSide : null;
 	const idleShellWidth = idleRailOpen ? 424 : 360;
 	const shellWidth = inputScene
-		? status === "done"
-			? 58
-			: 124
+		? isVoiceFormattingActive
+			? 96
+			: status === "done"
+				? fillComplete
+					? 58
+					: 96
+				: contextAppName
+					? 148
+					: 124
 		: collapsed
 		? (dockedSide ? DOCKED_WIDTH : ORB_SIZE)
 		: status === "error"
@@ -451,6 +458,8 @@ export function OverlayApp() {
 				? 400
 			: status === "working" || status === "planning" || status === "understanding"
 				? 300
+				: status === "formatting"
+					? 132
 				: status === "done"
 					? 320
 				: status === "ask"
@@ -527,15 +536,23 @@ export function OverlayApp() {
 				}}
 				style={
 					inputScene
-						? {
-								// 覆盖拖拽残留的 translate，保证相对屏幕水平居中
-								x: "-50%",
-								y: 0,
-								left: "50%",
-								right: "auto",
-								top: "auto",
-								bottom: 30,
-							}
+						? voiceTabPlacement
+							? {
+									x: "-50%",
+									y: 0,
+									left: voiceTabPlacement.left,
+									right: "auto",
+									top: "auto",
+									bottom: voiceTabPlacement.bottom,
+								}
+							: {
+									x: "-50%",
+									y: 0,
+									left: "50%",
+									right: "auto",
+									top: "auto",
+									bottom: 30,
+								}
 						: { x, y }
 				}
 				className={`${inputScene ? "fold-input-tab-anchor" : "absolute"} pointer-events-auto select-none`}
@@ -544,9 +561,13 @@ export function OverlayApp() {
 					className={`fold-shell ${collapsed ? "fold-shell-collapsed" : ""} ${
 						inputScene ? "fold-input-tab" : ""
 					} ${
-						isExecuting ? "fold-shell-executing fold-shell-fill" : ""
+						isProcessingFill ? "fold-shell-fill" : ""
 					} ${
-						status === "done" ? "fold-shell-fill is-done" : ""
+						isAgentExecuting ? "fold-shell-executing is-processing" : ""
+					} ${
+						isVoiceFormattingActive ? "fold-shell-formatting" : ""
+					} ${
+						showCheckmark ? "is-done" : ""
 					} ${
 						!collapsed && (status === "error" || status === "ask") ? "fold-shell-expanded" : ""
 					} ${
@@ -560,6 +581,11 @@ export function OverlayApp() {
 					}`}
 					animate={{ width: shellWidth }}
 					transition={{ type: "spring", stiffness: 520, damping: 42, mass: 0.7 }}
+					style={
+						isProcessingFill
+							? ({ "--fold-fill-progress": String(fillProgress) } as React.CSSProperties)
+							: undefined
+					}
 					onClick={() => {
 						if (collapsed && !dragMovedRef.current) setPanelOpen(true);
 					}}
@@ -578,17 +604,17 @@ export function OverlayApp() {
 							}}
 							aria-label={collapsed ? "打开 Fold" : "收起 Fold"}
 						>
-							<FoldLogo />
+							<FoldLogoMark className="fold-logo-mark" />
 						</button>
 					)}
 
-					{status === "done" && (
+					{showCheckmark && (
 						<button
 							type="button"
 							className="fold-logo-button"
 							onClick={(e) => {
 								e.stopPropagation();
-								if (status === "done") void window.fold.dismiss();
+								void window.fold.dismiss();
 							}}
 							aria-label="关闭"
 						>
@@ -597,7 +623,7 @@ export function OverlayApp() {
 					)}
 
 					<AnimatePresence initial={false} mode="popLayout">
-						{!collapsed && (
+						{!collapsed && !isVoiceFormattingActive && (
 							<motion.div
 								key={status === "idle" ? "ready" : status}
 								className="fold-shell-content"
@@ -610,7 +636,7 @@ export function OverlayApp() {
 									<>
 										<div className="min-w-0 flex-1">
 											<p className="text-sm font-medium whitespace-nowrap">Fold 准备好了</p>
-											<p className="mt-1 text-xs text-white/45 whitespace-nowrap">⌥Space Agent · 右⌘ 整理/拟回复</p>
+											<p className="mt-1 text-xs text-white/45 whitespace-nowrap">⌥Space Agent · 右⌘ 转写/代回</p>
 										</div>
 										<button
 											type="button"
@@ -639,8 +665,17 @@ export function OverlayApp() {
 								{status === "listening" && (
 									inputScene ? (
 										<>
+											{contextAppName ? (
+												<span className="fold-input-app-icon" aria-hidden="true">
+													<ContextAppIcon
+														appName={contextAppName}
+														appPath={contextAppPath}
+														size={18}
+													/>
+												</span>
+											) : null}
 											<span className="fold-input-mode">
-												{voiceMode === "reply" ? "代回" : "净化"}
+												{voiceMode === "reply" ? "代回" : "转写"}
 											</span>
 											<span className="fold-input-separator" />
 											<VoiceWave level={voiceLevel} />
@@ -668,7 +703,7 @@ export function OverlayApp() {
 									)
 								)}
 
-								{isExecuting && !inputScene && (
+								{isAgentExecuting && !inputScene && (
 									<div className="fold-exec-row">
 										<ProgressLine
 											status={status}
@@ -819,15 +854,17 @@ export function OverlayApp() {
 					phase={predictPhase}
 					surface={predictSurface}
 					anchor={predictAnchor}
+					appName={contextAppName}
+					appPath={contextAppPath}
+					windowTitle={contextWindowTitle}
+					refining={predictRefining}
 					suggestions={predictSuggestions ?? []}
 					drafts={predictDrafts}
-					loading={predictAnchor?.includes("正在读取")}
+					loading={Boolean(predictAnchor?.includes("正在"))}
 					draftsLoading={predictDraftsLoading}
 					selectedIntent={predictSelectedIntent}
 					onPickIntent={(intent) => void window.fold.predictPickIntent(intent)}
 					onInsertDraft={(text) => void window.fold.predictInsertDraft(text)}
-					onCopyDraft={(text) => void navigator.clipboard.writeText(text)}
-					onVoiceOther={() => void window.fold.predictStartVoice()}
 					onDismiss={() => void window.fold.dismiss()}
 				/>
 			)}

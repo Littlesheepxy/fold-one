@@ -11,8 +11,8 @@ html, body, #root {
   -webkit-font-smoothing: antialiased;
 }
 
-body.fold-home,
-body.fold-home #root {
+body.fold-home-page,
+body.fold-home-page #root {
   background: transparent;
 }
 
@@ -118,9 +118,11 @@ body.fold-home #root {
 }
 
 .fold-input-tab .fold-shell-content {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   justify-content: center;
   gap: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .fold-input-tab .fold-logo-button {
@@ -137,13 +139,37 @@ body.fold-home #root {
   line-height: 1;
 }
 
+.fold-shell-formatting.fold-shell-fill::before {
+  transition-duration: 0.35s;
+}
+
+.fold-input-tab.fold-shell-formatting {
+  padding: 6px 0;
+  justify-content: center;
+}
+
 .fold-input-separator {
   width: 1px;
   height: 16px;
-  margin: 0 10px;
+  margin: 0 8px;
   flex: 0 0 auto;
-  border-radius: 999px;
-  background: rgb(255 255 255 / 0.26);
+  background: rgb(255 255 255 / 0.14);
+}
+
+.fold-input-app-icon {
+  display: grid;
+  place-items: center;
+  margin-right: 6px;
+  flex: 0 0 auto;
+}
+
+.fold-predict-card-app-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 0.08);
 }
 
 .fold-shell-fill::before {
@@ -157,14 +183,18 @@ body.fold-home #root {
     rgb(255 255 255 / 0.24),
     rgb(255 255 255 / 0.16)
   );
+  transform: scaleX(var(--fold-fill-progress, 0));
   transform-origin: left center;
-  animation: fold-capsule-fill 12s linear forwards;
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
   pointer-events: none;
   z-index: 0;
 }
 
+.fold-shell-fill.is-processing::before {
+  transition: none;
+}
+
 .fold-shell-fill.is-done::before {
-  animation: none;
   transform: scaleX(1);
   background: rgb(52 199 89 / 0.28);
 }
@@ -174,27 +204,14 @@ body.fold-home #root {
   z-index: 1;
 }
 
-@keyframes fold-capsule-fill {
-  0% {
-    transform: scaleX(0);
-    opacity: 0;
-  }
-  12% {
-    transform: scaleX(0.86);
-    opacity: 0.9;
-  }
-  100% {
-    transform: scaleX(0.97);
-    opacity: 0.95;
-  }
-}
-
 .fold-voice-wave {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
   height: 24px;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 52px;
   overflow: hidden;
 }
 
@@ -413,9 +430,28 @@ body.fold-home #root {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   margin-top: 12px;
   padding-top: 10px;
   border-top: 0.5px solid rgb(255 255 255 / 0.1);
+}
+
+.fold-predict-card-foot--hint {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+
+.fold-predict-card-hint {
+  margin: 0;
+  color: rgb(255 255 255 / 0.42);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.fold-predict-card-hint strong {
+  color: rgb(255 255 255 / 0.72);
+  font-weight: 650;
 }
 
 .fold-predict-card-link {
@@ -739,15 +775,37 @@ body.fold-home #root {
   -webkit-app-region: no-drag;
 }
 
-/* 仅顶部条带可拖窗口，避免 drag 区域吞掉主页网格的鼠标事件 */
+/* 仅顶部条带可拖窗口；置于 DOM 最末层，盖在内容之上 */
 .fold-home-window-drag {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  height: 44px;
-  z-index: 50;
+  height: 56px;
+  z-index: 10000;
   -webkit-app-region: drag;
+  pointer-events: auto;
+}
+
+.fold-home-sidebar::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 56px;
+  -webkit-app-region: drag;
+  z-index: 0;
+  pointer-events: auto;
+}
+
+.fold-home-brand,
+.fold-home-nav,
+.fold-sidebar-shortcuts,
+.fold-home-sidebar-footer,
+.fold-home-sidebar-resizer {
+  position: relative;
+  z-index: 1;
 }
 
 .fold-home {
@@ -770,12 +828,99 @@ body.fold-home #root {
   -webkit-app-region: no-drag;
 }
 
+.fold-sidebar-shortcuts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: auto;
+  padding: 10px 4px 8px;
+  border-top: 0.5px solid rgb(0 0 0 / 0.06);
+}
+
+.fold-sidebar-shortcuts-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #86868b;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.fold-sidebar-shortcuts-toggle:hover {
+  background: rgb(0 0 0 / 0.04);
+  color: #1d1d1f;
+}
+
+.fold-sidebar-shortcuts-chevron {
+  color: #aeaeb2;
+  transition: transform 160ms ease;
+}
+
+.fold-sidebar-shortcuts-chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.fold-sidebar-shortcuts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0 4px 2px;
+  list-style: none;
+}
+
+.fold-sidebar-shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px;
+}
+
+.fold-sidebar-shortcut-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #3a3a3c;
+  letter-spacing: -0.01em;
+}
+
+.fold-sidebar-shortcut-keys {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 3px;
+}
+
+.fold-sidebar-shortcut-keys kbd {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 0 5px;
+  border: 0.5px solid rgb(0 0 0 / 0.08);
+  border-radius: 5px;
+  background: rgb(255 255 255 / 0.88);
+  color: #6e6e73;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+}
+
 .fold-home-sidebar-footer {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-top: auto;
-  padding-top: 12px;
+  margin-top: 0;
+  padding-top: 8px;
   border-top: 0.5px solid rgb(0 0 0 / 0.06);
   -webkit-app-region: no-drag;
 }
@@ -804,13 +949,13 @@ body.fold-home #root {
   width: 32px;
   height: 32px;
   border-radius: 999px;
-  background: linear-gradient(145deg, #2b2b2f, #111114);
-  color: #fff;
+  background: #f5f5f7;
+  color: #1d1d1f;
   flex-shrink: 0;
 }
 
 .fold-home-account-name {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: #1d1d1f;
   line-height: 1.2;
@@ -818,7 +963,7 @@ body.fold-home #root {
 
 .fold-home-account-meta {
   margin-top: 2px;
-  font-size: 10px;
+  font-size: 11px;
   color: #86868b;
   line-height: 1.3;
 }
@@ -878,7 +1023,7 @@ body.fold-home #root {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 14px 16px;
+  padding: 12px 16px;
   border-bottom: 0.5px solid rgb(0 0 0 / 0.06);
 }
 
@@ -886,17 +1031,29 @@ body.fold-home #root {
   border-bottom: 0;
 }
 
+.fold-home-setting-copy {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
 .fold-home-setting-row-title {
+  flex-shrink: 0;
   font-size: 13px;
   font-weight: 600;
   color: #1d1d1f;
 }
 
 .fold-home-setting-row-desc {
-  margin-top: 2px;
+  min-width: 0;
   font-size: 11px;
   line-height: 1.45;
   color: #86868b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .fold-home-kbd-group {
@@ -954,20 +1111,60 @@ body.fold-sidebar-resizing {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 22px;
+  margin-top: 10px;
+  margin-bottom: 32px;
   padding: 0 8px;
   -webkit-app-region: no-drag;
 }
 
 .fold-home-brand-mark {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 11px;
-  background: #111;
-  color: #fff;
-  box-shadow: 0 6px 18px rgb(0 0 0 / 0.14);
+  display: block;
+  width: 24px;
+  height: auto;
+  flex-shrink: 0;
+}
+
+.fold-home-brand-name {
+  margin: 0;
+  min-width: 0;
+  flex: 1;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: #1d1d1f;
+}
+
+.fold-home-plan-badge {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 0.5px solid transparent;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  line-height: 1;
+}
+
+.fold-home-plan-badge.is-free {
+  border-color: rgb(0 0 0 / 0.08);
+  background: rgb(255 255 255 / 0.9);
+  color: #6e6e73;
+}
+
+.fold-home-plan-badge.is-pro {
+  border-color: rgb(0 113 227 / 0.16);
+  background: rgb(0 113 227 / 0.1);
+  color: #0071e3;
+}
+
+.fold-home-plan-badge.is-ultra {
+  border-color: rgb(88 86 214 / 0.18);
+  background: rgb(88 86 214 / 0.1);
+  color: #5856d6;
 }
 
 .fold-home-nav {
@@ -985,10 +1182,10 @@ body.fold-sidebar-resizing {
   width: 100%;
   padding: 8px 14px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 16px;
   background: transparent;
   color: #6e6e73;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   text-align: left;
   cursor: pointer;
@@ -1012,7 +1209,7 @@ body.fold-sidebar-resizing {
   flex: 1;
   min-width: 0;
   overflow-y: auto;
-  padding: 48px 36px 36px;
+  padding: 52px 44px 40px;
   -webkit-app-region: no-drag;
   position: relative;
 }
@@ -1023,7 +1220,7 @@ body.fold-sidebar-resizing {
 }
 
 .fold-home-content--dashboard {
-  max-width: 1120px;
+  max-width: 1180px;
 }
 
 .fold-home-content--wide {
@@ -1175,6 +1372,885 @@ body:has(.react-grid-item.resizing) {
   color: #1d1d1f;
 }
 
+.fold-dashboard {
+  width: 100%;
+  color: #18181b;
+}
+
+.fold-dashboard-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 32px;
+  margin-bottom: 28px;
+}
+
+.fold-dashboard-hero h1 {
+  margin: 0;
+  font-size: clamp(36px, 4vw, 54px);
+  line-height: 1.04;
+  font-weight: 760;
+  letter-spacing: -0.055em;
+  color: #09090b;
+}
+
+.fold-dashboard-hero p {
+  margin: 12px 0 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: #7b7b83;
+}
+
+.fold-guide-panel {
+  margin-bottom: 28px;
+}
+
+.fold-aha-trigger--compact {
+  margin-bottom: 22px;
+}
+
+.fold-context-scene {
+  margin-bottom: 20px;
+}
+
+.fold-context-scene-title {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #86868b;
+}
+
+.fold-context-scene-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.fold-context-scene-empty {
+  margin: 0;
+  padding: 14px 16px;
+  border: 0.5px dashed rgb(0 0 0 / 0.08);
+  border-radius: 16px;
+  background: rgb(255 255 255 / 0.5);
+  color: #86868b;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.fold-home-metrics-compact {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.fold-home-metric-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 0.5px solid rgb(0 0 0 / 0.06);
+  border-radius: 14px;
+  background: rgb(255 255 255 / 0.92);
+  color: #86868b;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.fold-home-metric-pill strong {
+  margin-left: auto;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #1d1d1f;
+}
+
+.fold-home-metric-pill.is-highlight strong {
+  color: #5856d6;
+}
+
+.fold-dashboard-empty--inline {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  padding: 16px 20px;
+  border-radius: 0;
+  background: transparent;
+}
+
+.fold-context-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 8px 14px 8px 10px;
+  border: 0.5px solid rgb(0 0 0 / 0.06);
+  border-radius: 16px;
+  background: rgb(255 255 255 / 0.96);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.02);
+  cursor: pointer;
+  text-align: left;
+  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
+
+.fold-context-chip:hover {
+  background: #fff;
+  border-color: rgb(0 0 0 / 0.1);
+  transform: translateY(-1px);
+}
+
+.fold-context-chip-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 0.03);
+}
+
+.fold-context-chip-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  max-width: 220px;
+}
+
+.fold-context-chip-copy strong {
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: #1d1d1f;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fold-context-chip-copy small {
+  font-size: 11px;
+  color: #86868b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fold-activity-section--solo {
+  margin-top: 8px;
+}
+
+.fold-dashboard-empty--compact {
+  margin-top: 8px;
+  padding: 18px 20px;
+}
+
+.fold-tasks-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.fold-tasks-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 0.5px solid rgb(0 0 0 / 0.06);
+  border-radius: 16px;
+  background: rgb(255 255 255 / 0.96);
+  color: #86868b;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.fold-tasks-stat strong {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: #1d1d1f;
+}
+
+.fold-tasks-stat.is-highlight strong {
+  color: #5856d6;
+}
+
+.fold-aha-panel {
+  margin-bottom: 22px;
+  padding: 18px 20px;
+  border: 0.5px solid rgb(0 0 0 / 0.06);
+  border-radius: 22px;
+  background: linear-gradient(135deg, rgb(255 255 255 / 0.98), rgb(246 246 255 / 0.92));
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.02);
+}
+
+.fold-aha-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.fold-aha-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #5856d6;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.fold-aha-confidence {
+  margin-left: 2px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgb(255 59 48 / 0.1);
+  color: #c93400;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.fold-aha-confidence--medium {
+  background: rgb(255 149 0 / 0.12);
+  color: #b25000;
+}
+
+.fold-aha-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.04);
+  color: #86868b;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.fold-aha-close:hover {
+  background: rgb(0 0 0 / 0.07);
+  color: #1d1d1f;
+}
+
+.fold-aha-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1.1em;
+  margin-left: 2px;
+  vertical-align: -0.12em;
+  background: #5856d6;
+  animation: fold-aha-blink 1s step-end infinite;
+}
+
+@keyframes fold-aha-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0;
+  }
+}
+
+.fold-aha-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 0.5px solid rgb(88 86 214 / 0.2);
+  border-radius: 999px;
+  background: rgb(88 86 214 / 0.1);
+  color: #4f4db8;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.fold-aha-trigger:hover {
+  background: rgb(88 86 214 / 0.14);
+  border-color: rgb(88 86 214 / 0.3);
+}
+
+.fold-aha-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #6e6e73;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.fold-aha-result {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fold-aha-reply {
+  margin: 0;
+  font-size: clamp(17px, 2vw, 22px);
+  line-height: 1.5;
+  font-weight: 550;
+  letter-spacing: -0.02em;
+  color: #1d1d1f;
+}
+
+.fold-aha-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.fold-aha-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 14px;
+  border: 0.5px solid rgb(88 86 214 / 0.18);
+  border-radius: 999px;
+  background: rgb(88 86 214 / 0.08);
+  color: #4f4db8;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.fold-aha-btn:hover {
+  background: rgb(88 86 214 / 0.12);
+  border-color: rgb(88 86 214 / 0.28);
+}
+
+.fold-aha-btn.is-ghost {
+  border-color: rgb(0 0 0 / 0.08);
+  background: rgb(255 255 255 / 0.72);
+  color: #6e6e73;
+}
+
+.fold-aha-btn.is-ghost:hover {
+  background: rgb(0 0 0 / 0.04);
+  color: #1d1d1f;
+}
+
+.fold-aha-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.fold-aha-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 0.5px solid rgb(88 86 214 / 0.14);
+  background: rgb(88 86 214 / 0.06);
+  color: #4f4db8;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.fold-guide-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  overflow: hidden;
+  border: 0.5px solid rgb(0 0 0 / 0.06);
+  border-radius: 22px;
+  background: rgb(255 255 255 / 0.96);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.02);
+}
+
+.fold-guide-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  padding: 18px 22px;
+  border-right: 0.5px solid rgb(0 0 0 / 0.06);
+  border-bottom: 0.5px solid rgb(0 0 0 / 0.06);
+}
+
+.fold-guide-row:nth-child(2n) {
+  border-right: 0;
+}
+
+.fold-guide-row:last-child {
+  grid-column: 1 / -1;
+  border-right: 0;
+  border-bottom: 0;
+}
+
+.fold-guide-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.fold-guide-copy strong {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: #1d1d1f;
+}
+
+.fold-guide-desc {
+  font-size: 13px;
+  line-height: 1.45;
+  color: #86868b;
+}
+
+.fold-guide-row .fold-home-kbd-group {
+  flex-shrink: 0;
+}
+
+.fold-ready-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 0.5px solid rgb(0 0 0 / 0.08);
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.03);
+  color: #36363b;
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.fold-ready-pill span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #2dc66d;
+  box-shadow: 0 0 0 4px rgb(45 198 109 / 0.1);
+}
+
+.fold-ready-pill.has-issue {
+  cursor: pointer;
+}
+
+.fold-ready-pill.has-issue span {
+  background: #f5a623;
+  box-shadow: 0 0 0 4px rgb(245 166 35 / 0.11);
+}
+
+.fold-value-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.9fr);
+  border: 0.5px solid rgb(0 0 0 / 0.06);
+  border-radius: 22px;
+  background: rgb(255 255 255 / 0.96);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.02);
+}
+
+.fold-value-metrics,
+.fold-time-saved {
+  padding: 26px 30px;
+}
+
+.fold-value-metrics {
+  border-right: 1px solid rgb(42 42 48 / 0.08);
+}
+
+.fold-value-panel h2,
+.fold-section-heading h2 {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.3;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+  color: #17171a;
+}
+
+.fold-metric-row {
+  display: grid;
+  grid-template-columns: 24px 64px minmax(72px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  border-bottom: 1px solid rgb(32 32 38 / 0.055);
+  color: #66666f;
+}
+
+.fold-metric-row:last-child {
+  border-bottom: 0;
+}
+
+.fold-metric-row strong {
+  font-size: 18px;
+  font-weight: 690;
+  color: #161619;
+  font-variant-numeric: tabular-nums;
+}
+
+.fold-metric-row small {
+  color: #86868b;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.fold-time-saved strong {
+  display: block;
+  margin-top: 18px;
+  color: #1d1d1f;
+  font-size: clamp(31px, 3.2vw, 44px);
+  line-height: 1.05;
+  font-weight: 720;
+  letter-spacing: -0.045em;
+}
+
+.fold-time-saved > div {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 20px;
+  color: #6e6e73;
+}
+
+.fold-time-saved p {
+  max-width: 270px;
+  margin: 0;
+  color: #777780;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.fold-dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.12fr) minmax(320px, 0.88fr);
+  gap: 22px;
+  margin-top: 24px;
+  align-items: stretch;
+}
+
+.fold-activity-section,
+.fold-intelligence-section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.fold-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 30px;
+  margin-bottom: 10px;
+  padding: 0 2px;
+}
+
+.fold-section-heading button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  color: #777780;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.fold-activity-list,
+.fold-intelligence-panel {
+  overflow: hidden;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 220px;
+  border: 0.5px solid rgb(0 0 0 / 0.06);
+  border-radius: 20px;
+  background: rgb(255 255 255 / 0.96);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.02);
+}
+
+.fold-activity-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto 22px;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 64px;
+  padding: 8px 16px;
+  border: 0;
+  border-bottom: 1px solid rgb(32 32 38 / 0.06);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+
+.fold-activity-row:hover {
+  background: rgb(0 0 0 / 0.03);
+}
+
+.fold-activity-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  color: #6c5df5;
+  background: rgb(108 93 245 / 0.1);
+}
+
+.fold-activity-icon.is-green {
+  color: #21a55c;
+  background: rgb(33 165 92 / 0.1);
+}
+
+.fold-activity-icon.is-blue {
+  color: #3589e6;
+  background: rgb(53 137 230 / 0.1);
+}
+
+.fold-activity-icon.is-peach {
+  color: #e97564;
+  background: rgb(233 117 100 / 0.11);
+}
+
+.fold-activity-copy {
+  min-width: 0;
+}
+
+.fold-activity-copy strong,
+.fold-activity-copy small {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fold-activity-copy strong {
+  color: #232328;
+  font-size: 13px;
+  font-weight: 640;
+}
+
+.fold-activity-copy small {
+  margin-top: 4px;
+  color: #85858d;
+  font-size: 11px;
+}
+
+.fold-activity-row time {
+  color: #92929a;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.fold-activity-state {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid #9898a2;
+  border-radius: 50%;
+  color: #fff;
+}
+
+.fold-activity-state.is-success {
+  border-color: #2dc66d;
+  background: #2dc66d;
+}
+
+.fold-dashboard-more,
+.fold-intelligence-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 46px;
+  border: 0;
+  background: transparent;
+  color: #6f6f78;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.fold-dashboard-more:hover,
+.fold-intelligence-more:hover,
+.fold-section-heading button:hover {
+  color: #4f43df;
+}
+
+.fold-intelligence-panel {
+  padding: 20px 20px 18px;
+}
+
+.fold-intelligence-panel .fold-routine {
+  margin-top: auto;
+  padding-top: 16px;
+}
+
+.fold-intelligence-panel h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: #28282d;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.fold-intelligence-panel h3 svg {
+  color: #675cf1;
+}
+
+.fold-intelligence-panel ul {
+  display: grid;
+  gap: 0;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fold-intelligence-panel li {
+  position: relative;
+  padding: 11px 0 11px 22px;
+  border-bottom: 1px solid rgb(32 32 38 / 0.055);
+  color: #55555d;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.fold-intelligence-panel li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 17px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #8276f4;
+  box-shadow: 0 0 0 5px rgb(130 118 244 / 0.09);
+}
+
+.fold-intelligence-empty {
+  margin: 14px 0 18px;
+  color: #85858d;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.fold-routine {
+  margin-top: 14px;
+  padding-top: 16px;
+  border-top: 1px solid rgb(32 32 38 / 0.07);
+}
+
+.fold-routine strong,
+.fold-routine small {
+  display: block;
+  margin-left: 25px;
+}
+
+.fold-routine strong {
+  margin-top: 12px;
+  color: #39393f;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.fold-routine small {
+  margin-top: 4px;
+  color: #919199;
+  font-size: 11px;
+}
+
+.fold-intelligence-more {
+  margin-top: 14px;
+  border-top: 1px solid rgb(32 32 38 / 0.06);
+}
+
+.fold-dashboard-empty {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 210px;
+  padding: 28px;
+  color: #7469e8;
+}
+
+.fold-dashboard-empty strong {
+  display: block;
+  color: #35353a;
+  font-size: 13px;
+}
+
+.fold-dashboard-empty p {
+  margin: 6px 0 0;
+  color: #85858d;
+  font-size: 11px;
+}
+
+@media (max-width: 980px) {
+  .fold-home-main {
+    padding-right: 28px;
+    padding-left: 28px;
+  }
+
+  .fold-guide-list {
+    grid-template-columns: 1fr;
+  }
+
+  .fold-guide-row {
+    border-right: 0;
+    grid-column: auto;
+  }
+
+  .fold-guide-row:last-child {
+    border-bottom: 0;
+  }
+
+  .fold-value-panel,
+  .fold-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .fold-value-metrics {
+    border-right: 0;
+    border-bottom: 1px solid rgb(42 42 48 / 0.08);
+  }
+}
+
+@media (max-width: 760px) {
+  .fold-dashboard-hero {
+    flex-direction: column;
+  }
+
+  .fold-home-sidebar {
+    min-width: 148px;
+  }
+
+  .fold-home-metrics-compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .fold-home-group {
   border-radius: 24px;
   border: 0.5px solid rgb(0 0 0 / 0.06);
@@ -1318,6 +2394,385 @@ body:has(.react-grid-item.resizing) {
   font-size: 11px;
   line-height: 1.45;
   color: #6e6e73;
+}
+
+.fold-execution-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+@media (max-width: 720px) {
+  .fold-execution-mode-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.fold-execution-mode-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid rgb(0 0 0 / 0.08);
+  border-radius: 12px;
+  background: rgb(0 0 0 / 0.02);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.fold-execution-mode-card.is-active {
+  border-color: rgb(0 0 0 / 0.22);
+  background: #fff;
+  box-shadow: 0 1px 0 rgb(0 0 0 / 0.04);
+}
+
+.fold-execution-mode-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1d1d1f;
+}
+
+.fold-execution-mode-label em {
+  margin-left: 6px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 600;
+  color: #0a7a45;
+}
+
+.fold-execution-mode-desc {
+  font-size: 10px;
+  line-height: 1.4;
+  color: #86868b;
+}
+
+.fold-capability-group {
+  border: 0.5px solid rgb(0 0 0 / 0.08);
+  border-radius: 16px;
+  background: rgb(255 255 255 / 0.96);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.02);
+  overflow: hidden;
+}
+
+.fold-capability-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.fold-capability-group-head.is-static {
+  cursor: default;
+}
+
+.fold-capability-group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1d1d1f;
+}
+
+.fold-capability-group-meta {
+  margin-left: auto;
+  font-size: 11px;
+  color: #86868b;
+}
+
+.fold-capability-group-refresh {
+  display: inline-flex;
+  padding: 4px;
+  color: #86868b;
+  cursor: pointer;
+}
+
+.fold-capability-group-chevron {
+  color: #aeaeb2;
+  transition: transform 120ms ease;
+}
+
+.fold-capability-group-chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.fold-capability-group-body {
+  padding: 0 12px 10px;
+}
+
+.fold-capability-chip-grid,
+.fold-executor-chip-grid,
+.fold-connection-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fold-connection-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 4px 10px 4px 4px;
+  border: 0.5px solid rgb(0 0 0 / 0.08);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.02);
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.fold-connection-chip.is-enabled {
+  border-color: rgb(52 199 89 / 0.28);
+}
+
+.fold-connection-chip.is-default {
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.06);
+}
+
+.fold-connection-chip--solo {
+  padding: 4px 12px 4px 4px;
+  cursor: pointer;
+}
+
+.fold-connection-chip--solo:hover:not(:disabled) {
+  border-color: rgb(0 0 0 / 0.14);
+}
+
+.fold-connection-chip-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 500;
+  color: #1d1d1f;
+  cursor: inherit;
+  text-align: left;
+}
+
+button.fold-connection-chip-main {
+  cursor: pointer;
+}
+
+button.fold-connection-chip-main.needs-action:hover:not(:disabled) {
+  color: #000;
+}
+
+.fold-connection-chip-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 0.04);
+  flex-shrink: 0;
+}
+
+.fold-connection-chip-label {
+  white-space: nowrap;
+}
+
+.fold-connection-chip-link {
+  border: 0;
+  background: transparent;
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #007aff;
+  cursor: pointer;
+}
+
+.fold-connection-chip-link:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.fold-capability-chip-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 2px 2px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.03);
+}
+
+.fold-capability-chip-wrap.is-on {
+  background: rgb(16 185 129 / 0.08);
+}
+
+.fold-capability-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 500;
+  color: #1d1d1f;
+  cursor: pointer;
+}
+
+.fold-capability-chip.needs-action {
+  cursor: pointer;
+}
+
+.fold-capability-chip.is-connected,
+.fold-executor-chip.is-connected {
+  color: #1d1d1f;
+}
+
+.fold-capability-chip.is-default {
+  outline: 1px solid rgb(0 0 0 / 0.12);
+  outline-offset: 1px;
+}
+
+.fold-capability-chip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.fold-ios-switch {
+  position: relative;
+  width: 40px;
+  height: 24px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 999px;
+  background: #e5e5ea;
+  cursor: pointer;
+  transition: background 160ms ease;
+  padding: 0;
+}
+
+.fold-ios-switch.is-on {
+  background: #34c759;
+}
+
+.fold-ios-switch:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.fold-ios-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.18);
+  transition: transform 160ms ease;
+}
+
+.fold-ios-switch.is-on .fold-ios-switch-thumb {
+  transform: translateX(16px);
+}
+
+.fold-capability-browser-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 8px 4px;
+  border-bottom: 1px solid rgb(0 0 0 / 0.05);
+}
+
+.fold-connection-list-row .fold-capability-browser-copy {
+  gap: 10px;
+}
+
+.fold-capability-browser-row:last-child {
+  border-bottom: 0;
+}
+
+.fold-capability-browser-copy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.fold-capability-browser-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.fold-capability-browser-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #1d1d1f;
+}
+
+.fold-capability-browser-detail {
+  font-size: 11px;
+  color: #86868b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+
+.fold-capability-browser-action {
+  flex-shrink: 0;
+}
+
+.fold-capability-connect-btn {
+  border: 0;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: #1d1d1f;
+  cursor: pointer;
+}
+
+.fold-capability-connect-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.fold-capability-chip-check {
+  width: 12px;
+  height: 12px;
+  margin: 0;
+}
+
+.fold-capability-inline-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 4px 0;
+  font-size: 12px;
+  color: #1d1d1f;
+}
+
+.fold-capability-inline-detail {
+  margin-left: auto;
+  font-size: 11px;
+  color: #86868b;
+}
+
+.fold-capability-hint {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: #86868b;
 }
 
 .fold-home-row-btn {

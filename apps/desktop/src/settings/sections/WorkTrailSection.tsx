@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { FileText, Globe, Clipboard } from "lucide-react";
-import type { HomeContextEvent, HomeSnapshot } from "../types.js";
+import type { HomeContextEvent, HomeSnapshot, LiveContextLite } from "../types.js";
 import { AppIconImg } from "../components/AppIcon.js";
 import { Card } from "../components/FormFields.js";
 
@@ -19,8 +19,20 @@ function eventLabel(e: HomeContextEvent): { title: string; detail?: string } | n
 				title: `新文件 ${e.data.filePath?.split("/").pop() ?? ""}`,
 				detail: e.data.filePath,
 			};
-		case "clipboard.changed":
-			return { title: "剪贴板更新" };
+		case "file.modified":
+			return {
+				title: `编辑文件 ${e.data.filePath?.split("/").pop() ?? ""}`,
+				detail: e.data.filePath,
+			};
+		case "clipboard.changed": {
+			const preview = e.data.text?.trim();
+			return {
+				title: "剪贴板更新",
+				detail: preview
+					? preview.slice(0, 60) + (preview.length > 60 ? "…" : "")
+					: undefined,
+			};
+		}
 		default:
 			return null;
 	}
@@ -32,23 +44,42 @@ function TimelineIcon({ event }: { event: HomeContextEvent }) {
 	}
 	const cls = "h-[18px] w-[18px] shrink-0 p-0.5 text-[#aeaeb2]";
 	if (event.type === "browser.urlChanged") return <Globe className={cls} strokeWidth={1.75} />;
-	if (event.type === "file.created") return <FileText className={cls} strokeWidth={1.75} />;
+	if (event.type === "file.created" || event.type === "file.modified") {
+		return <FileText className={cls} strokeWidth={1.75} />;
+	}
 	return <Clipboard className={cls} strokeWidth={1.75} />;
 }
 
+function formatDwell(ms: number): string {
+	const min = Math.round(ms / 60_000);
+	if (min < 1) return "不到 1 分钟";
+	if (min < 60) return `约 ${min} 分钟`;
+	return `约 ${Math.round(min / 60)} 小时`;
+}
+
 type Anchor = { app: string | null; window: string | null; appPath: string | null };
+type FocusDwellLite = { app: string; windowTitle?: string; dwellMs: number };
 
 export function WorkTrailSection({ snapshot }: { snapshot: HomeSnapshot }) {
 	const { liveContext } = snapshot;
 	const [anchor, setAnchor] = useState<Anchor | null>(null);
 	const [events, setEvents] = useState<HomeContextEvent[]>([]);
+	const [recentFiles, setRecentFiles] = useState(liveContext.recentFiles);
+	const [recentUrls, setRecentUrls] = useState(liveContext.recentUrls);
+	const [focusDwells, setFocusDwells] = useState<FocusDwellLite[]>([]);
 
 	useEffect(() => {
 		let mounted = true;
-		void window.fold.getLiveContext().then((ctx) => {
-			if (!mounted) return;
+		const apply = (ctx: LiveContextLite) => {
 			setAnchor({ app: ctx.activeApp, window: ctx.activeWindow, appPath: ctx.activeAppPath });
 			setEvents([...ctx.events].reverse());
+			setRecentFiles(ctx.recentFiles ?? []);
+			setRecentUrls(ctx.recentUrls ?? []);
+			setFocusDwells(ctx.focusDwells ?? []);
+		};
+		void window.fold.getLiveContext().then((ctx) => {
+			if (!mounted) return;
+			apply(ctx);
 		});
 		const off = window.fold.onContextEvent((event) => {
 			if (event.type === "app.active") {
@@ -58,7 +89,14 @@ export function WorkTrailSection({ snapshot }: { snapshot: HomeSnapshot }) {
 					appPath: event.data.appPath ?? null,
 				});
 			}
-			setEvents((prev) => [event, ...prev].slice(0, 50));
+			if (event.type === "file.created" || event.type === "file.modified") {
+				const path = event.data.filePath;
+				if (path) {
+					const name = path.split("/").pop() ?? path;
+					setRecentFiles((prev) => [{ path, name }, ...prev.filter((f) => f.path !== path)].slice(0, 10));
+				}
+			}
+			setEvents((prev) => [event, ...prev].slice(0, 80));
 		});
 		return () => {
 			mounted = false;
@@ -70,7 +108,12 @@ export function WorkTrailSection({ snapshot }: { snapshot: HomeSnapshot }) {
 	const activeWindow = anchor ? anchor.window : liveContext.activeWindow;
 
 	return (
-		<div className="space-y-4">
+		<div className="space-y-5">
+			<div>
+				<h1 className="fold-home-page-title">轨迹</h1>
+				<p className="fold-home-page-subtitle">实时操作记录与应用上下文（重启后保留近 4 小时）</p>
+			</div>
+
 			<Card title="当前锚点">
 				<div className="flex items-center gap-3">
 					<div className="fold-home-icon-tile">
@@ -116,10 +159,26 @@ export function WorkTrailSection({ snapshot }: { snapshot: HomeSnapshot }) {
 				)}
 			</Card>
 
-			{liveContext.recentUrls.length > 0 && (
+			{focusDwells.length > 0 && (
+				<Card title="停留较久">
+					<ul className="space-y-2.5">
+						{focusDwells.map((d) => {
+							const label = d.windowTitle ? `${d.app} · ${d.windowTitle}` : d.app;
+							return (
+								<li key={`${d.app}-${d.windowTitle ?? ""}`} className="text-[13px] text-[#3a3a3c]">
+									<span className="text-[#1d1d1f]">{label}</span>
+									<span className="text-[#86868b]"> · {formatDwell(d.dwellMs)}</span>
+								</li>
+							);
+						})}
+					</ul>
+				</Card>
+			)}
+
+			{recentUrls.length > 0 && (
 				<Card title="最近 URL">
 					<ul className="space-y-2.5">
-						{liveContext.recentUrls.map((u) => (
+						{recentUrls.map((u) => (
 							<li
 								key={u.url}
 								className="truncate text-[13px] text-[#3a3a3c]"
@@ -132,10 +191,10 @@ export function WorkTrailSection({ snapshot }: { snapshot: HomeSnapshot }) {
 				</Card>
 			)}
 
-			{liveContext.recentFiles.length > 0 && (
+			{recentFiles.length > 0 && (
 				<Card title="最近文件">
 					<ul className="space-y-2.5">
-						{liveContext.recentFiles.map((f) => (
+						{recentFiles.map((f) => (
 							<li
 								key={f.path}
 								className="truncate text-[13px] text-[#3a3a3c]"
@@ -147,7 +206,6 @@ export function WorkTrailSection({ snapshot }: { snapshot: HomeSnapshot }) {
 					</ul>
 				</Card>
 			)}
-
 		</div>
 	);
 }

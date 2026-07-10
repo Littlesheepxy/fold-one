@@ -36,9 +36,9 @@ function ShortcutRow({
 }) {
 	return (
 		<div className="fold-home-setting-row">
-			<div className="min-w-0 flex-1">
-				<p className="fold-home-setting-row-title">{title}</p>
-				<p className="fold-home-setting-row-desc">{description}</p>
+			<div className="fold-home-setting-copy">
+				<span className="fold-home-setting-row-title">{title}</span>
+				<span className="fold-home-setting-row-desc">{description}</span>
 			</div>
 			<div className="fold-home-kbd-group" aria-label={`快捷键：${keys.join(" ")}`}>
 				{keys.map((key) => (
@@ -110,18 +110,18 @@ export function SettingsSection({
 			<SettingsGroup icon={<Keyboard size={18} strokeWidth={1.75} />} title="键盘快捷键">
 				<div className="fold-home-settings-panel">
 					<ShortcutRow
-						title="净化"
-						description="按下开始和停止语音整理。"
+						title="转写"
+						description="杂乱的想法 → 清晰的文本"
 						keys={["右 ⌘", "短按"]}
 					/>
 					<ShortcutRow
 						title="代回"
-						description="按下开始和停止情境拟回复。"
-						keys={["右 ⌘", "长按"]}
+						description="聊天上下文 → 拟好的回复"
+						keys={["右 ⌘", "按住"]}
 					/>
 					<ShortcutRow
 						title="Agent"
-						description="按下开始和停止 Agent 任务。"
+						description="说出任务 → 自动执行"
 						keys={["⌥", "Space"]}
 					/>
 					<ShortcutRow
@@ -265,6 +265,7 @@ export function SettingsSection({
 							label="允许 Agent Subagent"
 							checked={config.allowAgentSubagents ?? false}
 							onChange={(v) => onUpdateBoolean("allowAgentSubagents", v)}
+							hint="通常由「连接」页执行模式管理；此处供开发覆盖"
 						/>
 						<BooleanField
 							label="允许 UI-TARS（实验）"
@@ -275,6 +276,7 @@ export function SettingsSection({
 							label="允许 Work Buddy"
 							checked={config.allowWorkbuddy ?? true}
 							onChange={(v) => onUpdateBoolean("allowWorkbuddy", v)}
+							hint="通常由「连接」页执行模式管理"
 						/>
 
 						<div className="flex items-center gap-3 pt-1">

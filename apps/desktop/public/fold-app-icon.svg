@@ -1,15 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <!--
-    macOS Dock icon (Electron does NOT auto-mask):
-    - 1024 canvas with ~10% transparent margin (Apple HIG grid: squircle 824x824)
-    - squircle corner radius ~185 on 824
-    - keep the mark centered inside the shape
-  -->
+  <!-- macOS Dock — 折标与 fold-mark.svg 同形，约占 squircle 44% 宽度 -->
   <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="#111111"/>
   <path
-    d="M 372 448 L 512 588 L 652 448"
+    d="M 333 428 L 512 608 L 691 428"
     stroke="#ffffff"
-    stroke-width="88"
+    stroke-width="112"
     stroke-linecap="round"
     stroke-linejoin="round"
     fill="none"

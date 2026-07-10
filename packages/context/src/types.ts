@@ -1,3 +1,5 @@
+import { computeFocusDwells, formatFocusDwellBrief } from "./dwell.js";
+
 export type ContextEventType =
 	| "app.active"
 	| "app.quit"
@@ -21,6 +23,13 @@ export interface ContextEvent {
 	};
 }
 
+export interface FocusDwell {
+	app: string;
+	windowTitle?: string;
+	dwellMs: number;
+	lastActiveAt: number;
+}
+
 export interface LiveContext {
 	activeApp: string | null;
 	activeWindow: string | null;
@@ -29,6 +38,8 @@ export interface LiveContext {
 	recentUrls: Array<{ url: string; title: string; timestamp: number }>;
 	clipboard: { text: string; timestamp: number } | null;
 	events: ContextEvent[];
+	/** 由 ContextStore.get() 根据 events 推算 */
+	focusDwells?: FocusDwell[];
 }
 
 export function createEmptyContext(): LiveContext {
@@ -42,6 +53,10 @@ export function createEmptyContext(): LiveContext {
 		events: [],
 	};
 }
+
+export type ContextBriefScope = "reply" | "aha" | "agent";
+
+const CLIPBOARD_RECENT_MS = 5 * 60 * 1000;
 
 export function formatContextSummary(ctx: LiveContext): string {
 	const lines: string[] = [];
@@ -64,4 +79,46 @@ export function formatContextSummary(ctx: LiveContext): string {
 		lines.push(`Clipboard: ${preview}`);
 	}
 	return lines.join("\n") || "(no context yet)";
+}
+
+/** 按消费场景裁剪的工作现场摘要（L1，无实时 AX/OCR）。 */
+export function formatContextBrief(ctx: LiveContext, scope: ContextBriefScope): string {
+	if (scope === "agent") return formatContextSummary(ctx);
+
+	const lines: string[] = [];
+	const now = Date.now();
+
+	const appTrail = ctx.events
+		.filter((e) => e.type === "app.active" && e.data.appName)
+		.slice(-8)
+		.map((e) =>
+			e.data.windowTitle ? `${e.data.appName} · ${e.data.windowTitle}` : e.data.appName!,
+		);
+	if (appTrail.length) {
+		lines.push("近期切换：");
+		for (const step of appTrail) lines.push(`  - ${step}`);
+	}
+
+	const dwellBrief = formatFocusDwellBrief(computeFocusDwells(ctx.events), scope === "aha" ? 3 : 4);
+	if (dwellBrief) lines.push(dwellBrief);
+
+	if (ctx.recentFiles.length) {
+		lines.push("近期文件：");
+		for (const f of ctx.recentFiles.slice(0, 5)) {
+			lines.push(`  - ${f.name}`);
+		}
+	}
+
+	if (scope === "reply" && ctx.recentUrls.length) {
+		lines.push("近期网页：");
+		for (const u of ctx.recentUrls.slice(0, 5)) {
+			lines.push(`  - ${u.title || u.url}`);
+		}
+	}
+
+	if (ctx.clipboard?.text && now - ctx.clipboard.timestamp < CLIPBOARD_RECENT_MS) {
+		lines.push(`近期剪贴板：${ctx.clipboard.text.slice(0, 200)}`);
+	}
+
+	return lines.join("\n") || "（暂无工作现场记录）";
 }

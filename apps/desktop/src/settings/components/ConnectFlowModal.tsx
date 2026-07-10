@@ -70,10 +70,10 @@ export function ConnectFlowModal({
 							if (pollTimer) clearInterval(pollTimer);
 							setPhase("success");
 							setMessage(result.message ?? "已连接");
+							void onSuccess();
 							window.setTimeout(() => {
-								onSuccess();
 								onClose();
-							}, 1200);
+							}, 500);
 						} else if (result.status === "error") {
 							if (pollTimer) clearInterval(pollTimer);
 							setPhase("error");

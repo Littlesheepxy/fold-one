@@ -11,12 +11,10 @@ export function AccountSidebar({
 	config,
 	active,
 	onOpenAccount,
-	onUpgrade,
 }: {
 	config: FoldConfig;
 	active: boolean;
 	onOpenAccount: () => void;
-	onUpgrade: () => void;
 }) {
 	const planTier = config.planTier ?? "free";
 	const planLabel = PLAN_LABEL[planTier];
@@ -46,12 +44,6 @@ export function AccountSidebar({
 					className={`fold-home-account-chevron${active ? " is-open" : ""}`}
 				/>
 			</button>
-
-			{planTier === "free" && (
-				<button type="button" onClick={onUpgrade} className="fold-home-account-upgrade">
-					升级
-				</button>
-			)}
 		</div>
 	);
 }

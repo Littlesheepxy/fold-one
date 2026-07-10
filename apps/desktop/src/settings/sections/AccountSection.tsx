@@ -10,7 +10,7 @@ const PLAN_OPTIONS: Array<{
 	{
 		tier: "free",
 		name: "免费版",
-		tagline: "本地语音、Context、基础净化",
+		tagline: "本地语音、Context、基础转写",
 	},
 	{
 		tier: "pro",
@@ -35,7 +35,7 @@ export function AccountSection({
 	const [planMessage, setPlanMessage] = useState<string | null>(null);
 
 	const planTier = config.planTier ?? "free";
-	const currentPlan = PLAN_OPTIONS.find((plan) => plan.tier === planTier) ?? PLAN_OPTIONS[0];
+	const currentPlan = PLAN_OPTIONS.find((plan) => plan.tier === planTier) ?? PLAN_OPTIONS[0]!;
 
 	const handlePlanChange = async (nextTier: PlanTier) => {
 		if (nextTier === planTier || planSaving) return;

@@ -31,7 +31,7 @@ let whisperTranscribe:
 
 function getWhisperTranscribe() {
 	if (whisperTranscribe) return whisperTranscribe;
-	const require = createRequire(import.meta.url);
+	const require = createRequire(__filename);
 	const packageDir = dirname(require.resolve("@kutalia/whisper-node-addon/package.json"));
 	const platform = process.platform === "darwin" ? "mac" : process.platform;
 	let addonPath = join(packageDir, "dist", `${platform}-${process.arch}`, "whisper.node");

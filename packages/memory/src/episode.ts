@@ -192,6 +192,47 @@ export function saveContextEvent(event: RawContextEventInput, dataDir?: string):
 		);
 }
 
+const CONTEXT_EVENT_RETENTION_MS = 4 * 60 * 60 * 1000;
+
+export function listContextEvents(
+	limit = 400,
+	dataDir?: string,
+	sinceMs = Date.now() - CONTEXT_EVENT_RETENTION_MS,
+): Array<{
+	id: string;
+	type: string;
+	source: string;
+	timestamp: number;
+	data: Record<string, unknown>;
+}> {
+	const conn = getDb(dataDir);
+	const rows = conn
+		.prepare(
+			`SELECT id, timestamp, type, source, data_json
+			 FROM context_events
+			 WHERE timestamp >= ?
+			 ORDER BY timestamp DESC
+			 LIMIT ?`,
+		)
+		.all(sinceMs, limit) as Array<{
+		id: string;
+		timestamp: number;
+		type: string;
+		source: string;
+		data_json: string;
+	}>;
+
+	return rows
+		.reverse()
+		.map((row) => ({
+			id: row.id,
+			timestamp: row.timestamp,
+			type: row.type,
+			source: row.source,
+			data: JSON.parse(row.data_json) as Record<string, unknown>,
+		}));
+}
+
 function ensureColumn(conn: Database.Database, table: string, column: string, type: string) {
 	const rows = conn.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
 	if (!rows.some((row) => row.name === column)) {

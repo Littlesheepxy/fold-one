@@ -1,5 +1,13 @@
 export { toLanguageModel } from "./providers.js";
 export {
+	generateAhaGuess,
+	ruleBasedAhaReply,
+	streamAhaGuess,
+	type AhaGuessInput,
+	type AhaGuessPage,
+	type StreamAhaGuessOptions,
+} from "./aha-guess.js";
+export {
 	buildPlannerPrompt,
 	buildReplannerPrompt,
 	type PlannerPromptInput,

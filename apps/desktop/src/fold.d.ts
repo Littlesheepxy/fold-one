@@ -4,6 +4,8 @@ import type {
 	EpisodeDetail,
 	EpisodeSummary,
 	HomeContextEvent,
+	HomeAhaGuess,
+	HomePredictPreview,
 	HomeSnapshot,
 	LiveContextLite,
 	UserProfileData,
@@ -50,13 +52,31 @@ interface FoldApi {
 	askResponse(optionId: string): Promise<void>;
 	getConfig(): Promise<FoldConfig>;
 	getHomeSnapshot(): Promise<HomeSnapshot>;
+	getPredictPreview(): Promise<HomePredictPreview>;
+	startAhaGuess(): Promise<{ ok: boolean; runId?: number }>;
+	cancelAhaGuess(): Promise<{ ok: boolean }>;
+	onAhaGuessChunk(cb: (payload: { runId: number; chunk: string }) => void): () => void;
+	onAhaGuessDone(
+		cb: (payload: {
+			runId: number;
+			suggestions?: HomeAhaGuess["suggestions"];
+			reply?: string;
+			error?: string;
+			confidenceLevel?: HomeAhaGuess["confidenceLevel"];
+			confidenceScore?: number;
+		}) => void,
+	): () => void;
 	getLiveContext(): Promise<LiveContextLite>;
+	focusContext(
+		target: { kind: "app"; appName: string } | { kind: "url"; url: string },
+	): Promise<{ ok: boolean }>;
 	getAppIcon(appPath: string, appName?: string): Promise<string | null>;
 	listEpisodes(): Promise<EpisodeSummary[]>;
 	getEpisode(id: string): Promise<EpisodeDetail | null>;
 	predictPickIntent(intent: string): Promise<{ ok: boolean }>;
 	predictInsertDraft(text: string): Promise<{ ok: boolean; pasted: boolean }>;
 	predictStartVoice(): Promise<{ ok: boolean }>;
+	predictRefineVoice(): Promise<{ ok: boolean }>;
 	profileImportOptions(): Promise<ProfileImportOption[]>;
 	profileBuildPrompt(): Promise<string>;
 	profileCopyPrompt(): Promise<{ prompt: string }>;

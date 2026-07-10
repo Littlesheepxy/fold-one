@@ -6,6 +6,8 @@ import { ProfileImportModal } from "./ProfileImportModal.js";
 type Habit = { label: string; count: number; example?: string };
 
 const HABIT_CLUSTERS = [
+	{ id: "voice-structure", label: "语音转写整理", pattern: /^转写：|voice\.structure|整理|润色|口述/i },
+	{ id: "voice-reply", label: "代回与聊天回复", pattern: /^代回：|voice\.reply|回复|微信|飞书|slack/i },
 	{ id: "mail", label: "邮件与收件箱", pattern: /mail|邮件|gmail|邮箱|未读|收件/i },
 	{ id: "files", label: "文件与报价整理", pattern: /报价|pdf|下载|整理|发给|jason/i },
 	{ id: "browser", label: "浏览器与网页", pattern: /chrome|网页|浏览|打开.*网|标签页/i },
@@ -44,6 +46,8 @@ function inferTopics(habits: Habit[]): string[] {
 	const text = habits.map((h) => `${h.label} ${h.example ?? ""}`).join(" ");
 	const topics: string[] = [];
 	if (/mail|邮件|gmail|邮箱|收件/i.test(text)) topics.push("邮件");
+	if (/转写|口述|润色|整理/i.test(text)) topics.push("转写");
+	if (/代回|回复|聊天/i.test(text)) topics.push("代回");
 	if (/pdf|报价|下载|文件|整理/i.test(text)) topics.push("文档");
 	if (/chrome|网页|浏览/i.test(text)) topics.push("浏览器");
 	if (/屏幕|截图|ocr/i.test(text)) topics.push("屏幕");

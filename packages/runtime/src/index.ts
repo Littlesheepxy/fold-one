@@ -29,13 +29,33 @@ export {
 } from "./predict.js";
 export { generatePredictDrafts, type PredictDraftLine } from "./predict-drafts.js";
 export {
+	generateAhaGuess,
+	ruleBasedAhaReply,
 	shouldCleanSpeechLocally,
+	streamAhaGuess,
 	structureSpeechText,
+	type AhaGuessInput,
+	type AhaGuessPage,
+	type StreamAhaGuessOptions,
 	type StructuredSpeech,
 } from "@fold/ai";
 export { hasPlannerApiKey } from "@fold/ai";
 export { inferPredictSurface, surfaceActionLabel, type PredictSurface } from "./predict-surface.js";
 export { predictContextSnippet } from "./predict-fallback.js";
+export {
+	enrichContext,
+	type ContextEnrichScope,
+	type EnrichedContext,
+} from "./context-enrich.js";
+export {
+	computeFocusDwells,
+	formatDwellDuration,
+	hedgedPrefix,
+	scoreContextConfidence,
+	type ContextConfidence,
+	type ContextConfidenceLevel,
+	type FocusDwell,
+} from "@fold/context";
 export { extractEntityTokens } from "./entity-extract.js";
 export {
 	formatPlannerMemory,
@@ -57,6 +77,7 @@ export {
 	trailTokensFromEpisode,
 	type MinedRoutine,
 } from "./routine-mining.js";
+export { recallHabitsFromUsage, startHabitRecallLoop } from "./habit-recall.js";
 export {
 	buildResultDetail,
 	buildUserVisibleSummary,
@@ -80,6 +101,17 @@ export {
 	type ExecutionTier,
 	type RouteDecision,
 } from "./router.js";
+export {
+	buildCapabilitySnapshot,
+	deriveExecutionFlags,
+	listCapabilityDefs,
+	normalizeExecutionMode,
+	type CapabilityConfig,
+	type CapabilityItem,
+	type CapabilitySnapshot,
+	type ExecutionMode,
+	type ExecutorItem,
+} from "./capability-catalog.js";
 export { validatePlan } from "./validator.js";
 export { buildReactAgentPlan, buildRepairBrief } from "./repair.js";
 export { isGuiIntent } from "./capability-resolver.js";

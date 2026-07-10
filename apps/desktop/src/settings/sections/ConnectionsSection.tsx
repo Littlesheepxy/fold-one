@@ -1,331 +1,364 @@
-import { useState } from "react";
-import type { HomeConnection, HomeSnapshot } from "../types.js";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { CapabilityItem, ExecutionMode, FoldConfig, HomeSnapshot } from "../types.js";
 import { ConnectFlowModal, type ConnectFlowTarget } from "../components/ConnectFlowModal.js";
+import { CapabilityGroup, ChannelChipGrid } from "../components/ChannelChipGrid.js";
 import { ConnectionIcon } from "../components/ConnectionIcon.js";
-import { ConnectionBadge, StatusDot } from "../components/FormFields.js";
+import { IosSwitch, StatusDot } from "../components/FormFields.js";
 
-type RowAction = {
-	id: string;
+const MODE_OPTIONS: Array<{
+	id: ExecutionMode;
 	label: string;
-	primary?: boolean;
-};
-
-type ConnectionGroup = {
-	id: string;
-	title: string;
 	description: string;
-	match: (conn: HomeConnection) => boolean;
-};
-
-const CONNECTION_GROUPS: ConnectionGroup[] = [
+	recommended?: boolean;
+}> = [
 	{
-		id: "office",
-		title: "办公渠道",
-		description: "优先 — 官方 CLI 直连飞书 / Google / Slack / GitHub / 钉钉 / 企业微信",
-		match: (conn) => conn.id === "gmail" || conn.id.startsWith("office-"),
+		id: "auto",
+		label: "自动",
+		description: "快的 Fold 处理，难的交给你的 Agent",
+		recommended: true,
 	},
 	{
-		id: "apps",
-		title: "托管授权",
-		description: "更多应用走 Nango 托管 OAuth 授权",
-		match: (conn) => conn.id === "nango",
+		id: "local_agent",
+		label: "自己的 Agent",
+		description: "复杂任务由 Codex / Claude 等执行",
 	},
 	{
-		id: "browser",
-		title: "操作浏览器",
-		description: "连接你正在使用的 Chrome（推荐 Playwright Bridge 扩展）",
-		match: (conn) => conn.id === "cdp",
-	},
-	{
-		id: "computer",
-		title: "操作电脑",
-		description: "辅助功能、截屏读屏，或用 UI-TARS 在桌面 App 里点按",
-		match: (conn) => conn.id === "accessibility" || conn.id === "screen" || conn.id === "uitars",
-	},
-	{
-		id: "subagents",
-		title: "本地 Subagent",
-		description: "复杂任务交给本机大模型 Agent 执行（写代码、改项目）",
-		match: (conn) => isAgentConnection(conn.id) || conn.id === "workbuddy",
+		id: "fold_only",
+		label: "仅用 Fold",
+		description: "不调用本地 Agent，全部由 Fold 完成",
 	},
 ];
 
-function groupConnections(connections: HomeConnection[]) {
-	return CONNECTION_GROUPS.map((group) => ({
-		...group,
-		items: connections.filter(group.match),
-	})).filter((group) => group.items.length > 0);
+function browserRowItems(caps: CapabilityItem[]) {
+	return caps.filter((c) => c.group === "browser");
 }
 
-function isAgentConnection(id: string): boolean {
-	return id === "claude-code" || id === "codex" || id === "cursor" || id === "agent";
+function communicateItems(caps: CapabilityItem[]) {
+	return caps.filter((c) => c.group === "communicate" && c.layer === 0);
 }
 
-function actionsFor(conn: HomeConnection, summary: HomeSnapshot["configSummary"]): RowAction[] {
-	if (isAgentConnection(conn.id)) {
-		if (!summary.allowAgentSubagents) {
-			return [{ id: "agent:enable", label: "开启", primary: true }];
-		}
-		if (conn.status !== "ok") {
-			const actions: RowAction[] = [{ id: "refresh", label: "重新检测" }];
-			if (conn.id === "codex") {
-				actions.unshift({ id: "codex:install-terminal", label: "终端重装", primary: true });
-			}
-			if (conn.id === "claude-code") {
-				actions.unshift({ id: "claude:login-terminal", label: "终端登录", primary: true });
-			}
-			if (actions.length === 1) {
-				actions.unshift({ id: "agent:settings", label: "去设置", primary: true });
-			}
-			return actions;
-		}
-		return [{ id: "refresh", label: "重新检测" }];
-	}
-
-	if (conn.id.startsWith("office-")) {
-		if (conn.meta?.installed === false) {
-			return [
-				{ id: "connect", label: "安装", primary: true },
-				{ id: "refresh", label: "重新检测" },
-			];
-		}
-		if (conn.status !== "ok") {
-			return [
-				{ id: "connect", label: "连接", primary: true },
-				{ id: "refresh", label: "重新检测" },
-			];
-		}
-		return [{ id: "refresh", label: "重新检测" }];
-	}
-
-	switch (conn.id) {
-		case "gmail":
-			if (conn.status !== "ok") {
-				return [
-					{ id: "connect", label: "连接", primary: true },
-					{ id: "gmail:open-browser", label: "打开 Gmail" },
-				];
-			}
-			return [
-				{ id: "gmail:open-browser", label: "打开 Gmail" },
-				{ id: "refresh", label: "重新检测" },
-			];
-		case "nango":
-			if (conn.status === "error") {
-				return [
-					{ id: "nango:settings", label: "去配置 Key", primary: true },
-					{ id: "nango:dashboard", label: "打开 Nango 控制台" },
-				];
-			}
-			return [
-				{ id: "connect", label: "授权应用", primary: true },
-				{ id: "refresh", label: "重新检测" },
-			];
-		case "cdp":
-			if (conn.status !== "ok") {
-				return [
-					{ id: "cdp:install-bridge", label: "安装 Playwright Bridge", primary: true },
-					{ id: "cdp:open-remote-debugging", label: "打开 Chrome 调试设置" },
-					{ id: "cdp:open-chrome-help", label: "配置说明" },
-				];
-			}
-			return [{ id: "refresh", label: "重新检测" }];
-		case "screen":
-			if (conn.status !== "ok") {
-				return [{ id: "screen:open-settings", label: "打开系统设置", primary: true }];
-			}
-			return [{ id: "refresh", label: "重新检测" }];
-		case "accessibility":
-			if (conn.status !== "ok") {
-				return [
-					{ id: "accessibility:request", label: "请求授权", primary: true },
-					{ id: "accessibility:open-settings", label: "打开系统设置" },
-				];
-			}
-			return [{ id: "refresh", label: "重新检测" }];
-		case "uitars":
-			if (!summary.allowUitars) {
-				return [{ id: "uitars:enable", label: "开启", primary: true }];
-			}
-			if (conn.status !== "ok") {
-				return [
-					{ id: "uitars:settings", label: "去设置", primary: true },
-					{ id: "refresh", label: "重新检测" },
-				];
-			}
-			return [{ id: "refresh", label: "重新检测" }];
-		case "workbuddy":
-			if (!summary.allowWorkbuddy) {
-				return [{ id: "workbuddy:enable", label: "开启", primary: true }];
-			}
-			if (conn.status !== "ok") {
-				return [
-					{ id: "workbuddy:settings", label: "去设置", primary: true },
-					{ id: "refresh", label: "重新检测" },
-				];
-			}
-			return [{ id: "refresh", label: "重新检测" }];
-		default:
-			return [{ id: "refresh", label: "重新检测" }];
-	}
+function hubItems(caps: CapabilityItem[]) {
+	return caps.filter((c) => c.group === "hub");
 }
 
 export function ConnectionsSection({
 	snapshot,
 	onRefresh,
 	onOpenSettings,
+	onSaveConfig,
 }: {
 	snapshot: HomeSnapshot;
 	onRefresh: () => Promise<void>;
 	onOpenSettings: () => void;
+	onSaveConfig: (config: FoldConfig) => Promise<void>;
 }) {
-	const [busyId, setBusyId] = useState<string | null>(null);
+	const [busy, setBusy] = useState(false);
 	const [connectTarget, setConnectTarget] = useState<ConnectFlowTarget | null>(null);
+	const [showHub, setShowHub] = useState(false);
+	const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-	const runAction = async (conn: HomeConnection, action: RowAction) => {
-		const key = `${conn.id}:${action.id}`;
-		setBusyId(key);
+	const capSnap = snapshot.capabilitySnapshot;
+	const mode = capSnap?.executionMode ?? "auto";
+	const capabilities = capSnap?.capabilities ?? [];
+	const executors = capSnap?.executors ?? [];
+	const summary = capSnap?.summary ?? { ready: 0, total: 0, modeLabel: "自动" };
+
+	const stopRefreshPoll = useCallback(() => {
+		if (pollTimerRef.current) {
+			clearInterval(pollTimerRef.current);
+			pollTimerRef.current = null;
+		}
+	}, []);
+
+	const refresh = useCallback(async () => {
+		setBusy(true);
 		try {
-			if (action.id === "connect") {
-				setConnectTarget({
-					connectionId: conn.id,
-					label: conn.label,
-					kind: conn.meta?.installed === false ? "install" : "login",
-				});
-				return;
-			}
-			if (action.id === "refresh") {
-				await onRefresh();
-				return;
-			}
-			if (action.id === "agent:enable") {
-				const config = await window.fold.getConfig();
-				await window.fold.saveConfig({ ...config, allowAgentSubagents: true });
-				await onRefresh();
-				return;
-			}
-			if (action.id === "agent:settings" || action.id.endsWith(":settings")) {
-				onOpenSettings();
-				return;
-			}
-			if (action.id === "uitars:enable") {
-				const config = await window.fold.getConfig();
-				await window.fold.saveConfig({ ...config, allowUitars: true });
-				await onRefresh();
-				return;
-			}
-			if (action.id === "workbuddy:enable") {
-				const config = await window.fold.getConfig();
-				await window.fold.saveConfig({ ...config, allowWorkbuddy: true });
-				await onRefresh();
-				return;
-			}
-			const context =
-				action.id === "gmail:terminal-auth"
-					? { backend: conn.meta?.backend === "gws" ? "gws" : "gog" }
-					: undefined;
-			await window.fold.runConnectionAction(action.id, context);
-			if (
-				action.id !== "gmail:open-browser" &&
-				action.id !== "cdp:open-chrome-help" &&
-				action.id !== "cdp:install-bridge" &&
-				action.id !== "cdp:open-remote-debugging" &&
-				action.id !== "codex:install-terminal" &&
-				action.id !== "claude:login-terminal" &&
-				action.id !== "nango:dashboard"
-			) {
-				await onRefresh();
-			}
+			await onRefresh();
 		} finally {
-			setBusyId(null);
+			setBusy(false);
+		}
+	}, [onRefresh]);
+
+	const startRefreshPoll = useCallback(() => {
+		stopRefreshPoll();
+		void refresh();
+		let ticks = 0;
+		pollTimerRef.current = setInterval(() => {
+			ticks += 1;
+			void refresh();
+			if (ticks >= 8) stopRefreshPoll();
+		}, 2000);
+	}, [refresh, stopRefreshPoll]);
+
+	useEffect(() => () => stopRefreshPoll(), [stopRefreshPoll]);
+
+	const persistConfig = async (patch: Partial<FoldConfig>) => {
+		const config = await window.fold.getConfig();
+		const next = { ...config, ...patch };
+		await onSaveConfig(next);
+		await refresh();
+	};
+
+	const setMode = async (executionMode: ExecutionMode) => {
+		setBusy(true);
+		try {
+			await persistConfig({ executionMode });
+		} finally {
+			setBusy(false);
 		}
 	};
 
-	const groups = groupConnections(snapshot.connections);
-
-	const renderRow = (conn: HomeConnection) => {
-		const actions = actionsFor(conn, snapshot.configSummary);
-		return (
-			<div key={conn.id} className="fold-home-connection-row">
-				<div className="flex min-w-0 items-center gap-3">
-					<div className="fold-home-icon-tile">
-						<ConnectionIcon id={conn.id} size={20} />
-					</div>
-					<div className="min-w-0">
-						<div className="flex items-center gap-2">
-							<StatusDot status={conn.status} />
-							<span className="text-[13px] font-semibold tracking-[-0.01em] text-[#1d1d1f]">
-								{conn.label}
-							</span>
-						</div>
-						{conn.detail && (
-							<p className="mt-1 truncate text-[11px] text-[#86868b]">{conn.detail}</p>
-						)}
-					</div>
-				</div>
-
-				<div className="flex shrink-0 flex-col items-end gap-2 sm:flex-row sm:items-center">
-					<ConnectionBadge status={conn.status} />
-					<div className="flex flex-wrap justify-end gap-1.5">
-						{actions.map((action) => {
-							const key = `${conn.id}:${action.id}`;
-							const busy = busyId === key || (action.id === "refresh" && busyId?.endsWith(":refresh"));
-							return (
-								<button
-									key={action.id}
-									type="button"
-									disabled={busyId !== null && !busy}
-									className={
-										action.primary ? "fold-home-row-btn" : "fold-home-row-btn fold-home-row-btn-muted"
-									}
-									onClick={() => void runAction(conn, action)}
-								>
-									{busy ? "…" : action.label}
-								</button>
-							);
-						})}
-					</div>
-				</div>
-			</div>
-		);
+	const toggleCapability = async (cap: CapabilityItem, enabled: boolean) => {
+		const config = await window.fold.getConfig();
+		const current = new Set(config.enabledCapabilities ?? capabilities.filter((c) => c.enabled).map((c) => c.id));
+		if (enabled) current.add(cap.id);
+		else current.delete(cap.id);
+		setBusy(true);
+		try {
+			await persistConfig({ enabledCapabilities: [...current] });
+		} finally {
+			setBusy(false);
+		}
 	};
 
+	const openConnect = (cap: CapabilityItem) => {
+		if (!cap.connectTarget) return;
+		if (cap.connectTarget === "cdp") {
+			void (async () => {
+				setBusy(true);
+				try {
+					await window.fold.runConnectionAction("cdp:install-bridge");
+					startRefreshPoll();
+				} finally {
+					setBusy(false);
+				}
+			})();
+			return;
+		}
+		if (cap.connectTarget === "screen") {
+			void (async () => {
+				setBusy(true);
+				try {
+					await window.fold.runConnectionAction("screen:open-settings");
+					await window.fold.runConnectionAction("accessibility:open-settings");
+					startRefreshPoll();
+				} finally {
+					setBusy(false);
+				}
+			})();
+			return;
+		}
+		setConnectTarget({
+			connectionId: cap.connectTarget!,
+			label: cap.label,
+			kind: cap.connectKind ?? "login",
+		});
+	};
+
+	const runExecutorAction = async (action: string) => {
+		setBusy(true);
+		try {
+			await window.fold.runConnectionAction(action);
+			startRefreshPoll();
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const selectExecutor = async (id: string) => {
+		setBusy(true);
+		try {
+			await persistConfig({
+				preferredExecutor: id as FoldConfig["preferredExecutor"],
+			});
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const handleConnectSuccess = async () => {
+		await refresh();
+		startRefreshPoll();
+	};
+
+	const commItems = communicateItems(capabilities);
+	const browserItems = browserRowItems(capabilities);
+	const hubCaps = hubItems(capabilities);
+	const commGroup = capSnap?.groups.find((g) => g.id === "communicate");
+	const browserGroup = capSnap?.groups.find((g) => g.id === "browser");
+
 	return (
-		<div className="space-y-3">
-			<div className="mb-1 flex items-center justify-end">
-				<button
-					type="button"
-					className="fold-home-inline-btn"
-					disabled={busyId !== null}
-					onClick={() => {
-						setBusyId("all:refresh");
-						void onRefresh().finally(() => setBusyId(null));
-					}}
-				>
-					{busyId === "all:refresh" ? "刷新中…" : "全部刷新"}
-				</button>
+		<div className="space-y-4">
+			<div>
+				<h1 className="fold-home-page-title">连接</h1>
+				<p className="fold-home-page-subtitle">
+					{summary.modeLabel} · 日常 {summary.ready}/{summary.total} 已就绪
+					{summary.executorLabel ? ` · ${summary.executorLabel}` : ""}
+				</p>
 			</div>
 
-			<div className="space-y-5">
-				{groups.map((group) => (
-					<section key={group.id} className="fold-home-connections-section">
-						<div className="fold-home-connections-section-head">
-							<h3 className="fold-home-connections-section-title">{group.title}</h3>
-							<p className="fold-home-connections-section-desc">{group.description}</p>
-						</div>
-						<div className="space-y-3">{group.items.map(renderRow)}</div>
-					</section>
+			<section className="fold-execution-mode-grid" aria-label="执行模式">
+				{MODE_OPTIONS.map((opt) => (
+					<button
+						key={opt.id}
+						type="button"
+						disabled={busy}
+						className={`fold-execution-mode-card${mode === opt.id ? " is-active" : ""}`}
+						onClick={() => void setMode(opt.id)}
+					>
+						<span className="fold-execution-mode-label">
+							{opt.label}
+							{opt.recommended ? <em>推荐</em> : null}
+						</span>
+						<span className="fold-execution-mode-desc">{opt.description}</span>
+					</button>
 				))}
-			</div>
+			</section>
+
+			{mode !== "fold_only" ? (
+				<section className="fold-capability-group" aria-label="执行伙伴">
+					<div className="fold-capability-group-head is-static">
+						<span className="fold-capability-group-title">执行伙伴</span>
+						<span className="fold-capability-group-meta">可选</span>
+					</div>
+					<div className="fold-capability-group-body">
+						<div className="fold-connection-chip-grid">
+							{executors.map((ex) => (
+								<button
+									key={ex.id}
+									type="button"
+									disabled={busy}
+									className={`fold-connection-chip fold-connection-chip--solo${ex.isDefault ? " is-default" : ""}${ex.available ? " is-enabled" : ""}`}
+									onClick={() => {
+										if (ex.available) void selectExecutor(ex.id);
+										else if (ex.connectAction) void runExecutorAction(ex.connectAction);
+									}}
+								>
+									<span className="fold-connection-chip-main">
+										<span className="fold-connection-chip-icon" aria-hidden="true">
+											<ConnectionIcon id={ex.id} size={16} />
+										</span>
+										<span className="fold-connection-chip-label">{ex.label}</span>
+										<StatusDot status={ex.available ? "ok" : "off"} />
+									</span>
+								</button>
+							))}
+						</div>
+						{mode === "auto" ? (
+							<p className="fold-capability-hint">
+								没有本地 Agent？仍可先用 Fold 处理日常任务。
+								<button type="button" className="fold-home-inline-btn" onClick={() => setShowHub(true)}>
+									使用 Fold 托管
+								</button>
+							</p>
+						) : null}
+					</div>
+				</section>
+			) : (
+				<section className="fold-capability-inline-row">
+					<StatusDot status={snapshot.configSummary.hasPlannerKey ? "ok" : "off"} />
+					<span>Fold 执行</span>
+					<span className="fold-capability-inline-detail">
+						{snapshot.configSummary.hasPlannerKey ? "Planner 已配置" : "建议配置 API Key"}
+					</span>
+					<button type="button" className="fold-home-inline-btn" onClick={onOpenSettings}>
+						设置
+					</button>
+				</section>
+			)}
+
+			{commGroup ? (
+				<CapabilityGroup
+					id="communicate"
+					label={commGroup.label}
+					ready={commGroup.ready}
+					total={commGroup.total}
+					busy={busy}
+					onRefresh={() => void refresh()}
+				>
+					<ChannelChipGrid
+						items={commItems}
+						busy={busy}
+						onChipClick={openConnect}
+						onToggle={(cap, enabled) => void toggleCapability(cap, enabled)}
+					/>
+				</CapabilityGroup>
+			) : null}
+
+			{browserGroup ? (
+				<CapabilityGroup
+					id="browser"
+					label={browserGroup.label}
+					ready={browserGroup.ready}
+					total={browserGroup.total}
+					defaultOpen
+					busy={busy}
+					onRefresh={() => void refresh()}
+				>
+					{browserItems.map((cap) => {
+						const connected = cap.status === "ready";
+						return (
+							<div key={cap.id} className="fold-capability-browser-row fold-connection-list-row">
+								<div className="fold-capability-browser-copy">
+									<StatusDot status={connected ? "ok" : "off"} />
+									<ConnectionIcon id={cap.connectTarget ?? "cdp"} size={16} />
+									<div className="fold-capability-browser-text">
+										<span className="fold-capability-browser-label">{cap.label}</span>
+										{cap.detail ? (
+											<span className="fold-capability-browser-detail">{cap.detail}</span>
+										) : null}
+									</div>
+								</div>
+								<div className="fold-capability-browser-action">
+									{connected ? (
+										<IosSwitch
+											checked={cap.enabled}
+											disabled={busy}
+											ariaLabel={`启用 ${cap.label}`}
+											onChange={(enabled) => void toggleCapability(cap, enabled)}
+										/>
+									) : (
+										<button
+											type="button"
+											className="fold-capability-connect-btn"
+											disabled={busy}
+											onClick={() => openConnect(cap)}
+										>
+											连接
+										</button>
+									)}
+								</div>
+							</div>
+						);
+					})}
+				</CapabilityGroup>
+			) : null}
+
+			{(mode === "fold_only" || showHub) && hubCaps.length > 0 ? (
+				<CapabilityGroup
+					id="hub"
+					label="更多应用"
+					ready={hubCaps.filter((c) => c.status === "ready").length}
+					total={hubCaps.length}
+					defaultOpen={mode === "fold_only"}
+					busy={busy}
+					onRefresh={() => void refresh()}
+				>
+					<ChannelChipGrid items={hubCaps} busy={busy} onChipClick={openConnect} />
+				</CapabilityGroup>
+			) : null}
 
 			<p className="fold-home-footnote">
-				Fold 优先走办公渠道 CLI；没有 CLI 的应用走托管授权或浏览器；写代码等复杂任务走 Subagent。
+				高级连接项（CDP URL、UI-TARS 等）在
+				<button type="button" className="fold-home-inline-btn" onClick={onOpenSettings}>
+					设置 → 高级
+				</button>
 			</p>
 
 			<ConnectFlowModal
 				target={connectTarget}
 				onClose={() => setConnectTarget(null)}
-				onSuccess={() => void onRefresh()}
+				onSuccess={() => void handleConnectSuccess()}
 			/>
 		</div>
 	);

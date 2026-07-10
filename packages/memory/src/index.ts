@@ -1,6 +1,7 @@
 export {
 	saveEpisode,
 	saveContextEvent,
+	listContextEvents,
 	listRecentEpisodes,
 	listEpisodeSummaries,
 	getEpisodeById,
@@ -11,6 +12,7 @@ export {
 	type MemoryRecord,
 	type RawContextEventInput,
 } from "./episode.js";
+export { saveVoiceInteraction, type VoiceInteractionKind } from "./voice-interaction.js";
 export {
 	loadProfileMemories,
 	listActiveMemories,

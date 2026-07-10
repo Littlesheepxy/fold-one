@@ -8,8 +8,11 @@ import {
 	summaryFromJsonPayload,
 	type StepResult,
 } from "@fold/runtime";
-import type { ActionPlan } from "@fold/ai";
 import { resolveAppBundlePath } from "./app-icon.js";
+
+type EpisodePlan = {
+	steps: Array<{ id: string; args: Record<string, unknown> }>;
+};
 
 export interface EpisodeListItem {
 	id: string;
@@ -67,7 +70,7 @@ export function listEpisodesForHome(limit = 50): EpisodeListItem[] {
 function buildEpisodeListItem(ep: Episode): EpisodeListItem {
 	const summaryObj = parseJson<MemoryEpisodeSummary | null>(ep.summaryJson, null);
 	const rawSteps = parseJson<EpisodeStep[]>(ep.stepsJson, []);
-	const plan = parseJson<ActionPlan | null>(ep.planJson, null);
+	const plan = parseJson<EpisodePlan | null>(ep.planJson, null);
 	const steps = rawSteps.map((step) => ({
 		stepId: step.stepId,
 		skill: step.skill,
@@ -173,7 +176,7 @@ export function buildEpisodeDetail(id: string): EpisodeDetailDTO | null {
 	if (!ep) return null;
 
 	const rawSteps = parseJson<EpisodeStep[]>(ep.stepsJson, []);
-	const plan = parseJson<ActionPlan | null>(ep.planJson, null);
+	const plan = parseJson<EpisodePlan | null>(ep.planJson, null);
 	const steps = rawSteps.map((step) => ({
 		...step,
 		label:

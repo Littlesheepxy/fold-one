@@ -76,10 +76,10 @@ export function VoiceWave({ level, active = true }: Props) {
 				const pulse =
 					0.72 +
 					0.28 *
-						Math.sin(frame.time * (0.0075 + (i % 3) * 0.0014) + BAR_PHASE[i]);
+						Math.sin(frame.time * (0.0075 + (i % 3) * 0.0014) + BAR_PHASE[i]!);
 				const height = idle
 					? 3
-					: Math.round(3 + energy * 18 * BAR_PROFILE[i] * pulse);
+					: Math.round(3 + energy * 18 * BAR_PROFILE[i]! * pulse);
 				return (
 					<span
 						key={i}

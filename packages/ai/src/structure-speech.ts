@@ -62,10 +62,13 @@ function heuristicStructure(transcript: string): StructuredSpeech {
 }
 
 export function shouldCleanSpeechLocally(text: string): boolean {
-	const singleLine = !text.includes("\n");
-	const sentenceCount = text.split(/[。！？!?；;]/).filter((part) => part.trim()).length;
-	if (singleLine && text.length <= 120 && sentenceCount <= 2) return true;
-	if (/^(我|你|他|她|咱|我们|你们).{0,24}(去|来|回|到|在|要|想|先|等|晚点|马上)/.test(text)) {
+	const trimmed = text.trim();
+	if (!trimmed) return true;
+	const singleLine = !trimmed.includes("\n");
+	const sentenceCount = trimmed.split(/[。！？!?；;]/).filter((part) => part.trim()).length;
+	if (singleLine && trimmed.length <= 200 && sentenceCount <= 3) return true;
+	if (trimmed.length <= 48 && sentenceCount <= 1) return true;
+	if (/^(我|你|他|她|咱|我们|你们).{0,32}(去|来|回|到|在|要|想|先|等|晚点|马上)/.test(trimmed)) {
 		return true;
 	}
 	return false;

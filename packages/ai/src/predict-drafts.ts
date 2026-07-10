@@ -14,6 +14,9 @@ export interface PredictDraftInput {
 	intent: string;
 	surface: PredictSurface;
 	contextSnippet?: string;
+	contextSummary?: string;
+	contextBrief?: string;
+	confidenceLevel?: "high" | "medium" | "low";
 	anchor?: string | null;
 	allowCloud?: boolean;
 	onCloudSuccess?: () => void;
@@ -78,16 +81,30 @@ export async function generatePredictDrafts(input: PredictDraftInput): Promise<P
 	if (input.allowCloud === false || !hasPlannerApiKey()) return heuristicDrafts(input);
 
 	const action = surfaceActionLabel(input.surface);
-	const context = input.contextSnippet?.trim().slice(0, 1200) ?? "（无页面文本）";
+	const screen = input.contextSnippet?.trim().slice(0, 1200) ?? "（无页面文本）";
+	const workContext =
+		input.contextBrief?.trim() ||
+		input.contextSummary?.trim().slice(0, 1200) ||
+		"（暂无工作现场）";
+	const confidenceNote =
+		input.confidenceLevel === "low"
+			? "情境把握较低：不要编造未在工作现场出现的文件名或聊天内容；草案应更通用。"
+			: input.confidenceLevel === "medium"
+				? "情境把握中等：仅当工作现场明确出现文件/素材时才引用。"
+				: "";
 	const prompt = `你是 Fold 桌面助手。根据用户当前情境，为「${input.intent}」生成${action}候选。
 要求：
 - 只输出 JSON 数组，每项是一句可直接复制/插入的中文文本字符串
-- ${input.surface === "reply" ? "用户意图是写作指令，不是要原样发给对方。结合页面摘要/截图 OCR 里的最近聊天内容，生成 2-3 条可直接发送的回复。语气要像即时聊天，短、自然、有上下文；不要像客服/公文。若用户指定同意、拒绝、推迟、确认、解释、幽默等立场/语气，必须严格遵循；不要反问“你指哪方面”，除非聊天里确实无法判断；不要强行混入相反立场，不要包含发送按钮或元说明" : input.surface === "todo" ? "1-2 条待办/跟进表述" : "1-2 条可执行摘要"}
+${confidenceNote ? `- ${confidenceNote}\n` : ""}- ${input.surface === "reply" ? "用户意图是写作指令，不是要原样发给对方。结合工作现场（近期文件、剪贴板、切换记录）与页面摘要/截图 OCR 里的最近聊天内容，生成 2-3 条可直接发送的回复。语气要像即时聊天，短、自然、有上下文；若用户提到刚操作的文件或剪贴板内容，可自然引用；不要像客服/公文。若用户指定同意、拒绝、推迟、确认、解释、幽默等立场/语气，必须严格遵循；不要反问“你指哪方面”，除非聊天里确实无法判断；不要强行混入相反立场，不要包含发送按钮或元说明" : input.surface === "todo" ? "1-2 条待办/跟进表述" : "1-2 条可执行摘要"}
 - 不要代用户发送，只给文本
 
 情境锚点：${input.anchor ?? "未知"}
-页面摘要：
-${context}
+
+工作现场（轨迹、文件、剪贴板等）：
+${workContext}
+
+当前页面摘要：
+${screen}
 
 输出示例：["第一句","第二句"]`;
 

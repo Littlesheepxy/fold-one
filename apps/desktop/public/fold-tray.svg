@@ -1,9 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-  <path
-    d="M7 11.5 L16 22 L25 11.5"
-    stroke="black"
-    stroke-width="6.5"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-  />
+  <!-- 与 fold-mark.svg 同形，在 32×32 画布内垂直居中 -->
+  <g transform="translate(0 2)">
+    <path
+      d="M6 7.5L16 18.5L26 7.5"
+      stroke="black"
+      stroke-width="8"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  </g>
 </svg>

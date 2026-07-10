@@ -1,13 +1,16 @@
 import { app, BrowserWindow, ipcMain, screen, shell } from "electron";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { ContextEngine } from "@fold/context";
+import { ContextEngine, type ContextEvent } from "@fold/context";
 import { createNangoConnectLink, openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal, openOfficeSetupInTerminal, cancelConnectFlow, pollConnectFlow, resolveConnectTarget, startConnectFlow } from "@fold/connectors";
-import { saveContextEvent } from "@fold/memory";
+import { saveContextEvent, listContextEvents, saveVoiceInteraction } from "@fold/memory";
 import {
 	hasPlannerApiKey,
+	recallHabitsFromUsage,
 	resolveEntitlements,
 	runTask,
+	shouldCleanSpeechLocally,
+	startHabitRecallLoop,
 	structureSpeechText,
 	type FoldStateEvent,
 	type UserActionRequest,
@@ -15,13 +18,18 @@ import {
 import {
 	clearPredictTargetApp,
 	getPredictTargetApp,
+	getPredictPreviewForHome,
+	resolveAhaGuess,
+	streamAhaGuessForHome,
 	refreshPredictCacheEnriched,
 	resolveReplyDraftsForInstruction,
+	resolveReplyVoiceCard,
 	resolvePredictDraftsForIntent,
 	resolveReplyPredictions,
 	setPredictTargetApp,
 } from "./predict-enrich.js";
 import { insertTextToFrontApp } from "./insert-text.js";
+import { focusApp, focusUrl } from "./focus-context.js";
 import { getAppIconDataUrl, resolveAppBundlePath } from "./app-icon.js";
 import {
 	applyConfigToEnv,
@@ -33,6 +41,7 @@ import {
 	type FoldConfig,
 } from "./config.js";
 import { buildHomeSnapshot } from "./home-snapshot.js";
+import { cursorPointInOverlay, getOverlaySpanBounds, positionOverlayForActiveContext } from "./overlay-display.js";
 import { openAccessibilitySettings, probeAccessibility, ensureAccessibilityPermission } from "./permissions.js";
 import { buildEpisodeDetail, listEpisodesForHome } from "./episode-detail.js";
 import {
@@ -74,20 +83,82 @@ const contextEngine = new ContextEngine({
 		}, 4000);
 	},
 });
+
+function hydrateContextFromDb() {
+	try {
+		const rows = listContextEvents(400);
+		if (!rows.length) return;
+		const events: ContextEvent[] = rows.map((row) => ({
+			id: row.id,
+			type: row.type as ContextEvent["type"],
+			source: row.source as ContextEvent["source"],
+			timestamp: row.timestamp,
+			data: {
+				appName: typeof row.data.appName === "string" ? row.data.appName : undefined,
+				windowTitle:
+					typeof row.data.windowTitle === "string" ? row.data.windowTitle : undefined,
+				appPath: typeof row.data.appPath === "string" ? row.data.appPath : undefined,
+				filePath: typeof row.data.filePath === "string" ? row.data.filePath : undefined,
+				url: typeof row.data.url === "string" ? row.data.url : undefined,
+				text: typeof row.data.text === "string" ? row.data.text : undefined,
+			},
+		}));
+		contextEngine.hydrate(events);
+	} catch {
+		// DB hydration should never block startup.
+	}
+}
+
 let overlayWindow: BrowserWindow | null = null;
 let settingsWindow: BrowserWindow | null = null;
 let pendingHomeSection: string | null = null;
 let isRecording = false;
 let voiceOutcome: "structure" | "reply" | "agent" = "structure";
+/** 代回首轮：松开右 ⌘ 不结束，短按结束 */
+let replyLatched = false;
+/** 确认卡上按住修改：松开结束 */
+let replyRefineHold = false;
 let voiceTargetApp: string | null = null;
 let lastIntent = "";
+let lastReplyTranscript = "";
 let stopHotkey: (() => void) | null = null;
+let stopHabitRecall: (() => void) | null = null;
+
+function snapshotContextEvents() {
+	return contextEngine.getLiveContext().events.slice(-24).map((e) => ({
+		type: e.type,
+		source: e.source,
+		data: e.data as Record<string, unknown>,
+	}));
+}
+
+function recordVoiceInteraction(
+	kind: "structure" | "reply" | "agent",
+	transcript: string,
+	outcome?: string,
+) {
+	const ctx = contextEngine.getLiveContext();
+	try {
+		saveVoiceInteraction({
+			kind,
+			transcript,
+			outcome,
+			appName: ctx.activeApp,
+			windowTitle: ctx.activeWindow,
+			contextEvents: snapshotContextEvents(),
+		});
+		recallHabitsFromUsage();
+	} catch {
+		// Habit learning should never block voice flows.
+	}
+}
 let pendingUserAction: {
 	resolve: (optionId: string) => void;
 	reject: (error: Error) => void;
 	runContext?: Record<string, unknown>;
 } | null = null;
 let predictRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+let ahaGuessRunId = 0;
 const appIconCache = new Map<string, string | null>();
 let lastOverlayState: FoldStateEvent = { status: "idle" };
 
@@ -121,13 +192,13 @@ function syncDockVisibility() {
 function createOverlayWindow() {
 	if (overlayWindow && !overlayWindow.isDestroyed()) return;
 
-	const { workArea } = screen.getPrimaryDisplay();
+	const span = getOverlaySpanBounds();
 
 	overlayWindow = new BrowserWindow({
-		width: workArea.width,
-		height: workArea.height,
-		x: workArea.x,
-		y: workArea.y,
+		width: span.width,
+		height: span.height,
+		x: span.x,
+		y: span.y,
 		frame: false,
 		transparent: true,
 		alwaysOnTop: true,
@@ -161,7 +232,10 @@ function createOverlayWindow() {
 	});
 
 	overlayWindow.webContents.once("did-finish-load", () => {
-		emitState(lastOverlayState);
+		const app = contextEngine.getLiveContext().activeApp;
+		void positionOverlayForActiveContext(overlayWindow, app).then((voiceTabPlacement) => {
+			emitState({ ...lastOverlayState, voiceTabPlacement });
+		});
 	});
 }
 
@@ -337,9 +411,7 @@ async function executeTask(intent: string) {
 }
 
 function getCursorInOverlay(): { x: number; y: number } {
-	const { workArea } = screen.getPrimaryDisplay();
-	const pt = screen.getCursorScreenPoint();
-	return { x: pt.x - workArea.x, y: pt.y - workArea.y };
+	return cursorPointInOverlay(overlayWindow);
 }
 
 function clearPredictState(): Partial<FoldStateEvent> {
@@ -353,6 +425,11 @@ function clearPredictState(): Partial<FoldStateEvent> {
 		predictSelectedIntent: null,
 		predictDraftsLoading: false,
 		predictCursor: null,
+		contextAppName: null,
+		contextAppPath: null,
+		contextWindowTitle: null,
+		predictRefining: false,
+		voiceTabPlacement: null,
 	};
 }
 
@@ -391,25 +468,34 @@ async function structureVoiceTranscript(transcript: string) {
 		emitState({ status: "idle", ...clearPredictState() });
 		return;
 	}
+	const ctx = contextEngine.getLiveContext();
+	const smartAccess = resolveSmartActionAccess();
+	const useLocal = shouldCleanSpeechLocally(text);
+	const voiceTabPlacement = await positionOverlayForActiveContext(
+		overlayWindow,
+		voiceTargetApp ?? ctx.activeApp,
+	);
 	emitState({
-		status: "understanding",
+		status: "formatting",
 		transcript: text,
 		voiceMode: "structure",
+		voiceTabPlacement,
 		...clearPredictState(),
 	});
 	try {
-		const ctx = contextEngine.getLiveContext();
-		const smartAccess = resolveSmartActionAccess();
-		const structured = await structureSpeechText(text, {
-			app: ctx.activeApp,
-			windowTitle: ctx.activeWindow,
-			allowCloud: smartAccess.allowed,
-			onCloudSuccess: smartAccess.usesTrial
-				? () => {
-						consumeSmartActionTrial();
-					}
-				: undefined,
-		});
+		const [structured] = await Promise.all([
+			structureSpeechText(text, {
+				app: ctx.activeApp,
+				windowTitle: ctx.activeWindow,
+				allowCloud: useLocal ? false : smartAccess.allowed,
+				onCloudSuccess: smartAccess.usesTrial
+					? () => {
+							consumeSmartActionTrial();
+						}
+					: undefined,
+			}),
+			useLocal ? new Promise((r) => setTimeout(r, 240)) : Promise.resolve(),
+		]);
 		const body = [structured.headline, structured.detail]
 			.map((part) => part.trim())
 			.filter(Boolean)
@@ -418,6 +504,7 @@ async function structureVoiceTranscript(transcript: string) {
 		const output = body || text;
 		const targetApp = voiceTargetApp ?? ctx.activeApp;
 		await insertTextToFrontApp(output, targetApp);
+		recordVoiceInteraction("structure", text, output);
 		emitState({
 			status: "done",
 			transcript: text,
@@ -443,27 +530,58 @@ async function replyVoiceTranscript(transcript: string) {
 		emitState({ status: "idle", ...clearPredictState() });
 		return;
 	}
-	emitState({ status: "understanding", transcript: text, voiceMode: "reply", ...clearPredictState() });
+	lastReplyTranscript = text;
+
+	const ctx = contextEngine.getLiveContext();
+	const contextAppName = voiceTargetApp ?? ctx.activeApp;
+	const contextAppPath = ctx.activeAppPath;
+
+	createOverlayWindow();
+	const voiceTabPlacement = await positionOverlayForActiveContext(overlayWindow, contextAppName);
+	emitState({
+		status: "predict",
+		voiceMode: null,
+		voiceTabPlacement,
+		...clearPredictState(),
+		predictMode: "full",
+		predictPhase: "result",
+		predictSurface: "reply",
+		predictAnchor: "正在生成回复…",
+		predictSelectedIntent: text,
+		predictDraftsLoading: true,
+		predictRefining: false,
+		predictCursor: getCursorInOverlay(),
+		contextAppName,
+		contextAppPath,
+		contextWindowTitle: ctx.activeWindow,
+	});
+
 	try {
-		const ctx = contextEngine.getLiveContext();
-		const drafts = await resolveReplyDraftsForInstruction(ctx, text);
-		const output = drafts[0]?.text?.trim() || text;
-		const targetApp = voiceTargetApp ?? ctx.activeApp;
-		await insertTextToFrontApp(output, targetApp);
+		const card = await resolveReplyVoiceCard(ctx, text);
+		recordVoiceInteraction("reply", text, card.drafts[0]?.text);
 		emitState({
-			status: "done",
-			transcript: text,
-			voiceMode: "reply",
-			result: "已输入回复",
-			resultDetail: output,
+			status: "predict",
+			voiceMode: null,
+			predictMode: "full",
+			predictPhase: "result",
+			predictSurface: "reply",
+			predictAnchor: card.sceneTitle,
+			predictSelectedIntent: text,
+			predictDrafts: card.drafts,
+			predictDraftsLoading: false,
+			predictRefining: false,
+			predictCursor: getCursorInOverlay(),
+			contextAppName: card.appName ?? contextAppName,
+			contextAppPath: card.appPath ?? contextAppPath,
+			contextWindowTitle: card.sceneTitle,
 		});
-		setTimeout(() => {
-			if (lastOverlayState.status === "done" && lastOverlayState.voiceMode === "reply") {
-				emitState({ status: "idle", voiceMode: null, ...clearPredictState() });
-			}
-		}, 850);
 	} catch (err) {
-		emitState({ status: "error", error: (err as Error).message, transcript: text });
+		emitState({
+			status: "error",
+			error: (err as Error).message,
+			transcript: text,
+			...clearPredictState(),
+		});
 	} finally {
 		voiceTargetApp = null;
 	}
@@ -581,6 +699,52 @@ function registerIpc() {
 		buildHomeSnapshot(() => contextEngine.getLiveContext()),
 	);
 
+	ipcMain.handle("fold:get-predict-preview", () =>
+		getPredictPreviewForHome(contextEngine.getLiveContext()),
+	);
+
+	ipcMain.handle("fold:start-aha-guess", async () => {
+		const runId = ++ahaGuessRunId;
+		const win = settingsWindow;
+		if (!win || win.isDestroyed()) return { ok: false };
+
+		const send = (channel: string, payload: Record<string, unknown>) => {
+			if (runId !== ahaGuessRunId || win.isDestroyed()) return;
+			win.webContents.send(channel, { runId, ...payload });
+		};
+
+		void (async () => {
+			try {
+				const result = await streamAhaGuessForHome(
+					contextEngine.getLiveContext(),
+					undefined,
+					(chunk) => send("fold:aha-guess-chunk", { chunk }),
+					() => runId !== ahaGuessRunId,
+				);
+				if (runId !== ahaGuessRunId) return;
+				send("fold:aha-guess-done", {
+					suggestions: result.suggestions,
+					reply: result.reply,
+					confidenceLevel: result.confidenceLevel,
+					confidenceScore: result.confidenceScore,
+				});
+			} catch {
+				if (runId !== ahaGuessRunId) return;
+				send("fold:aha-guess-done", {
+					error: "暂时没看清楚，稍后再试。",
+					suggestions: [],
+				});
+			}
+		})();
+
+		return { ok: true, runId };
+	});
+
+	ipcMain.handle("fold:cancel-aha-guess", () => {
+		ahaGuessRunId += 1;
+		return { ok: true };
+	});
+
 	// 轻量版实时上下文（不带连接探测），供 Home 窗口高频刷新
 	ipcMain.handle("fold:get-live-context", () => {
 		const ctx = contextEngine.getLiveContext();
@@ -588,9 +752,34 @@ function registerIpc() {
 			activeApp: ctx.activeApp,
 			activeWindow: ctx.activeWindow,
 			activeAppPath: ctx.activeAppPath,
-			events: ctx.events.slice(-50),
+			recentUrls: ctx.recentUrls.slice(0, 10).map((u) => ({
+				url: u.url,
+				title: u.title,
+			})),
+			recentFiles: ctx.recentFiles.slice(0, 10).map((f) => ({
+				path: f.path,
+				name: f.name,
+			})),
+			clipboardPreview: ctx.clipboard?.text
+				? ctx.clipboard.text.slice(0, 80) + (ctx.clipboard.text.length > 80 ? "…" : "")
+				: null,
+			focusDwells: (ctx.focusDwells ?? []).slice(0, 6).map((d) => ({
+				app: d.app,
+				windowTitle: d.windowTitle,
+				dwellMs: d.dwellMs,
+			})),
+			events: ctx.events.slice(-80),
 		};
 	});
+
+	ipcMain.handle(
+		"fold:focus-context",
+		async (_e, target: { kind: "app"; appName: string } | { kind: "url"; url: string }) => {
+			if (target?.kind === "app") return focusApp(target.appName);
+			if (target?.kind === "url") return focusUrl(target.url);
+			return { ok: false };
+		},
+	);
 
 	ipcMain.handle("fold:get-app-icon", (_e, appPath: string, appName?: string) => {
 		const cacheKey = appPath?.endsWith(".app") ? appPath : `name:${appName ?? appPath}`;
@@ -648,6 +837,10 @@ function registerIpc() {
 		const targetApp = getPredictTargetApp() ?? contextEngine.getLiveContext().activeApp;
 		overlayWindow?.setIgnoreMouseEvents(true, { forward: true });
 		const result = await insertTextToFrontApp(text, targetApp);
+		if (lastReplyTranscript.trim()) {
+			recordVoiceInteraction("reply", lastReplyTranscript, text);
+		}
+		lastReplyTranscript = "";
 		clearPredictTargetApp();
 		emitState({ status: "idle", ...clearPredictState() });
 		return result;
@@ -655,7 +848,13 @@ function registerIpc() {
 
 	ipcMain.handle("fold:predict-start-voice", () => {
 		emitState({ status: "idle", ...clearPredictState() });
-		toggleVoiceRecording();
+		toggleVoiceRecording("structure");
+		return { ok: true };
+	});
+
+	ipcMain.handle("fold:predict-refine-voice", () => {
+		if (!isReplyPredictCard()) return { ok: false };
+		startReplyRefineRecording();
 		return { ok: true };
 	});
 
@@ -760,25 +959,99 @@ function registerIpc() {
 
 registerIpc();
 
+async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
+	if (isRecording) return;
+	voiceOutcome = outcome;
+	const ctx = contextEngine.getLiveContext();
+	voiceTargetApp = ctx.activeApp ?? null;
+	isRecording = true;
+	createOverlayWindow();
+	const voiceTabPlacement = await positionOverlayForActiveContext(overlayWindow, voiceTargetApp);
+	emitState({
+		status: "listening",
+		transcript: "",
+		voiceMode: outcome,
+		voiceTabPlacement,
+		contextAppName: ctx.activeApp,
+		contextAppPath: ctx.activeAppPath,
+		contextWindowTitle: ctx.activeWindow,
+		predictRefining: false,
+		...clearPredictState(),
+	});
+	overlayWindow?.webContents.send("fold:hotkey-down", outcome);
+}
+
+function startReplyLatchedRecording() {
+	replyLatched = true;
+	replyRefineHold = false;
+	startVoiceRecording("reply");
+}
+
+function startReplyRefineRecording() {
+	if (isRecording) return;
+	replyLatched = false;
+	replyRefineHold = true;
+	voiceOutcome = "reply";
+	isRecording = true;
+	createOverlayWindow();
+	emitState({
+		...lastOverlayState,
+		status: "predict",
+		voiceMode: "reply",
+		predictRefining: true,
+		predictDraftsLoading: false,
+	});
+	overlayWindow?.webContents.send("fold:hotkey-down", "reply");
+}
+
+function stopVoiceRecording() {
+	if (!isRecording) return;
+	isRecording = false;
+	replyLatched = false;
+	replyRefineHold = false;
+	overlayWindow?.webContents.send("fold:hotkey-up", voiceOutcome);
+}
+
 function toggleVoiceRecording(outcome: "structure" | "reply" | "agent" = "structure") {
-	if (isRecording) {
-		isRecording = false;
-		overlayWindow?.webContents.send("fold:hotkey-up", voiceOutcome);
-	} else {
-		voiceOutcome = outcome;
-		voiceTargetApp = contextEngine.getLiveContext().activeApp ?? null;
-		isRecording = true;
-		emitState({ status: "listening", transcript: "", voiceMode: outcome });
-		overlayWindow?.webContents.send("fold:hotkey-down", outcome);
-	}
+	if (isRecording) stopVoiceRecording();
+	else startVoiceRecording(outcome);
+}
+
+function isReplyPredictCard(): boolean {
+	return lastOverlayState.status === "predict" && lastOverlayState.predictSurface === "reply";
 }
 
 function registerHotkeys() {
 	stopHotkey = startHoldHotkey({
 		onAgentToggle: () => toggleVoiceRecording("agent"),
-		onStructureToggle: () => toggleVoiceRecording("structure"),
-		onReply: () => toggleVoiceRecording("reply"),
+		onStructureToggle: () => {
+			if (isRecording && voiceOutcome === "reply" && replyLatched) {
+				stopVoiceRecording();
+				return;
+			}
+			if (isRecording && voiceOutcome === "reply") return;
+			toggleVoiceRecording("structure");
+		},
+		onReplyHoldStart: () => {
+			if (isReplyPredictCard() && !isRecording) {
+				startReplyRefineRecording();
+				return;
+			}
+			if (isRecording && voiceOutcome === "structure") {
+				isRecording = false;
+				overlayWindow?.webContents.send("fold:hotkey-cancel");
+			}
+			if (!isRecording) startReplyLatchedRecording();
+		},
+		onReplyHoldEnd: () => {
+			if (isRecording && voiceOutcome === "reply" && replyRefineHold) {
+				stopVoiceRecording();
+			}
+		},
+		onReplyToggle: () => toggleVoiceRecording("reply"),
 		onCancel: () => {
+			replyLatched = false;
+			replyRefineHold = false;
 			if (isRecording) {
 				isRecording = false;
 				overlayWindow?.webContents.send("fold:hotkey-cancel");
@@ -799,6 +1072,8 @@ app.whenReady().then(() => {
 	syncDockVisibility();
 
 	contextEngine.start();
+	hydrateContextFromDb();
+	stopHabitRecall = startHabitRecallLoop(() => recallHabitsFromUsage());
 	createOverlayWindow();
 	registerHotkeys();
 	void refreshPredictCacheEnriched(contextEngine.getLiveContext());
@@ -814,6 +1089,7 @@ app.whenReady().then(() => {
 
 app.on("will-quit", () => {
 	stopHotkey?.();
+	stopHabitRecall?.();
 	contextEngine.stop();
 });
 

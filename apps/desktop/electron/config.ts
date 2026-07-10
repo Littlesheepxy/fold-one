@@ -8,6 +8,8 @@ import {
 	normalizePlanTier,
 	remainingTrialSmartActions,
 	resolveEntitlements,
+	deriveExecutionFlags,
+	normalizeExecutionMode,
 	type PlanTier,
 } from "@fold/runtime";
 
@@ -41,7 +43,13 @@ export interface FoldConfig {
 	uitarsVlmBaseUrl?: string;
 	uitarsVlmApiKey?: string;
 	uitarsVlmModel?: string;
+	executionMode?: "auto" | "local_agent" | "fold_only";
+	enabledCapabilities?: string[];
+	preferredExecutor?: "claude-code" | "codex" | "cursor" | "workbuddy" | "auto";
+	skipLocalAgent?: boolean;
 }
+
+export type ExecutionMode = "auto" | "local_agent" | "fold_only";
 
 const CONFIG_DIR = (process.env.FOLD_DATA_DIR ?? join(homedir(), ".fold")).replace(
 	/^~/,
@@ -59,6 +67,7 @@ export function loadConfig(): FoldConfig {
 			return {
 				planTier: "free",
 				asrProvider: "auto",
+				executionMode: "auto",
 				trialSmartActionsRemaining: INITIAL_TRIAL_SMART_ACTIONS,
 			};
 		}
@@ -96,6 +105,16 @@ export function saveConfig(config: FoldConfig): void {
 /** Merge saved config into process.env for runtime packages. */
 export function applyConfigToEnv(config: FoldConfig = loadConfig()): void {
 	process.env.FOLD_PLAN_TIER = normalizePlanTier(config.planTier);
+	process.env.FOLD_EXECUTION_MODE = normalizeExecutionMode(config.executionMode);
+	if (config.preferredExecutor) {
+		process.env.FOLD_PREFERRED_EXECUTOR = config.preferredExecutor;
+	}
+	const flags = deriveExecutionFlags({
+		executionMode: config.executionMode ?? "auto",
+		enabledCapabilities: config.enabledCapabilities,
+	});
+	process.env.FOLD_ALLOW_AGENT_SUBAGENTS = flags.allowAgentSubagents ? "1" : "0";
+	process.env.FOLD_ALLOW_WORKBUDDY = flags.allowWorkbuddy ? "1" : "0";
 	process.env.FOLD_ASR_PROVIDER = config.asrProvider ?? "auto";
 	if (config.localWhisperModelPath) {
 		process.env.FOLD_LOCAL_WHISPER_MODEL_PATH = config.localWhisperModelPath;

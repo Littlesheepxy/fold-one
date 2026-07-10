@@ -66,7 +66,13 @@ contextBridge.exposeInMainWorld("fold", {
 		ipcRenderer.invoke("fold:ask-response", optionId) as Promise<void>,
 	getConfig: () => ipcRenderer.invoke("fold:get-config") as Promise<Record<string, unknown>>,
 	getHomeSnapshot: () => ipcRenderer.invoke("fold:get-home-snapshot") as Promise<Record<string, unknown>>,
+	getPredictPreview: () => ipcRenderer.invoke("fold:get-predict-preview") as Promise<Record<string, unknown>>,
+	startAhaGuess: () =>
+		ipcRenderer.invoke("fold:start-aha-guess") as Promise<{ ok: boolean; runId?: number }>,
+	cancelAhaGuess: () => ipcRenderer.invoke("fold:cancel-aha-guess") as Promise<{ ok: boolean }>,
 	getLiveContext: () => ipcRenderer.invoke("fold:get-live-context") as Promise<Record<string, unknown>>,
+	focusContext: (target: { kind: "app"; appName: string } | { kind: "url"; url: string }) =>
+		ipcRenderer.invoke("fold:focus-context", target) as Promise<{ ok: boolean }>,
 	getAppIcon: (appPath: string, appName?: string) =>
 		ipcRenderer.invoke("fold:get-app-icon", appPath, appName) as Promise<string | null>,
 	listEpisodes: () => ipcRenderer.invoke("fold:list-episodes") as Promise<Record<string, unknown>[]>,
@@ -78,6 +84,8 @@ contextBridge.exposeInMainWorld("fold", {
 		ipcRenderer.invoke("fold:predict-insert-draft", text) as Promise<{ ok: boolean; pasted: boolean }>,
 	predictStartVoice: () =>
 		ipcRenderer.invoke("fold:predict-start-voice") as Promise<{ ok: boolean }>,
+	predictRefineVoice: () =>
+		ipcRenderer.invoke("fold:predict-refine-voice") as Promise<{ ok: boolean }>,
 	profileImportOptions: () =>
 		ipcRenderer.invoke("fold:profile-import-options") as Promise<
 			Array<{
@@ -111,6 +119,41 @@ contextBridge.exposeInMainWorld("fold", {
 		const handler = (_: unknown, event: Record<string, unknown>) => cb(event);
 		ipcRenderer.on("fold:context-event", handler);
 		return () => ipcRenderer.removeListener("fold:context-event", handler);
+	},
+	onAhaGuessChunk(cb: (payload: { runId: number; chunk: string }) => void) {
+		const handler = (_: unknown, payload: { runId: number; chunk: string }) => cb(payload);
+		ipcRenderer.on("fold:aha-guess-chunk", handler);
+		return () => ipcRenderer.removeListener("fold:aha-guess-chunk", handler);
+	},
+	onAhaGuessDone(
+		cb: (payload: {
+			runId: number;
+			suggestions?: Array<{
+				label: string;
+				intent: string;
+				reason: string;
+				confidence: number;
+			}>;
+			reply?: string;
+			error?: string;
+		}) => void,
+	) {
+		const handler = (
+			_: unknown,
+			payload: {
+				runId: number;
+				suggestions?: Array<{
+					label: string;
+					intent: string;
+					reason: string;
+					confidence: number;
+				}>;
+				reply?: string;
+				error?: string;
+			},
+		) => cb(payload);
+		ipcRenderer.on("fold:aha-guess-done", handler);
+		return () => ipcRenderer.removeListener("fold:aha-guess-done", handler);
 	},
 	runConnectionAction: (action: string, context?: Record<string, unknown>) =>
 		ipcRenderer.invoke("fold:connection-action", action, context) as Promise<{ ok: boolean }>,

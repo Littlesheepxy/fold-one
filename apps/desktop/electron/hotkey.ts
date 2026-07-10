@@ -5,10 +5,14 @@ const LONG_PRESS_MS = 450;
 export interface HoldHotkeyHandlers {
 	/** ⌥Space：语音 → Agent */
 	onAgentToggle: () => void;
-	/** 短按 右⌘：语音 → 结构化整理 */
+	/** 右⌘ 短按松开：切换转写录音（按一下开始，再按一下结束） */
 	onStructureToggle: () => void;
-	/** 长按 右⌘：情境拟回复 */
-	onReply: () => void;
+	/** 右⌘ 按住达到阈值：开始代回（按住说话） */
+	onReplyHoldStart: () => void;
+	/** 右⌘ 长按后松开：结束代回 */
+	onReplyHoldEnd: () => void;
+	/** 无 uiohook 时 F18 回退：toggle 代回 */
+	onReplyToggle: () => void;
 	onCancel: () => void;
 }
 
@@ -29,32 +33,44 @@ function registerOrLog(accelerator: string, fn: () => void): boolean {
 }
 
 /**
- * ⌥Space → Agent（两个键）
- * 右⌘ 短按松开 → 语音整理；长按松开 → 拟回复（一个键）
+ * ⌥Space → Agent（toggle）
+ * 右⌘ 短按松开 → 转写 toggle（按一下录，再按一下停）
+ * 右⌘ 按住 ≥450ms → 代回开始（松开继续录）；短按 → 结束出草案
+ * 确认卡上再按住 → 说修改要求；松开 → 更新草案
  * Esc → 取消
- *
- * 无辅助功能时无法区分左右 ⌘ / 长短按，回退 F19=整理、F18=拟回复。
  */
 export function startHoldHotkey(handlers: HoldHotkeyHandlers): () => void {
 	const ax = hasAccessibility();
 	console.log(`[fold:hotkey] 辅助功能=${ax ? "已授权" : "未授权"}`);
 
-	let holdStartedAt = 0;
 	let holdActive = false;
+	let longPressFired = false;
+	let longPressTimer: ReturnType<typeof setTimeout> | null = null;
 	let stopUio: (() => void) | undefined;
+
+	const clearLongPressTimer = () => {
+		if (longPressTimer) {
+			clearTimeout(longPressTimer);
+			longPressTimer = null;
+		}
+	};
 
 	const onHoldDown = () => {
 		if (holdActive) return;
 		holdActive = true;
-		holdStartedAt = Date.now();
+		longPressFired = false;
+		longPressTimer = setTimeout(() => {
+			if (!holdActive) return;
+			longPressFired = true;
+			handlers.onReplyHoldStart();
+		}, LONG_PRESS_MS);
 	};
 
 	const onHoldUp = () => {
 		if (!holdActive) return;
 		holdActive = false;
-		const heldMs = Date.now() - holdStartedAt;
-		holdStartedAt = 0;
-		if (heldMs >= LONG_PRESS_MS) handlers.onReply();
+		clearLongPressTimer();
+		if (longPressFired) handlers.onReplyHoldEnd();
 		else handlers.onStructureToggle();
 	};
 
@@ -64,7 +80,6 @@ export function startHoldHotkey(handlers: HoldHotkeyHandlers): () => void {
 	if (ax) {
 		try {
 			const { uIOhook, UiohookKey } = require("uiohook-napi") as typeof import("uiohook-napi");
-			// 右侧 Command = 一个物理键（左边 ⌘ 仍可正常打快捷键）
 			const HOLD_KEY = UiohookKey.MetaRight;
 			const onKeydown = (e: { keycode: number }) => {
 				if (e.keycode === HOLD_KEY) onHoldDown();
@@ -80,17 +95,17 @@ export function startHoldHotkey(handlers: HoldHotkeyHandlers): () => void {
 				uIOhook.off("keyup", onKeyup);
 				uIOhook.stop();
 			};
-			console.log("[fold:hotkey] uiohook 已启动（右⌘ 短按松开=整理 / 长按松开=拟回复）");
+			console.log("[fold:hotkey] uiohook 已启动（右⌘ 按住≥450ms=代回 / 短按=转写）");
 		} catch (err) {
 			console.warn("[fold:hotkey] uiohook 启动失败，回退 F19/F18", err);
 			registerOrLog("F19", handlers.onStructureToggle);
-			registerOrLog("F18", handlers.onReply);
+			registerOrLog("F18", handlers.onReplyToggle);
 		}
 	} else {
 		registerOrLog("F19", handlers.onStructureToggle);
-		registerOrLog("F18", handlers.onReply);
+		registerOrLog("F18", handlers.onReplyToggle);
 		console.warn(
-			"[fold:hotkey] 未授权辅助功能 → F19=整理，F18=拟回复。开发模式请给 Electron 开辅助功能。",
+			"[fold:hotkey] 未授权辅助功能 → F19=转写，F18=代回。开发模式请给 Electron 开辅助功能。",
 		);
 	}
 

@@ -8,6 +8,7 @@ export type OverlayStatus =
 	| "idle"
 	| "listening"
 	| "predict"
+	| "formatting"
 	| "understanding"
 	| "planning"
 	| "working"
@@ -61,6 +62,15 @@ export interface FoldStateEvent {
 	predictSelectedIntent?: string | null;
 	predictDraftsLoading?: boolean;
 	predictCursor?: { x: number; y: number } | null;
+	/** 代回 / 拟回复时的前台应用（用于展示图标） */
+	contextAppName?: string | null;
+	contextAppPath?: string | null;
+	/** 代回时的窗口/群聊标题 */
+	contextWindowTitle?: string | null;
+	/** 确认卡上按住右 ⌘ 修改草案 */
+	predictRefining?: boolean;
+	/** 转写/代回胶囊在跨屏 overlay 内的定位（主进程按锚点显示器计算） */
+	voiceTabPlacement?: { left: number; bottom: number } | null;
 }
 
 export interface UserActionOption {
