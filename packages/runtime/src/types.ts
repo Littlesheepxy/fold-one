@@ -70,7 +70,7 @@ export interface FoldStateEvent {
 	/** 确认卡上按住右 ⌘ 修改草案 */
 	predictRefining?: boolean;
 	/** 转写/代回胶囊在跨屏 overlay 内的定位（主进程按锚点显示器计算） */
-	voiceTabPlacement?: { left: number; bottom: number } | null;
+	voiceTabPlacement?: { left: number; top: number } | null;
 }
 
 export interface UserActionOption {

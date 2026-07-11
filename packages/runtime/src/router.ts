@@ -1,4 +1,4 @@
-import type { LiveContext } from "@fold/context";
+import { isClipboardRecallIntent, type LiveContext } from "@fold/context";
 import { mockActionPlan } from "@fold/ai";
 import type { AgentId } from "@fold/connectors";
 import {
@@ -43,6 +43,21 @@ function isComplexIntent(intent: string): boolean {
 export function tryCompiledPlan(intent: string) {
 	if (isMailCountIntent(intent) || isPdfDownloadCountIntent(intent) || isPdfMailDemoIntent(intent)) {
 		return mockActionPlan(intent);
+	}
+	if (isClipboardRecallIntent(intent)) {
+		return {
+			goal: intent,
+			steps: [
+				{
+					id: "clipboard-recall",
+					skill: "clipboard.recall",
+					args: { query: intent },
+					retryable: false,
+					timeout: 3000,
+				},
+			],
+			validate: ["clipboard.recall.ok"],
+		};
 	}
 	return null;
 }

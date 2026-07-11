@@ -12,6 +12,7 @@ import {
 	runPython,
 } from "@fold/connectors";
 import type { SkillContext } from "../types.js";
+import { resolveClipboardRecall } from "@fold/context";
 import { extractPdfWithZhipuOcr, hasUsefulPdfFields } from "./zhipu-ocr.js";
 
 /** Vite dev 下 import.meta.url 可能是 http://…/@fs/…，不能直接 fileURLToPath。 */
@@ -168,4 +169,10 @@ export async function clipboardRead(_args: Record<string, unknown>, _ctx: SkillC
 	const { runShell } = await import("@fold/connectors");
 	const text = await runShell("pbpaste", []);
 	return { text: text.trim() };
+}
+
+export async function clipboardRecall(args: Record<string, unknown>, ctx: SkillContext) {
+	const query = String(args.query ?? args.intent ?? "").trim();
+	ctx.emit({ type: "progress", message: "正在查找复制记录…" });
+	return resolveClipboardRecall(query, ctx.liveContext.recentClipboards ?? []);
 }

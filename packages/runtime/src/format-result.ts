@@ -97,6 +97,12 @@ export function buildUserVisibleSummary(
 	);
 	if (mailAuthFail?.error) return mailAuthFail.error;
 
+	const recallStep = steps.find((s) => s.skill === "clipboard.recall" && s.status === "success");
+	const recallOutput = recallStep?.output as { summary?: string; ok?: boolean } | undefined;
+	if (recallStep && recallOutput?.summary) {
+		return recallOutput.summary.split("\n")[0] ?? recallOutput.summary;
+	}
+
 	const agentStep = steps.find((s) => s.skill === "agent.execute" && s.status === "success");
 	const agentOutput = agentStep?.output as { summary?: string; agentId?: string } | undefined;
 	if (agentStep && agentOutput?.summary) {

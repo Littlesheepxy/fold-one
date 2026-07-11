@@ -5,7 +5,7 @@ export async function workbuddyRun(args: Record<string, unknown>, ctx: SkillCont
 	const query = String(args.query ?? args.brief ?? "").trim();
 	if (!query) throw new Error("workbuddy.run: query required");
 
-	ctx.emit({ type: "progress", message: "Running Work Buddy workflow" });
+	ctx.emit({ type: "progress", message: "正在调用 WorkBuddy…" });
 	return executeWorkBuddyTask({
 		capability: typeof args.capability === "string" ? args.capability : undefined,
 		query,

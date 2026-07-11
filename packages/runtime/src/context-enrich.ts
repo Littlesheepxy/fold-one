@@ -1,6 +1,7 @@
 import {
 	listChromeTabsViaAppleScript,
 	readFrontWindowAccessibilityText,
+	readProcessAccessibilityText,
 } from "@fold/connectors";
 import {
 	formatContextBrief,
@@ -43,18 +44,44 @@ function filterChromeTabsForAha(
 	return tabs.filter((tab) => recentHosts.has(hostFromUrl(tab.url)));
 }
 
+const SELF_APP_NAMES = new Set(["electron", "fold", "fold-runtime"]);
+
+function isSelfApp(name: string | null | undefined): boolean {
+	return SELF_APP_NAMES.has((name ?? "").trim().toLowerCase());
+}
+
+export interface EnrichContextOptions {
+	/** 语音/代回锁定的目标 App；overlay 在前台时仍能读到正确窗口 */
+	targetApp?: string | null;
+}
+
 /** L2：按需加深 Context（只读），供代回 / Aha / 预测 / Agent 共用。 */
 export async function enrichContext(
 	ctx: LiveContext,
 	scope: ContextEnrichScope,
+	options?: EnrichContextOptions,
 ): Promise<EnrichedContext> {
 	const includeAllChromeTabs = scope === "predict" || scope === "agent";
+	const targetApp = options?.targetApp?.trim() || ctx.activeApp?.trim() || null;
+
+	async function readAccessibility() {
+		if (targetApp && !isSelfApp(targetApp)) {
+			const targeted = await readProcessAccessibilityText(targetApp).catch(() => null);
+			if (targeted) return targeted;
+		}
+		const front = await readFrontWindowAccessibilityText().catch(() => null);
+		if (front && !isSelfApp(front.app)) return front;
+		if (targetApp && !isSelfApp(targetApp)) {
+			return readProcessAccessibilityText(targetApp).catch(() => null);
+		}
+		return front;
+	}
 
 	const [chromeTabsRaw, ax] = await Promise.all([
 		includeAllChromeTabs
 			? listChromeTabsViaAppleScript().catch(() => [])
 			: Promise.resolve([]),
-		readFrontWindowAccessibilityText().catch(() => null),
+		readAccessibility(),
 	]);
 
 	const chromeTabs =

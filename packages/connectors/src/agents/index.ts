@@ -91,6 +91,6 @@ export async function executeAgent(task: AgentTask, failedSteps: string[] = []):
 
 export type { SubagentHandoff } from "./handoff.js";
 
-export { openCodexInstallInTerminal, openClaudeLoginInTerminal } from "./install-actions.js";
+export { openCodexInstallInTerminal, openClaudeLoginInTerminal, openCursorSetupInTerminal } from "./install-actions.js";
 
 export type { AgentConnector, AgentId, AgentResult, AgentTask } from "./types.js";

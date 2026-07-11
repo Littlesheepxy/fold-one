@@ -7,5 +7,6 @@ export {
 } from "./screenshot.js";
 export {
 	readFrontWindowAccessibilityText,
+	readProcessAccessibilityText,
 	type FrontWindowAccessibility,
 } from "./accessibility.js";

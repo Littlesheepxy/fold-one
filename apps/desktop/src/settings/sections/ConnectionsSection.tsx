@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { CapabilityItem, ExecutionMode, FoldConfig, HomeSnapshot } from "../types.js";
 import { ConnectFlowModal, type ConnectFlowTarget } from "../components/ConnectFlowModal.js";
 import { CapabilityGroup, ChannelChipGrid } from "../components/ChannelChipGrid.js";
-import { ConnectionIcon } from "../components/ConnectionIcon.js";
+import { ConnectionIcon, CONNECTION_CHIP_ICON_SIZE } from "../components/ConnectionIcon.js";
 import { IosSwitch, StatusDot } from "../components/FormFields.js";
 
 const MODE_OPTIONS: Array<{
@@ -155,14 +155,13 @@ export function ConnectionsSection({
 		});
 	};
 
-	const runExecutorAction = async (action: string) => {
-		setBusy(true);
-		try {
-			await window.fold.runConnectionAction(action);
-			startRefreshPoll();
-		} finally {
-			setBusy(false);
-		}
+	const openExecutorConnect = (ex: { connectTarget?: string; label: string }) => {
+		if (!ex.connectTarget) return;
+		setConnectTarget({
+			connectionId: ex.connectTarget,
+			label: ex.label,
+			kind: "login",
+		});
 	};
 
 	const selectExecutor = async (id: string) => {
@@ -177,6 +176,12 @@ export function ConnectionsSection({
 	};
 
 	const handleConnectSuccess = async () => {
+		if (connectTarget?.connectionId === "workbuddy") {
+			const config = await window.fold.getConfig();
+			const caps = new Set(config.enabledCapabilities ?? capabilities.filter((c) => c.enabled).map((c) => c.id));
+			caps.add("workflow.workbuddy");
+			await onSaveConfig({ ...config, enabledCapabilities: [...caps] });
+		}
 		await refresh();
 		startRefreshPoll();
 	};
@@ -228,17 +233,23 @@ export function ConnectionsSection({
 									key={ex.id}
 									type="button"
 									disabled={busy}
-									className={`fold-connection-chip fold-connection-chip--solo${ex.isDefault ? " is-default" : ""}${ex.available ? " is-enabled" : ""}`}
+									className={`fold-connection-chip fold-connection-chip--solo${ex.isDefault ? " is-default" : ""}${ex.available ? " is-enabled" : ex.connectTarget ? " is-connectable" : ""}`}
+									title={ex.available ? undefined : ex.connectTarget ? `点击连接 ${ex.label}` : ex.error}
 									onClick={() => {
 										if (ex.available) void selectExecutor(ex.id);
-										else if (ex.connectAction) void runExecutorAction(ex.connectAction);
+										else if (ex.connectTarget) openExecutorConnect(ex);
 									}}
 								>
 									<span className="fold-connection-chip-main">
 										<span className="fold-connection-chip-icon" aria-hidden="true">
-											<ConnectionIcon id={ex.id} size={16} />
+											<ConnectionIcon id={ex.id} size={CONNECTION_CHIP_ICON_SIZE} />
 										</span>
-										<span className="fold-connection-chip-label">{ex.label}</span>
+										<span className="fold-connection-chip-text">
+											<span className="fold-connection-chip-label">{ex.label}</span>
+											{ex.available && ex.detail ? (
+												<span className="fold-connection-chip-detail">{ex.detail}</span>
+											) : null}
+										</span>
 										<StatusDot status={ex.available ? "ok" : "off"} />
 									</span>
 								</button>
@@ -300,10 +311,17 @@ export function ConnectionsSection({
 						return (
 							<div key={cap.id} className="fold-capability-browser-row fold-connection-list-row">
 								<div className="fold-capability-browser-copy">
-									<StatusDot status={connected ? "ok" : "off"} />
-									<ConnectionIcon id={cap.connectTarget ?? "cdp"} size={16} />
+									<span className="fold-connection-chip-icon" aria-hidden="true">
+										<ConnectionIcon
+											id={cap.connectTarget ?? "cdp"}
+											size={CONNECTION_CHIP_ICON_SIZE}
+										/>
+									</span>
 									<div className="fold-capability-browser-text">
-										<span className="fold-capability-browser-label">{cap.label}</span>
+										<span className="fold-capability-browser-label-row">
+											<span className="fold-capability-browser-label">{cap.label}</span>
+											<StatusDot status={connected ? "ok" : "off"} />
+										</span>
 										{cap.detail ? (
 											<span className="fold-capability-browser-detail">{cap.detail}</span>
 										) : null}

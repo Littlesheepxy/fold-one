@@ -53,7 +53,8 @@ export interface ExecutorItem {
 	capabilities: string[];
 	isDefault: boolean;
 	error?: string;
-	connectAction?: string;
+	detail?: string;
+	connectTarget?: string;
 }
 
 export interface CapabilitySnapshot {
@@ -153,6 +154,7 @@ const CAPABILITY_DEFS: CapabilityDef[] = [
 		layer: 1,
 		category: "workflow",
 		group: "communicate",
+		connectTarget: "workbuddy",
 	},
 	{
 		id: "apps.hub",
@@ -321,14 +323,23 @@ function resolveCapabilityStatus(
 			};
 		}
 		case "workflow.workbuddy": {
-			const wb = probeValue<{ enabled?: boolean; available?: boolean; error?: string }>(
-				probes,
-				"workbuddy.available",
-			);
-			if (wb?.enabled && wb.available) return { status: "ready", provider: "Work Buddy", detail: "Gateway 在线" };
+			const wb = probeValue<{
+				enabled?: boolean;
+				available?: boolean;
+				toolCount?: number;
+				error?: string;
+			}>(probes, "workbuddy.available");
+			if (wb?.enabled && wb.available) {
+				return {
+					status: "ready",
+					provider: "Work Buddy",
+					detail: wb.toolCount ? `Gateway 在线 · ${wb.toolCount} 个工具` : "Gateway 在线",
+				};
+			}
 			return {
 				status: "needs_connect",
 				detail: wb?.error ?? (wb?.enabled ? "Gateway 离线" : "未启用"),
+				connectTarget: "workbuddy",
 			};
 		}
 		case "apps.hub": {
@@ -434,7 +445,12 @@ export function buildCapabilitySnapshot(
 		};
 	});
 
-	const wb = probeValue<{ enabled?: boolean; available?: boolean }>(probes, "workbuddy.available");
+	const wb = probeValue<{
+		enabled?: boolean;
+		available?: boolean;
+		toolCount?: number;
+		error?: string;
+	}>(probes, "workbuddy.available");
 	const preferred = config.preferredExecutor ?? "auto";
 
 	const executors: ExecutorItem[] = [
@@ -447,20 +463,28 @@ export function buildCapabilitySnapshot(
 				preferred === agent.id ||
 				(preferred === "auto" && agent.available && agentStatuses.find((a) => a.available)?.id === agent.id),
 			error: agent.error,
-			connectAction:
+			connectTarget:
 				agent.id === "codex"
-					? "codex:install-terminal"
+					? "agent-codex"
 					: agent.id === "claude-code"
-						? "claude:login-terminal"
-						: undefined,
+						? "agent-claude-code"
+						: agent.id === "cursor"
+							? "agent-cursor"
+							: undefined,
 		})),
 		{
 			id: "workbuddy" as const,
 			label: "Work Buddy",
-			available: Boolean(wb?.enabled && wb.available),
+			available: Boolean(wb?.available),
 			capabilities: EXECUTOR_CAPS.workbuddy,
 			isDefault: preferred === "workbuddy",
-			error: wb?.enabled ? undefined : "未启用",
+			detail: wb?.available
+				? wb.toolCount
+					? `${wb.toolCount} 个 MCP 工具`
+					: "Gateway 在线"
+				: undefined,
+			error: wb?.available ? undefined : (wb?.error ?? (wb?.enabled ? "Gateway 离线" : "未启用")),
+			connectTarget: "workbuddy",
 		},
 	];
 

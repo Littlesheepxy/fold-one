@@ -20,7 +20,18 @@ export interface ContextEvent {
 		filePath?: string;
 		url?: string;
 		text?: string;
+		/** user = 用户复制；fold = Fold 注入/恢复，不计入复制记录 */
+		origin?: "user" | "fold";
 	};
+}
+
+export interface ClipboardHistoryEntry {
+	id: string;
+	text: string;
+	timestamp: number;
+	appName: string | null;
+	windowTitle: string | null;
+	appPath: string | null;
 }
 
 export interface FocusDwell {
@@ -37,6 +48,8 @@ export interface LiveContext {
 	recentFiles: Array<{ path: string; name: string; timestamp: number }>;
 	recentUrls: Array<{ url: string; title: string; timestamp: number }>;
 	clipboard: { text: string; timestamp: number } | null;
+	/** 用户复制历史（新→旧），用于找回与召回 */
+	recentClipboards: ClipboardHistoryEntry[];
 	events: ContextEvent[];
 	/** 由 ContextStore.get() 根据 events 推算 */
 	focusDwells?: FocusDwell[];
@@ -50,6 +63,7 @@ export function createEmptyContext(): LiveContext {
 		recentFiles: [],
 		recentUrls: [],
 		clipboard: null,
+		recentClipboards: [],
 		events: [],
 	};
 }
@@ -118,6 +132,18 @@ export function formatContextBrief(ctx: LiveContext, scope: ContextBriefScope): 
 
 	if (ctx.clipboard?.text && now - ctx.clipboard.timestamp < CLIPBOARD_RECENT_MS) {
 		lines.push(`近期剪贴板：${ctx.clipboard.text.slice(0, 200)}`);
+	}
+
+	if (ctx.recentClipboards.length > 1 && scope !== "reply") {
+		lines.push("复制记录（新→旧）：");
+		for (const item of ctx.recentClipboards.slice(0, 5)) {
+			const when = new Date(item.timestamp).toLocaleTimeString("zh-CN", {
+				hour: "2-digit",
+				minute: "2-digit",
+			});
+			const where = item.appName ?? "未知应用";
+			lines.push(`  - [${when} · ${where}] ${item.text.slice(0, 120)}`);
+		}
 	}
 
 	return lines.join("\n") || "（暂无工作现场记录）";

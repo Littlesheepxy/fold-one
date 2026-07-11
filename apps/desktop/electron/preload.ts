@@ -71,10 +71,14 @@ contextBridge.exposeInMainWorld("fold", {
 		ipcRenderer.invoke("fold:start-aha-guess") as Promise<{ ok: boolean; runId?: number }>,
 	cancelAhaGuess: () => ipcRenderer.invoke("fold:cancel-aha-guess") as Promise<{ ok: boolean }>,
 	getLiveContext: () => ipcRenderer.invoke("fold:get-live-context") as Promise<Record<string, unknown>>,
+	restoreClipboard: (payload: { id?: string; text?: string }) =>
+		ipcRenderer.invoke("fold:restore-clipboard", payload) as Promise<{ ok: boolean }>,
 	focusContext: (target: { kind: "app"; appName: string } | { kind: "url"; url: string }) =>
 		ipcRenderer.invoke("fold:focus-context", target) as Promise<{ ok: boolean }>,
 	getAppIcon: (appPath: string, appName?: string) =>
 		ipcRenderer.invoke("fold:get-app-icon", appPath, appName) as Promise<string | null>,
+	getFirstAppIcon: (appNames: string[]) =>
+		ipcRenderer.invoke("fold:get-first-app-icon", appNames) as Promise<string | null>,
 	listEpisodes: () => ipcRenderer.invoke("fold:list-episodes") as Promise<Record<string, unknown>[]>,
 	getEpisode: (id: string) =>
 		ipcRenderer.invoke("fold:get-episode", id) as Promise<Record<string, unknown> | null>,
@@ -165,12 +169,20 @@ contextBridge.exposeInMainWorld("fold", {
 			authUrl?: string;
 			userCode?: string;
 			opensBrowserAutomatically?: boolean;
+			copyText?: string;
+			copyThenOpen?: boolean;
 		}>,
 	pollConnectFlow: (sessionId: string) =>
 		ipcRenderer.invoke("fold:connect-flow-poll", sessionId) as Promise<{
 			status: "pending" | "success" | "error";
 			message?: string;
 			error?: string;
+		}>,
+	activateWorkBuddyConnect: (sessionId: string) =>
+		ipcRenderer.invoke("fold:connect-flow-activate-workbuddy", sessionId) as Promise<{
+			ok: boolean;
+			opened: boolean;
+			url?: string;
 		}>,
 	cancelConnectFlow: (sessionId: string) =>
 		ipcRenderer.invoke("fold:connect-flow-cancel", sessionId) as Promise<{ ok: boolean }>,

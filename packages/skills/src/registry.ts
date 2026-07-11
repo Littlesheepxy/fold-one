@@ -1,5 +1,6 @@
 import {
 	clipboardRead,
+	clipboardRecall,
 	finderLatestDownload,
 	mailCountUnread,
 	mailDraft,
@@ -90,6 +91,19 @@ const REGISTRY: SkillDefinition[] = [
 		handler: clipboardRead,
 		label: "读取剪贴板",
 		catalogDoc: "clipboard.read: {} -> { text }",
+	},
+	{
+		id: "clipboard.recall",
+		handler: clipboardRecall,
+		label: "找回复制记录",
+		catalogDoc: "clipboard.recall: { query: string } -> { ok, summary, text?, entry? }",
+		validators: {
+			"clipboard.recall.ok": (results) => {
+				const step = findStep(results, "clipboard.recall");
+				const output = step?.output as { ok?: boolean } | undefined;
+				return step?.status === "success" && output?.ok === true;
+			},
+		},
 	},
 	{
 		id: "browser.currentPage",

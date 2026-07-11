@@ -423,18 +423,26 @@ export function OverlayApp() {
 	const inputScene =
 		isVoiceAssist &&
 		(status === "listening" || isVoiceFormatting || status === "done");
+	const replyPredictScene =
+		status === "predict" && predictSurface === "reply" && Boolean(voiceTabPlacement);
+	const voiceTabAnchorScene = inputScene || replyPredictScene;
 	const inputSettling = inputScene && status === "done" && !fillComplete;
 	const isVoiceFormattingActive = isVoiceFormatting || inputSettling;
 	const isExecuting = isAgentExecuting || isVoiceFormattingActive;
 	const isProcessingFill = isVoiceFormattingActive;
 	const showCheckmark = status === "done" && (inputScene ? fillComplete : true);
 	const predictCardPosition =
-		isPredictCard && predictSurface === "reply" && typeof window !== "undefined"
+		isPredictCard && predictSurface === "reply" && voiceTabPlacement
 			? {
-					x: Math.max(12, window.innerWidth / 2 - 184),
-					y: Math.max(12, window.innerHeight - 360),
+					x: Math.max(12, voiceTabPlacement.left - 184),
+					y: Math.max(12, voiceTabPlacement.top - 340),
 				}
-			: predictCursor;
+			: isPredictCard && predictSurface === "reply" && typeof window !== "undefined"
+				? {
+						x: Math.max(12, window.innerWidth / 2 - 184),
+						y: Math.max(12, window.innerHeight - 360),
+					}
+				: predictCursor;
 	const collapsed = (status === "idle" && !panelOpen) || isPredictCard;
 	const dockedSide = collapsed ? anchorPosition.snapSide : null;
 	const idleShellWidth = idleRailOpen ? 424 : 360;
@@ -535,27 +543,25 @@ export function OverlayApp() {
 					}
 				}}
 				style={
-					inputScene
+					voiceTabAnchorScene
 						? voiceTabPlacement
 							? {
-									x: "-50%",
-									y: 0,
 									left: voiceTabPlacement.left,
+									top: voiceTabPlacement.top,
 									right: "auto",
-									top: "auto",
-									bottom: voiceTabPlacement.bottom,
+									bottom: "auto",
+									transform: "translateX(-50%)",
 								}
 							: {
-									x: "-50%",
-									y: 0,
 									left: "50%",
 									right: "auto",
 									top: "auto",
-									bottom: 30,
+									bottom: Math.max(96, Math.round(window.innerHeight * 0.12)),
+									transform: "translateX(-50%)",
 								}
 						: { x, y }
 				}
-				className={`${inputScene ? "fold-input-tab-anchor" : "absolute"} pointer-events-auto select-none`}
+				className={`${voiceTabAnchorScene ? "fold-input-tab-anchor" : "absolute"} pointer-events-auto select-none`}
 			>
 				<motion.div
 					className={`fold-shell ${collapsed ? "fold-shell-collapsed" : ""} ${

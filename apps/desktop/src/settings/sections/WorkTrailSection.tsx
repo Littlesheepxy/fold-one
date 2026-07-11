@@ -1,11 +1,27 @@
 import { useEffect, useState } from "react";
 import { FileText, Globe, Clipboard } from "lucide-react";
-import type { HomeContextEvent, HomeSnapshot, LiveContextLite } from "../types.js";
+import type { ClipboardHistoryItem, HomeContextEvent, HomeSnapshot, LiveContextLite } from "../types.js";
 import { AppIconImg } from "../components/AppIcon.js";
 import { Card } from "../components/FormFields.js";
 
 function formatClock(ts: number) {
 	return new Date(ts).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatWhen(ts: number) {
+	const date = new Date(ts);
+	const now = new Date();
+	const sameDay =
+		date.getFullYear() === now.getFullYear() &&
+		date.getMonth() === now.getMonth() &&
+		date.getDate() === now.getDate();
+	if (sameDay) return formatClock(ts);
+	return date.toLocaleString("zh-CN", {
+		month: "numeric",
+		day: "numeric",
+		hour: "2-digit",
+		minute: "2-digit",
+	});
 }
 
 function eventLabel(e: HomeContextEvent): { title: string; detail?: string } | null {
@@ -25,9 +41,11 @@ function eventLabel(e: HomeContextEvent): { title: string; detail?: string } | n
 				detail: e.data.filePath,
 			};
 		case "clipboard.changed": {
+			if (e.data.origin === "fold") return null;
 			const preview = e.data.text?.trim();
+			const app = e.data.appName ?? "未知应用";
 			return {
-				title: "剪贴板更新",
+				title: `复制 · ${app}`,
 				detail: preview
 					? preview.slice(0, 60) + (preview.length > 60 ? "…" : "")
 					: undefined,
@@ -67,6 +85,8 @@ export function WorkTrailSection({ snapshot }: { snapshot: HomeSnapshot }) {
 	const [recentFiles, setRecentFiles] = useState(liveContext.recentFiles);
 	const [recentUrls, setRecentUrls] = useState(liveContext.recentUrls);
 	const [focusDwells, setFocusDwells] = useState<FocusDwellLite[]>([]);
+	const [clipboardHistory, setClipboardHistory] = useState<ClipboardHistoryItem[]>([]);
+	const [restoringId, setRestoringId] = useState<string | null>(null);
 
 	useEffect(() => {
 		let mounted = true;
@@ -76,6 +96,7 @@ export function WorkTrailSection({ snapshot }: { snapshot: HomeSnapshot }) {
 			setRecentFiles(ctx.recentFiles ?? []);
 			setRecentUrls(ctx.recentUrls ?? []);
 			setFocusDwells(ctx.focusDwells ?? []);
+			setClipboardHistory(ctx.recentClipboards ?? []);
 		};
 		void window.fold.getLiveContext().then((ctx) => {
 			if (!mounted) return;
@@ -96,6 +117,23 @@ export function WorkTrailSection({ snapshot }: { snapshot: HomeSnapshot }) {
 					setRecentFiles((prev) => [{ path, name }, ...prev.filter((f) => f.path !== path)].slice(0, 10));
 				}
 			}
+			if (event.type === "clipboard.changed" && event.data.origin !== "fold" && event.data.text) {
+				const text = event.data.text.trim();
+				if (text.length >= 4) {
+					setClipboardHistory((prev) => {
+						if (prev[0]?.text === text) return prev;
+						const next: ClipboardHistoryItem = {
+							id: event.id,
+							timestamp: event.timestamp,
+							text,
+							appName: event.data.appName ?? null,
+							windowTitle: event.data.windowTitle ?? null,
+							appPath: event.data.appPath ?? null,
+						};
+						return [next, ...prev].slice(0, 50);
+					});
+				}
+			}
 			setEvents((prev) => [event, ...prev].slice(0, 80));
 		});
 		return () => {
@@ -104,6 +142,15 @@ export function WorkTrailSection({ snapshot }: { snapshot: HomeSnapshot }) {
 		};
 	}, []);
 
+	const restoreClipboard = async (item: ClipboardHistoryItem) => {
+		setRestoringId(item.id);
+		try {
+			await window.fold.restoreClipboard({ id: item.id, text: item.text });
+		} finally {
+			setRestoringId(null);
+		}
+	};
+
 	const activeApp = anchor ? anchor.app : liveContext.activeApp;
 	const activeWindow = anchor ? anchor.window : liveContext.activeWindow;
 
@@ -111,7 +158,9 @@ export function WorkTrailSection({ snapshot }: { snapshot: HomeSnapshot }) {
 		<div className="space-y-5">
 			<div>
 				<h1 className="fold-home-page-title">轨迹</h1>
-				<p className="fold-home-page-subtitle">实时操作记录与应用上下文（重启后保留近 4 小时）</p>
+				<p className="fold-home-page-subtitle">
+					实时操作记录与应用上下文（复制记录保留近 4 小时，Fold 注入的不计入）
+				</p>
 			</div>
 
 			<Card title="当前锚点">
@@ -128,6 +177,49 @@ export function WorkTrailSection({ snapshot }: { snapshot: HomeSnapshot }) {
 						</p>
 					</div>
 				</div>
+			</Card>
+
+			<Card title="复制记录">
+				{clipboardHistory.length > 0 ? (
+					<ul className="max-h-80 space-y-3 overflow-y-auto pr-1">
+						{clipboardHistory.map((item) => (
+							<li key={item.id} className="fold-clipboard-history-item">
+								<div className="fold-clipboard-history-meta">
+									<AppIconImg appPath={item.appPath} appName={item.appName} size={18} />
+									<div className="min-w-0 flex-1">
+										<p className="fold-clipboard-history-head">
+											<span>{formatWhen(item.timestamp)}</span>
+											<span className="fold-clipboard-history-dot" aria-hidden="true">
+												·
+											</span>
+											<span className="truncate">{item.appName ?? "未知应用"}</span>
+										</p>
+										{item.windowTitle ? (
+											<p className="fold-clipboard-history-window" title={item.windowTitle}>
+												{item.windowTitle}
+											</p>
+										) : null}
+									</div>
+									<button
+										type="button"
+										className="fold-clipboard-restore-btn"
+										disabled={restoringId === item.id}
+										onClick={() => void restoreClipboard(item)}
+									>
+										{restoringId === item.id ? "恢复中…" : "恢复"}
+									</button>
+								</div>
+								<p className="fold-clipboard-history-text" title={item.text}>
+									{item.text}
+								</p>
+							</li>
+						))}
+					</ul>
+				) : (
+					<p className="text-[13px] text-[#86868b]">
+						暂无复制记录。在任意应用中复制文字后，会在这里记下时间、来源应用和完整内容。
+					</p>
+				)}
 			</Card>
 
 			<Card title="操作轨迹">

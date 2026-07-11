@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { computeFocusDwells } from "./dwell.js";
-import type { ContextEvent, LiveContext } from "./types.js";
+import type { ClipboardHistoryEntry, ContextEvent, LiveContext } from "./types.js";
 import { createEmptyContext } from "./types.js";
 
 /** 会话内保留时长：重启后从 DB 再加载 */
 const TTL_MS = 4 * 60 * 60 * 1000;
+const CLIPBOARD_HISTORY_MAX = 50;
+const CLIPBOARD_MIN_CHARS = 4;
 
 const IMPORTANT_TYPES = new Set<ContextEvent["type"]>([
 	"app.active",
@@ -13,6 +15,40 @@ const IMPORTANT_TYPES = new Set<ContextEvent["type"]>([
 	"clipboard.changed",
 	"browser.urlChanged",
 ]);
+
+function isUserClipboardEvent(event: ContextEvent): boolean {
+	return (
+		event.type === "clipboard.changed" &&
+		event.data.origin !== "fold" &&
+		Boolean(event.data.text?.trim()) &&
+		(event.data.text?.trim().length ?? 0) >= CLIPBOARD_MIN_CHARS
+	);
+}
+
+function entryFromClipboardEvent(event: ContextEvent): ClipboardHistoryEntry | null {
+	if (!isUserClipboardEvent(event)) return null;
+	const text = event.data.text!.trim();
+	return {
+		id: event.id,
+		text,
+		timestamp: event.timestamp,
+		appName: event.data.appName ?? null,
+		windowTitle: event.data.windowTitle ?? null,
+		appPath: event.data.appPath ?? null,
+	};
+}
+
+function rebuildClipboardHistory(events: ContextEvent[]): ClipboardHistoryEntry[] {
+	const items: ClipboardHistoryEntry[] = [];
+	let lastText = "";
+	for (const event of events) {
+		const entry = entryFromClipboardEvent(event);
+		if (!entry || entry.text === lastText) continue;
+		lastText = entry.text;
+		items.push(entry);
+	}
+	return items.slice(-CLIPBOARD_HISTORY_MAX).reverse();
+}
 
 export class ContextStore {
 	private ctx: LiveContext = createEmptyContext();
@@ -25,6 +61,7 @@ export class ContextStore {
 			events,
 			recentFiles: [...this.ctx.recentFiles],
 			recentUrls: [...this.ctx.recentUrls],
+			recentClipboards: [...this.ctx.recentClipboards],
 			focusDwells: computeFocusDwells(events),
 		};
 	}
@@ -35,6 +72,7 @@ export class ContextStore {
 		for (const event of sorted) {
 			this.ingest(event, { dedupeAppActive: false });
 		}
+		this.ctx.recentClipboards = rebuildClipboardHistory(this.ctx.events);
 	}
 
 	push(event: Omit<ContextEvent, "id">): ContextEvent | null {
@@ -81,8 +119,15 @@ export class ContextStore {
 			this.ctx.recentFiles = this.ctx.recentFiles.slice(0, 20);
 		}
 		if (event.type === "clipboard.changed" && event.data.text) {
-			if (event.data.text.length >= 20) {
+			if (event.data.origin !== "fold" && event.data.text.length >= CLIPBOARD_MIN_CHARS) {
 				this.ctx.clipboard = { text: event.data.text, timestamp: event.timestamp };
+			}
+			const entry = entryFromClipboardEvent(event);
+			if (entry && entry.text !== this.ctx.recentClipboards[0]?.text) {
+				this.ctx.recentClipboards = [entry, ...this.ctx.recentClipboards].slice(
+					0,
+					CLIPBOARD_HISTORY_MAX,
+				);
 			}
 		}
 		if (event.type === "browser.urlChanged" && event.data.url) {
@@ -102,6 +147,7 @@ export class ContextStore {
 		this.ctx.events = this.ctx.events.filter((e) => e.timestamp >= cutoff);
 		this.ctx.recentFiles = this.ctx.recentFiles.filter((f) => f.timestamp >= cutoff);
 		this.ctx.recentUrls = this.ctx.recentUrls.filter((u) => u.timestamp >= cutoff);
+		this.ctx.recentClipboards = this.ctx.recentClipboards.filter((c) => c.timestamp >= cutoff);
 		if (this.ctx.clipboard && this.ctx.clipboard.timestamp < cutoff) {
 			this.ctx.clipboard = null;
 		}

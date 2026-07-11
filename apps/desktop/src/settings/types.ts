@@ -43,6 +43,7 @@ export interface FoldConfig {
 	allowUitars?: boolean;
 	allowWorkbuddy?: boolean;
 	workbuddyGatewayUrl?: string;
+	workbuddyMcpToken?: string;
 	uitarsVlmBaseUrl?: string;
 	uitarsVlmApiKey?: string;
 	uitarsVlmModel?: string;
@@ -167,7 +168,17 @@ export interface HomeContextEvent {
 		filePath?: string;
 		url?: string;
 		text?: string;
+		origin?: "user" | "fold";
 	};
+}
+
+export interface ClipboardHistoryItem {
+	id: string;
+	timestamp: number;
+	text: string;
+	appName: string | null;
+	windowTitle: string | null;
+	appPath: string | null;
 }
 
 export interface LiveContextLite {
@@ -177,6 +188,7 @@ export interface LiveContextLite {
 	recentUrls: Array<{ url: string; title: string }>;
 	recentFiles: Array<{ path: string; name: string }>;
 	clipboardPreview: string | null;
+	recentClipboards: ClipboardHistoryItem[];
 	focusDwells?: Array<{
 		app: string;
 		windowTitle?: string;

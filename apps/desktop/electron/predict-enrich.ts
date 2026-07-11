@@ -1,5 +1,5 @@
 import { captureScreenshot } from "@fold/connectors";
-import type { LiveContext } from "@fold/context";
+import { createEmptyContext, type LiveContext } from "@fold/context";
 import {
 	buildPredictions,
 	enrichContext,
@@ -91,18 +91,7 @@ export function clearPredictTargetApp(): void {
 
 /** @deprecated 使用 enrichContext(ctx, scope) */
 export async function gatherPredictEnrichment(ctx?: LiveContext): Promise<PredictEnrichment> {
-	const { enrichment } = await enrichContext(
-		ctx ?? {
-			activeApp: null,
-			activeWindow: null,
-			activeAppPath: null,
-			recentFiles: [],
-			recentUrls: [],
-			clipboard: null,
-			events: [],
-		},
-		"predict",
-	);
+	const { enrichment } = await enrichContext(ctx ?? createEmptyContext(), "predict");
 	return enrichment;
 }
 
@@ -123,8 +112,9 @@ async function screenTextViaOcr(): Promise<string | undefined> {
 async function enrichWithOptionalOcr(
 	ctx: LiveContext,
 	scope: Parameters<typeof enrichContext>[1],
+	targetApp?: string | null,
 ): Promise<EnrichedContext> {
-	const base = await enrichContext(ctx, scope);
+	const base = await enrichContext(ctx, scope, { targetApp });
 	const screenText = await screenTextViaOcr();
 	if (!screenText) return base;
 
@@ -191,15 +181,20 @@ export async function resolvePredictions(ctx: LiveContext, dataDir?: string): Pr
 	return attachDraftsIfNeeded(result, ctx, richEnriched);
 }
 
-export async function resolveReplyPredictions(ctx: LiveContext): Promise<PredictResult> {
-	const enriched = await enrichWithOptionalOcr(ctx, "reply");
+export async function resolveReplyPredictions(
+	ctx: LiveContext,
+	targetApp?: string | null,
+): Promise<PredictResult> {
+	const enriched = await enrichWithOptionalOcr(ctx, "reply", targetApp);
 	const { enrichment } = enriched;
-	lastPredictTargetApp = enrichment.accessibilityApp ?? ctx.activeApp ?? null;
+	lastPredictTargetApp = enrichment.accessibilityApp ?? targetApp ?? ctx.activeApp ?? null;
 	const intent = "帮我回复当前对话";
 	const anchor =
-		enrichment.accessibilityWindowTitle ??
+		extractChatSceneTitle(
+			enrichment.accessibilityWindowTitle ?? ctx.activeWindow,
+			enrichment.accessibilityText,
+		) ??
 		enrichment.accessibilityApp ??
-		ctx.activeWindow ??
 		ctx.activeApp ??
 		"当前对话";
 	const drafts = await generateTieredPredictDrafts({
@@ -260,18 +255,43 @@ export async function resolveReplyDraftsForInstruction(
 export function formatReplyScene(
 	appName: string | null | undefined,
 	windowTitle: string | null | undefined,
+	accessibilityText?: string | null,
 ): { sceneTitle: string; subtitle: string | null } {
 	const app = appName?.trim() || null;
-	const window = windowTitle?.trim() || null;
+	const window = extractChatSceneTitle(windowTitle, accessibilityText);
 	if (window && app) {
 		return { sceneTitle: window, subtitle: app };
 	}
 	return { sceneTitle: window ?? app ?? "当前对话", subtitle: null };
 }
 
+/** 飞书/Lark 等 IM 的 window 1 标题常为「发送给 xxx」，需从 AX 树推断当前会话名 */
+function extractChatSceneTitle(
+	windowTitle: string | null | undefined,
+	accessibilityText?: string | null,
+): string | null {
+	const title = windowTitle?.trim() || null;
+	if (title && !/^发送给\s/i.test(title)) return title;
+
+	const skip = /^(发送给|搜索|消息|联系人|发送|更多|表情|文件|截图|语音|视频|@|回复|转发)$/i;
+	const lines = (accessibilityText ?? "")
+		.split("\n")
+		.map((line) => line.trim())
+		.filter(Boolean);
+	for (const line of lines.slice(0, 48)) {
+		if (line.length < 2 || line.length > 80) continue;
+		if (/^发送给\s/i.test(line)) continue;
+		if (skip.test(line)) continue;
+		if (/^\d{1,2}:\d{2}$/.test(line)) continue;
+		return line;
+	}
+	return title;
+}
+
 export async function resolveReplyVoiceCard(
 	ctx: LiveContext,
 	intent: string,
+	targetApp?: string | null,
 ): Promise<{
 	drafts: NonNullable<PredictResult["drafts"]>;
 	anchor: string;
@@ -280,11 +300,15 @@ export async function resolveReplyVoiceCard(
 	appName: string | null;
 	appPath: string | null;
 }> {
-	const enriched = await enrichWithOptionalOcr(ctx, "reply");
+	const enriched = await enrichWithOptionalOcr(ctx, "reply", targetApp);
 	const { enrichment } = enriched;
-	const appName = enrichment.accessibilityApp ?? ctx.activeApp ?? null;
+	const appName = enrichment.accessibilityApp ?? targetApp ?? ctx.activeApp ?? null;
 	const windowTitle = enrichment.accessibilityWindowTitle ?? ctx.activeWindow ?? null;
-	const { sceneTitle, subtitle } = formatReplyScene(appName, windowTitle);
+	const { sceneTitle, subtitle } = formatReplyScene(
+		appName,
+		windowTitle,
+		enrichment.accessibilityText,
+	);
 	lastPredictTargetApp = appName;
 	const anchor = sceneTitle;
 	const drafts = await generateTieredPredictDrafts({

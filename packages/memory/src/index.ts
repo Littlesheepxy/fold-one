@@ -2,6 +2,8 @@ export {
 	saveEpisode,
 	saveContextEvent,
 	listContextEvents,
+	listClipboardHistory,
+	type ClipboardHistoryRow,
 	listRecentEpisodes,
 	listEpisodeSummaries,
 	getEpisodeById,

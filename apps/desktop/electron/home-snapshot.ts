@@ -181,12 +181,21 @@ function buildConnections(
 			: "未开启",
 	});
 
-	const wb = probeOk<{ enabled?: boolean; available?: boolean }>(probes, "workbuddy.available");
+	const wb = probeOk<{ enabled?: boolean; available?: boolean; toolCount?: number; error?: string }>(
+		probes,
+		"workbuddy.available",
+	);
 	rows.push({
 		id: "workbuddy",
 		label: "Work Buddy",
 		status: wb?.enabled && wb.available ? "ok" : wb?.enabled ? "warn" : "error",
-		detail: wb?.enabled ? (wb.available ? "Gateway 在线" : "Gateway 离线") : "未开启",
+		detail: wb?.enabled
+			? wb.available
+				? wb.toolCount
+					? `Gateway 在线 · ${wb.toolCount} 个 MCP 工具`
+					: "Gateway 在线"
+				: (wb.error ?? "Gateway 离线")
+			: "未开启",
 	});
 
 	return rows;

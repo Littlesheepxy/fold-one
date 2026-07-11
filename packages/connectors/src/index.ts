@@ -79,14 +79,25 @@ export {
 	type UitarsTaskResult,
 } from "./gui/index.js";
 export {
+	discoverWorkBuddyGatewayUrl,
+	discoverWorkBuddyMcpAuthHeader,
+	discoverWorkBuddyMcpTokenFromProcess,
 	executeWorkBuddyTask,
 	getWorkBuddyGatewayUrl,
 	isWorkBuddyEnabled,
 	probeWorkBuddyGateway,
+	resolveWorkBuddyMcpToken,
 	type WorkBuddyProbe,
 	type WorkBuddyRunInput,
 	type WorkBuddyRunResult,
 } from "./workbuddy/index.js";
+export { openWorkBuddyApp } from "./workbuddy/app.js";
+export {
+	beginWorkBuddyPairing,
+	getWorkBuddyPairingPhrase,
+	launchWorkBuddyPairScriptInTerminal,
+	tryPersistWorkBuddyBridge,
+} from "./workbuddy/bridge.js";
 export {
 	createNangoConnectLink,
 	countGmailUnreadViaNango,
@@ -131,6 +142,7 @@ export {
 	type PluginProbe,
 } from "./plugins/index.js";
 export {
+	activateWorkBuddyConnectFlow,
 	cancelConnectFlow,
 	getConnectFlowSession,
 	pollConnectFlow,

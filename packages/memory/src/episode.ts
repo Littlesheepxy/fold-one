@@ -233,6 +233,43 @@ export function listContextEvents(
 		}));
 }
 
+export interface ClipboardHistoryRow {
+	id: string;
+	timestamp: number;
+	text: string;
+	appName: string | null;
+	windowTitle: string | null;
+	appPath: string | null;
+}
+
+/** 从 context_events 提取用户复制记录，供召回与展示。 */
+export function listClipboardHistory(
+	limit = 50,
+	dataDir?: string,
+	sinceMs = Date.now() - CONTEXT_EVENT_RETENTION_MS,
+): ClipboardHistoryRow[] {
+	const events = listContextEvents(limit * 4, dataDir, sinceMs).filter(
+		(e) => e.type === "clipboard.changed",
+	);
+	const items: ClipboardHistoryRow[] = [];
+	let lastText = "";
+	for (const event of events) {
+		if (event.data.origin === "fold") continue;
+		const text = typeof event.data.text === "string" ? event.data.text.trim() : "";
+		if (text.length < 4 || text === lastText) continue;
+		lastText = text;
+		items.push({
+			id: event.id,
+			timestamp: event.timestamp,
+			text,
+			appName: typeof event.data.appName === "string" ? event.data.appName : null,
+			windowTitle: typeof event.data.windowTitle === "string" ? event.data.windowTitle : null,
+			appPath: typeof event.data.appPath === "string" ? event.data.appPath : null,
+		});
+	}
+	return items.slice(-limit).reverse();
+}
+
 function ensureColumn(conn: Database.Database, table: string, column: string, type: string) {
 	const rows = conn.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
 	if (!rows.some((row) => row.name === column)) {

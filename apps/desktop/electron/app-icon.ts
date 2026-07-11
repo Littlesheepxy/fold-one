@@ -14,6 +14,13 @@ const KNOWN_APP_PATHS: Record<string, string> = {
 	Mail: "/System/Applications/Mail.app",
 	"Microsoft Edge": "/Applications/Microsoft Edge.app",
 	Slack: "/Applications/Slack.app",
+	Lark: "/Applications/Lark.app",
+	Feishu: "/Applications/Lark.app",
+	飞书: "/Applications/Lark.app",
+	DingTalk: "/Applications/DingTalk.app",
+	钉钉: "/Applications/钉钉.app",
+	WeCom: "/Applications/WeCom.app",
+	企业微信: "/Applications/企业微信.app",
 	WeChat: "/Applications/WeChat.app",
 	"微信": "/Applications/WeChat.app",
 	Electron: "/Applications/Electron.app",
@@ -104,6 +111,14 @@ function resolveAppIconPath(appPath: string): string | null {
 		join(resources, "app.icns"),
 	]) {
 		if (existsSync(candidate)) return candidate;
+	}
+	return null;
+}
+
+export function getFirstAppIconDataUrl(appNames: string[]): string | null {
+	for (const name of appNames) {
+		const dataUrl = getAppIconDataUrl("", name);
+		if (dataUrl) return dataUrl;
 	}
 	return null;
 }

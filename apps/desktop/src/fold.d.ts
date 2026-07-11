@@ -67,10 +67,12 @@ interface FoldApi {
 		}) => void,
 	): () => void;
 	getLiveContext(): Promise<LiveContextLite>;
+	restoreClipboard(payload: { id?: string; text?: string }): Promise<{ ok: boolean }>;
 	focusContext(
 		target: { kind: "app"; appName: string } | { kind: "url"; url: string },
 	): Promise<{ ok: boolean }>;
 	getAppIcon(appPath: string, appName?: string): Promise<string | null>;
+	getFirstAppIcon(appNames: string[]): Promise<string | null>;
 	listEpisodes(): Promise<EpisodeSummary[]>;
 	getEpisode(id: string): Promise<EpisodeDetail | null>;
 	predictPickIntent(intent: string): Promise<{ ok: boolean }>;
@@ -102,12 +104,15 @@ interface FoldApi {
 		authUrl?: string;
 		userCode?: string;
 		opensBrowserAutomatically?: boolean;
+		copyText?: string;
+		copyThenOpen?: boolean;
 	}>;
 	pollConnectFlow(sessionId: string): Promise<{
 		status: "pending" | "success" | "error";
 		message?: string;
 		error?: string;
 	}>;
+	activateWorkBuddyConnect(sessionId: string): Promise<{ ok: boolean; opened: boolean; url?: string }>;
 	cancelConnectFlow(sessionId: string): Promise<{ ok: boolean }>;
 	openExternal(url: string): Promise<{ ok: boolean }>;
 	saveConfig(config: FoldConfig): Promise<{ ok: boolean }>;

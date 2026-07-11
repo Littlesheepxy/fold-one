@@ -4,10 +4,20 @@ function lobeIcon(slug: string): string {
 	return `${CDN}/${slug}.svg`;
 }
 
+/** 打包在 apps/desktop/public/brand-icons/ 的本地资源 */
+function localIcon(name: string, ext: "svg" | "png" = "svg"): string {
+	return `/brand-icons/${name}.${ext}`;
+}
+
 export const BRAND_ICONS = {
 	claude: lobeIcon("claude-color"),
 	google: lobeIcon("google-color"),
-	chrome: "/brand-icons/chrome.svg",
+	chrome: localIcon("chrome"),
+	feishu: localIcon("feishu"),
+	dingtalk: localIcon("dingtalk"),
+	wecom: localIcon("wecom", "png"),
+	slack: localIcon("slack", "png"),
+	workbuddy: localIcon("workbuddy", "png"),
 	openai: lobeIcon("openai"),
 	deepseek: lobeIcon("deepseek-color"),
 	doubao: lobeIcon("doubao-color"),

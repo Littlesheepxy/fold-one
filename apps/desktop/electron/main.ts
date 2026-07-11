@@ -1,8 +1,8 @@
 import { app, BrowserWindow, ipcMain, screen, shell } from "electron";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { ContextEngine, type ContextEvent } from "@fold/context";
-import { createNangoConnectLink, openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal, openOfficeSetupInTerminal, cancelConnectFlow, pollConnectFlow, resolveConnectTarget, startConnectFlow } from "@fold/connectors";
+import { ContextEngine, isClipboardRecallIntent, resolveClipboardRecall, type ContextEvent } from "@fold/context";
+import { createNangoConnectLink, openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal, openOfficeSetupInTerminal, openWorkBuddyApp, activateWorkBuddyConnectFlow, cancelConnectFlow, pollConnectFlow, resolveConnectTarget, startConnectFlow } from "@fold/connectors";
 import { saveContextEvent, listContextEvents, saveVoiceInteraction } from "@fold/memory";
 import {
 	hasPlannerApiKey,
@@ -30,7 +30,7 @@ import {
 } from "./predict-enrich.js";
 import { insertTextToFrontApp } from "./insert-text.js";
 import { focusApp, focusUrl } from "./focus-context.js";
-import { getAppIconDataUrl, resolveAppBundlePath } from "./app-icon.js";
+import { getAppIconDataUrl, getFirstAppIconDataUrl, resolveAppBundlePath } from "./app-icon.js";
 import {
 	applyConfigToEnv,
 	consumeSmartActionTrial,
@@ -101,6 +101,10 @@ function hydrateContextFromDb() {
 				filePath: typeof row.data.filePath === "string" ? row.data.filePath : undefined,
 				url: typeof row.data.url === "string" ? row.data.url : undefined,
 				text: typeof row.data.text === "string" ? row.data.text : undefined,
+				origin:
+					row.data.origin === "fold" || row.data.origin === "user"
+						? row.data.origin
+						: undefined,
 			},
 		}));
 		contextEngine.hydrate(events);
@@ -353,6 +357,9 @@ async function runUserAction(optionId: string, context?: Record<string, unknown>
 		case "claude:login-terminal":
 			openClaudeLoginInTerminal();
 			break;
+		case "workbuddy:open-app":
+			openWorkBuddyApp();
+			break;
 		default:
 			break;
 	}
@@ -449,17 +456,43 @@ function emitPredictResult(result: Awaited<ReturnType<typeof resolveReplyPredict
 
 function showReplyPredictions() {
 	createOverlayWindow();
-	emitState({
-		status: "predict",
-		...clearPredictState(),
-		predictMode: "fast",
-		predictPhase: "pick",
-		predictSurface: "reply",
-		predictAnchor: "正在读取对话…",
-		predictSuggestions: [],
-		predictCursor: getCursorInOverlay(),
+	const ctx = contextEngine.getLiveContext();
+	const targetApp = ctx.activeApp;
+	void contextEngine.refreshActiveApp().then(async () => {
+		const fresh = contextEngine.getLiveContext();
+		const app = fresh.activeApp ?? targetApp;
+		const voiceTabPlacement = await positionOverlayForActiveContext(overlayWindow, app);
+		emitState({
+			status: "predict",
+			...clearPredictState(),
+			predictMode: "fast",
+			predictPhase: "pick",
+			predictSurface: "reply",
+			predictAnchor: "正在读取对话…",
+			predictSuggestions: [],
+			predictCursor: getCursorInOverlay(),
+			voiceTabPlacement,
+			contextAppName: app,
+			contextAppPath: fresh.activeAppPath,
+		});
+		const result = await resolveReplyPredictions(fresh, app);
+		const placement = await positionOverlayForActiveContext(overlayWindow, app);
+		emitState({
+			status: "predict",
+			...clearPredictState(),
+			predictMode: result.mode,
+			predictPhase: result.phase,
+			predictSurface: result.surface,
+			predictAnchor: result.anchor,
+			predictSuggestions: result.suggestions,
+			predictDrafts: result.drafts,
+			predictCursor: getCursorInOverlay(),
+			voiceTabPlacement: placement,
+			contextAppName: app,
+			contextAppPath: fresh.activeAppPath,
+			contextWindowTitle: result.anchor,
+		});
 	});
-	void resolveReplyPredictions(contextEngine.getLiveContext()).then(emitPredictResult);
 }
 
 async function structureVoiceTranscript(transcript: string) {
@@ -483,6 +516,24 @@ async function structureVoiceTranscript(transcript: string) {
 		...clearPredictState(),
 	});
 	try {
+		if (isClipboardRecallIntent(text)) {
+			const recall = resolveClipboardRecall(text, ctx.recentClipboards ?? []);
+			recordVoiceInteraction("structure", text, recall.summary);
+			emitState({
+				status: "done",
+				transcript: text,
+				voiceMode: "structure",
+				result: recall.ok ? "已找到复制记录" : "未找到复制记录",
+				resultDetail: recall.summary,
+			});
+			setTimeout(() => {
+				if (lastOverlayState.status === "done" && lastOverlayState.voiceMode === "structure") {
+					emitState({ status: "idle", voiceMode: null, ...clearPredictState() });
+				}
+			}, 2500);
+			return;
+		}
+
 		const [structured] = await Promise.all([
 			structureSpeechText(text, {
 				app: ctx.activeApp,
@@ -503,6 +554,7 @@ async function structureVoiceTranscript(transcript: string) {
 			.join("\n\n");
 		const output = body || text;
 		const targetApp = voiceTargetApp ?? ctx.activeApp;
+		contextEngine.suppressClipboardCapture(5000);
 		await insertTextToFrontApp(output, targetApp);
 		recordVoiceInteraction("structure", text, output);
 		emitState({
@@ -532,6 +584,7 @@ async function replyVoiceTranscript(transcript: string) {
 	}
 	lastReplyTranscript = text;
 
+	await contextEngine.refreshActiveApp();
 	const ctx = contextEngine.getLiveContext();
 	const contextAppName = voiceTargetApp ?? ctx.activeApp;
 	const contextAppPath = ctx.activeAppPath;
@@ -557,11 +610,12 @@ async function replyVoiceTranscript(transcript: string) {
 	});
 
 	try {
-		const card = await resolveReplyVoiceCard(ctx, text);
+		const card = await resolveReplyVoiceCard(ctx, text, contextAppName);
 		recordVoiceInteraction("reply", text, card.drafts[0]?.text);
 		emitState({
 			status: "predict",
 			voiceMode: null,
+			voiceTabPlacement,
 			predictMode: "full",
 			predictPhase: "result",
 			predictSurface: "reply",
@@ -763,6 +817,14 @@ function registerIpc() {
 			clipboardPreview: ctx.clipboard?.text
 				? ctx.clipboard.text.slice(0, 80) + (ctx.clipboard.text.length > 80 ? "…" : "")
 				: null,
+			recentClipboards: ctx.recentClipboards.slice(0, 50).map((item) => ({
+				id: item.id,
+				timestamp: item.timestamp,
+				text: item.text,
+				appName: item.appName,
+				windowTitle: item.windowTitle,
+				appPath: item.appPath,
+			})),
 			focusDwells: (ctx.focusDwells ?? []).slice(0, 6).map((d) => ({
 				app: d.app,
 				windowTitle: d.windowTitle,
@@ -770,6 +832,29 @@ function registerIpc() {
 			})),
 			events: ctx.events.slice(-80),
 		};
+	});
+
+	ipcMain.handle("fold:restore-clipboard", async (_e, payload: { id?: string; text?: string }) => {
+		const id = typeof payload?.id === "string" ? payload.id : "";
+		const directText = typeof payload?.text === "string" ? payload.text.trim() : "";
+		const ctx = contextEngine.getLiveContext();
+		const entry =
+			(id ? ctx.recentClipboards.find((item) => item.id === id) : null) ??
+			(directText
+				? {
+						id: "direct",
+						text: directText,
+						timestamp: Date.now(),
+						appName: null,
+						windowTitle: null,
+						appPath: null,
+					}
+				: null);
+		if (!entry?.text) return { ok: false };
+		const { clipboard } = await import("electron");
+		contextEngine.suppressClipboardCapture(2500);
+		clipboard.writeText(entry.text);
+		return { ok: true };
 	});
 
 	ipcMain.handle(
@@ -788,6 +873,16 @@ function registerIpc() {
 		if (cached !== undefined) return cached;
 		const dataUrl = getAppIconDataUrl(appPath, appName);
 		appIconCache.set(cacheKey, dataUrl);
+		return dataUrl;
+	});
+
+	ipcMain.handle("fold:get-first-app-icon", (_e, appNames: string[]) => {
+		const key = `names:${appNames.join("|")}`;
+		if (!appNames.length) return null;
+		const cached = appIconCache.get(key);
+		if (cached !== undefined) return cached;
+		const dataUrl = getFirstAppIconDataUrl(appNames);
+		appIconCache.set(key, dataUrl);
 		return dataUrl;
 	});
 
@@ -836,6 +931,7 @@ function registerIpc() {
 	ipcMain.handle("fold:predict-insert-draft", async (_e, text: string) => {
 		const targetApp = getPredictTargetApp() ?? contextEngine.getLiveContext().activeApp;
 		overlayWindow?.setIgnoreMouseEvents(true, { forward: true });
+		contextEngine.suppressClipboardCapture(5000);
 		const result = await insertTextToFrontApp(text, targetApp);
 		if (lastReplyTranscript.trim()) {
 			recordVoiceInteraction("reply", lastReplyTranscript, text);
@@ -874,6 +970,14 @@ function registerIpc() {
 	ipcMain.handle("fold:connect-flow-cancel", async (_e, sessionId: string) => {
 		cancelConnectFlow(sessionId);
 		return { ok: true };
+	});
+
+	ipcMain.handle("fold:connect-flow-activate-workbuddy", async (_e, sessionId: string) => {
+		if (typeof sessionId !== "string" || !sessionId) {
+			return { ok: false, opened: false };
+		}
+		const result = activateWorkBuddyConnectFlow(sessionId);
+		return { ok: true, opened: result.opened, url: result.url };
 	});
 
 	ipcMain.handle("fold:open-external", async (_e, url: string) => {
@@ -961,6 +1065,7 @@ registerIpc();
 
 async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 	if (isRecording) return;
+	await contextEngine.refreshActiveApp();
 	voiceOutcome = outcome;
 	const ctx = contextEngine.getLiveContext();
 	voiceTargetApp = ctx.activeApp ?? null;
@@ -994,12 +1099,16 @@ function startReplyRefineRecording() {
 	voiceOutcome = "reply";
 	isRecording = true;
 	createOverlayWindow();
-	emitState({
-		...lastOverlayState,
-		status: "predict",
-		voiceMode: "reply",
-		predictRefining: true,
-		predictDraftsLoading: false,
+	const app = voiceTargetApp ?? contextEngine.getLiveContext().activeApp;
+	void positionOverlayForActiveContext(overlayWindow, app).then((voiceTabPlacement) => {
+		emitState({
+			...lastOverlayState,
+			status: "predict",
+			voiceMode: "reply",
+			predictRefining: true,
+			predictDraftsLoading: false,
+			voiceTabPlacement,
+		});
 	});
 	overlayWindow?.webContents.send("fold:hotkey-down", "reply");
 }

@@ -3,22 +3,54 @@ import {
 	parseMcpToolPayload,
 	payloadHasError,
 	pickFirstCapability,
+	probeWorkBuddyMcp,
 	summarizeMcpPayload,
 	withWorkBuddyMcp,
 } from "./mcp-client.js";
+import {
+	discoverWorkBuddyGatewayUrl,
+	discoverWorkBuddyMcpAuthHeader,
+	discoverWorkBuddyMcpTokenFromProcess,
+	isManualWorkBuddyMcpToken,
+	isWorkBuddyAppProcessRunning,
+	resolveWorkBuddyGatewayUrl,
+} from "./discover.js";
+import { resolveWorkBuddyMcpToken, readWorkBuddyBridgeGatewayUrl, tryPersistWorkBuddyBridge } from "./bridge.js";
+
+export {
+	discoverWorkBuddyGatewayUrl,
+	discoverWorkBuddyMcpAuthHeader,
+	discoverWorkBuddyMcpTokenFromProcess,
+	isManualWorkBuddyMcpToken,
+	isWorkBuddyAppProcessRunning,
+	resolveWorkBuddyGatewayUrl,
+} from "./discover.js";
+export {
+	beginWorkBuddyPairing,
+	getWorkBuddyPairingPhrase,
+	launchWorkBuddyPairScriptInTerminal,
+	resolveWorkBuddyMcpToken,
+	tryPersistWorkBuddyBridge,
+} from "./bridge.js";
 
 export interface WorkBuddyProbe {
 	enabled: boolean;
 	available: boolean;
 	gatewayUrl: string;
+	toolCount?: number;
 	error?: string;
 }
+
+export type WorkBuddyProbeOptions = {
+	/** 连接页配对时应探测真实 Gateway 状态，不受执行能力开关影响 */
+	requireEnabled?: boolean;
+};
 
 export interface WorkBuddyRunInput {
 	capability?: string;
 	query: string;
 	params?: Record<string, unknown>;
-	/** After wb_search, auto-run the best match (default true). */
+	/** After search, auto-run the best match (legacy sidecar only). */
 	autoRun?: boolean;
 }
 
@@ -31,39 +63,96 @@ export interface WorkBuddyRunResult {
 
 const DEFAULT_GATEWAY = "http://127.0.0.1:5126";
 const MAX_WORKFLOW_STEPS = 20;
+const LEGACY_SEARCH_TOOL = "wb_search";
+const MODERN_SEARCH_TOOL = "conversation_search";
 
 export function getWorkBuddyGatewayUrl(): string {
-	return process.env.FOLD_WORKBUDDY_GATEWAY_URL?.trim() || DEFAULT_GATEWAY;
+	return (
+		resolveWorkBuddyGatewayUrl() ||
+		readWorkBuddyBridgeGatewayUrl() ||
+		DEFAULT_GATEWAY
+	);
 }
 
 export function isWorkBuddyEnabled(): boolean {
 	return process.env.FOLD_ALLOW_WORKBUDDY !== "0";
 }
 
-export async function probeWorkBuddyGateway(): Promise<WorkBuddyProbe> {
+export async function probeWorkBuddyGateway(
+	options: WorkBuddyProbeOptions = {},
+): Promise<WorkBuddyProbe> {
+	const requireEnabled = options.requireEnabled ?? true;
 	const gatewayUrl = getWorkBuddyGatewayUrl();
-	if (!isWorkBuddyEnabled()) {
+	const runtimeEnabled = isWorkBuddyEnabled();
+	if (requireEnabled && !runtimeEnabled) {
 		return { enabled: false, available: false, gatewayUrl };
 	}
+
+	const discoveredUrl = resolveWorkBuddyGatewayUrl();
+	const appRunning = isWorkBuddyAppProcessRunning();
+
 	try {
 		const response = await fetch(`${gatewayUrl.replace(/\/$/, "")}/health`, {
-			signal: AbortSignal.timeout(2000),
+			signal: AbortSignal.timeout(2500),
 		});
 		if (!response.ok) {
 			return {
-				enabled: true,
+				enabled: runtimeEnabled,
 				available: false,
 				gatewayUrl,
-				error: `health check failed: HTTP ${response.status}`,
+				error: appRunning
+					? "WorkBuddy Gateway 未就绪，请确认已登录并保持应用运行"
+					: "请先打开 WorkBuddy 并登录账号",
 			};
 		}
-		return { enabled: true, available: true, gatewayUrl };
-	} catch (error) {
+
+		const token = resolveWorkBuddyMcpToken();
+		if (!token) {
+			return {
+				enabled: runtimeEnabled,
+				available: false,
+				gatewayUrl,
+				error:
+					"WorkBuddy 已启动，请在应用中新建或打开任意对话，然后点击重新检测",
+			};
+		}
+
+		const mcp = await probeWorkBuddyMcp(gatewayUrl);
+		if (mcp.ok) {
+			tryPersistWorkBuddyBridge();
+		}
+		if (!mcp.ok) {
+			const staleManual =
+				isManualWorkBuddyMcpToken() &&
+				/401|unauthorized/i.test(mcp.error ?? "");
+			return {
+				enabled: runtimeEnabled,
+				available: false,
+				gatewayUrl,
+				error: staleManual
+					? "WorkBuddy 令牌已过期，请清除设置中的 WorkBuddy Token 后重试"
+					: (mcp.error ?? "MCP 握手失败"),
+			};
+		}
 		return {
-			enabled: true,
+			enabled: runtimeEnabled,
+			available: true,
+			gatewayUrl: discoveredUrl ?? gatewayUrl,
+			toolCount: mcp.toolCount,
+		};
+	} catch (error) {
+		const message = (error as Error).message;
+		return {
+			enabled: runtimeEnabled,
 			available: false,
 			gatewayUrl,
-			error: (error as Error).message,
+			error: discoveredUrl
+				? appRunning
+					? `Gateway 暂不可用（${message}）`
+					: "请先打开 WorkBuddy 并登录账号"
+				: appRunning
+					? "WorkBuddy 正在启动，请稍候再试"
+					: "未检测到 WorkBuddy，请先安装并打开应用",
 		};
 	}
 }
@@ -103,57 +192,108 @@ async function runWorkflow(
 	return payload;
 }
 
+async function executeLegacySidecar(
+	client: Parameters<Parameters<typeof withWorkBuddyMcp>[1]>[0],
+	input: WorkBuddyRunInput,
+): Promise<WorkBuddyRunResult> {
+	let capability = input.capability?.trim();
+
+	if (!capability || capability === LEGACY_SEARCH_TOOL) {
+		const searchPayload = await callMcpTool(client, LEGACY_SEARCH_TOOL, {
+			query: input.query,
+			...(input.params ?? {}),
+		});
+
+		if (input.capability === LEGACY_SEARCH_TOOL && input.autoRun === false) {
+			return {
+				ok: !payloadHasError(searchPayload),
+				summary: summarizeMcpPayload(searchPayload),
+				backend: "mcp-gateway",
+				capability: LEGACY_SEARCH_TOOL,
+			};
+		}
+
+		const picked = pickFirstCapability(searchPayload);
+		if (!picked) {
+			return {
+				ok: false,
+				summary: summarizeMcpPayload(searchPayload) || "No matching Work Buddy capability",
+				backend: "mcp-gateway",
+				capability: LEGACY_SEARCH_TOOL,
+			};
+		}
+		capability = picked;
+	}
+
+	const runPayload = await callMcpTool(client, "wb_run", {
+		capability,
+		params: input.params ?? { query: input.query },
+	});
+	const finalPayload = isWorkflowPayload(runPayload)
+		? await runWorkflow(client, runPayload)
+		: runPayload;
+
+	return {
+		ok: !payloadHasError(finalPayload),
+		summary: summarizeMcpPayload(finalPayload),
+		backend: "mcp-gateway",
+		capability,
+	};
+}
+
+async function executeModernGateway(
+	client: Parameters<Parameters<typeof withWorkBuddyMcp>[1]>[0],
+	input: WorkBuddyRunInput,
+	toolNames: Set<string>,
+): Promise<WorkBuddyRunResult> {
+	const capability = input.capability?.trim();
+	const searchTool = toolNames.has(MODERN_SEARCH_TOOL) ? MODERN_SEARCH_TOOL : null;
+
+	if (capability && capability !== LEGACY_SEARCH_TOOL && toolNames.has(capability)) {
+		const payload = await callMcpTool(client, capability, input.params ?? { query: input.query });
+		return {
+			ok: !payloadHasError(payload),
+			summary: summarizeMcpPayload(payload),
+			backend: "mcp-gateway",
+			capability,
+		};
+	}
+
+	if (!searchTool) {
+		return {
+			ok: false,
+			summary: `WorkBuddy Gateway 未提供 ${MODERN_SEARCH_TOOL} 工具`,
+			backend: "mcp-gateway",
+		};
+	}
+
+	const searchPayload = await callMcpTool(client, searchTool, {
+		query: input.query,
+		...(input.params ?? {}),
+	});
+	return {
+		ok: !payloadHasError(searchPayload),
+		summary: summarizeMcpPayload(searchPayload),
+		backend: "mcp-gateway",
+		capability: searchTool,
+	};
+}
+
 export async function executeWorkBuddyTask(input: WorkBuddyRunInput): Promise<WorkBuddyRunResult> {
-	const probe = await probeWorkBuddyGateway();
+	const probe = await probeWorkBuddyGateway({ requireEnabled: false });
 	if (!probe.available) {
 		throw new Error(
-			`Work Buddy MCP gateway 不可用（${probe.gatewayUrl}）。请先启动 work-buddy sidecar。`,
+			probe.error ??
+				`Work Buddy MCP gateway 不可用（${probe.gatewayUrl}）。请先启动 WorkBuddy 桌面版。`,
 		);
 	}
 
 	return withWorkBuddyMcp(probe.gatewayUrl, async (client) => {
-		let capability = input.capability?.trim();
-
-		if (!capability || capability === "wb_search") {
-			const searchPayload = await callMcpTool(client, "wb_search", {
-				query: input.query,
-				...(input.params ?? {}),
-			});
-
-			if (input.capability === "wb_search" && input.autoRun === false) {
-				return {
-					ok: !payloadHasError(searchPayload),
-					summary: summarizeMcpPayload(searchPayload),
-					backend: "mcp-gateway",
-					capability: "wb_search",
-				};
-			}
-
-			const picked = pickFirstCapability(searchPayload);
-			if (!picked) {
-				return {
-					ok: false,
-					summary: summarizeMcpPayload(searchPayload) || "No matching Work Buddy capability",
-					backend: "mcp-gateway",
-					capability: "wb_search",
-				};
-			}
-			capability = picked;
+		const tools = await client.listTools();
+		const toolNames = new Set(tools.tools.map((tool) => tool.name));
+		if (toolNames.has(LEGACY_SEARCH_TOOL) && toolNames.has("wb_run")) {
+			return executeLegacySidecar(client, input);
 		}
-
-		const runPayload = await callMcpTool(client, "wb_run", {
-			capability,
-			params: input.params ?? { query: input.query },
-		});
-		const finalPayload = isWorkflowPayload(runPayload)
-			? await runWorkflow(client, runPayload)
-			: runPayload;
-
-		return {
-			ok: !payloadHasError(finalPayload),
-			summary: summarizeMcpPayload(finalPayload),
-			backend: "mcp-gateway",
-			capability,
-		};
+		return executeModernGateway(client, input, toolNames);
 	});
 }

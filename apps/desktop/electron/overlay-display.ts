@@ -2,22 +2,28 @@ import { type BrowserWindow, type Display, type Rectangle, screen } from "electr
 import { runAppleScript } from "@fold/connectors";
 
 const SELF_APP_NAMES = new Set(["electron", "fold", "fold-runtime"]);
-const VOICE_TAB_BOTTOM_INSET = 30;
+/** 目标窗口底部程序栏/输入区预留高度 */
+const PROGRAM_BAR_HEIGHT = 52;
+/** 语音条底边距程序栏顶部的间距 */
+const VOICE_TAB_ABOVE_BAR = 10;
 
 function escapeAppleScript(value: string): string {
 	return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-function parsePoint(raw: string): { x: number; y: number } | null {
-	const match = raw.match(/(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/);
+function parseBounds(raw: string): Rectangle | null {
+	const match = raw.match(/(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)/);
 	if (!match) return null;
 	const x = Number(match[1]);
 	const y = Number(match[2]);
-	if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-	return { x, y };
+	const width = Number(match[3]);
+	const height = Number(match[4]);
+	if (![x, y, width, height].every(Number.isFinite)) return null;
+	if (width <= 0 || height <= 0) return null;
+	return { x, y, width, height };
 }
 
-function buildAppAnchorScript(appName: string, cursorX: number, cursorY: number): string {
+function buildAppWindowBoundsScript(appName: string, cursorX: number, cursorY: number): string {
 	const escaped = escapeAppleScript(appName);
 	return `
 tell application "System Events"
@@ -28,7 +34,7 @@ tell application "System Events"
           set {x, y} to position of w
           set {wd, ht} to size of w
           if ${cursorX} ≥ x and ${cursorX} ≤ x + wd and ${cursorY} ≥ y and ${cursorY} ≤ y + ht then
-            return (${cursorX} as text) & "," & (${cursorY} as text)
+            return (x as text) & "," & (y as text) & "," & (wd as text) & "," & (ht as text)
           end if
         end try
       end repeat
@@ -36,7 +42,7 @@ tell application "System Events"
         set win to window 1
         set {x, y} to position of win
         set {wd, ht} to size of win
-        return ((x + (wd / 2)) as text) & "," & ((y + (ht / 2)) as text)
+        return (x as text) & "," & (y as text) & "," & (wd as text) & "," & (ht as text)
       end try
     end tell
   end try
@@ -44,7 +50,7 @@ tell application "System Events"
 end tell`.trim();
 }
 
-const FRONT_WINDOW_CENTER_SCRIPT = `
+const FRONT_WINDOW_BOUNDS_SCRIPT = `
 tell application "System Events"
   set proc to first application process whose frontmost is true
   set procName to name of proc
@@ -53,7 +59,7 @@ tell application "System Events"
     set win to window 1 of proc
     set {x, y} to position of win
     set {w, h} to size of win
-    return ((x + (w / 2)) as text) & "," & ((y + (h / 2)) as text)
+    return (x as text) & "," & (y as text) & "," & (w as text) & "," & (h as text)
   on error
     return ""
   end try
@@ -69,8 +75,10 @@ export interface OverlayWorkArea {
 
 export interface VoiceTabPlacement {
 	left: number;
-	bottom: number;
+	top: number;
 }
+
+const VOICE_TAB_HEIGHT = 34;
 
 export function getOverlaySpanBounds(): Rectangle {
 	const displays = screen.getAllDisplays();
@@ -101,17 +109,46 @@ export function getOverlayWorkArea(window: BrowserWindow | null): OverlayWorkAre
 	return screen.getPrimaryDisplay().workArea;
 }
 
-function computeVoiceTabPlacement(display: Display, overlayBounds: Rectangle): VoiceTabPlacement {
+function computeVoiceTabPlacement(
+	targetWindow: Rectangle,
+	overlayBounds: Rectangle,
+	display: Display,
+): VoiceTabPlacement {
 	const { workArea } = display;
-	const centerX = workArea.x + workArea.width / 2;
-	const bottomY = workArea.y + workArea.height - VOICE_TAB_BOTTOM_INSET;
+	const windowBottom = targetWindow.y + targetWindow.height;
+	const workAreaBottom = workArea.y + workArea.height;
+	// 窗口矩形常延伸到 Dock 区域；锚定在可见工作区底边之上
+	const effectiveBottom = Math.min(windowBottom, workAreaBottom);
+	const centerX = targetWindow.x + targetWindow.width / 2;
+	const topY =
+		effectiveBottom -
+		PROGRAM_BAR_HEIGHT -
+		VOICE_TAB_ABOVE_BAR -
+		VOICE_TAB_HEIGHT;
+	const clampedTop = Math.min(
+		topY,
+		workAreaBottom - VOICE_TAB_ABOVE_BAR - VOICE_TAB_HEIGHT,
+	);
 	return {
 		left: centerX - overlayBounds.x,
-		bottom: overlayBounds.y + overlayBounds.height - bottomY,
+		top: clampedTop - overlayBounds.y,
 	};
 }
 
-async function resolveAnchorDisplay(targetApp?: string | null): Promise<Display> {
+function fallbackWindowRect(display: Display): Rectangle {
+	const { workArea } = display;
+	return {
+		x: workArea.x,
+		y: workArea.y,
+		width: workArea.width,
+		height: workArea.height,
+	};
+}
+
+async function resolveTargetWindowRect(targetApp?: string | null): Promise<{
+	rect: Rectangle;
+	display: Display;
+}> {
 	const cursor = screen.getCursorScreenPoint();
 	const cursorDisplay = screen.getDisplayNearestPoint(cursor);
 
@@ -119,31 +156,40 @@ async function resolveAnchorDisplay(targetApp?: string | null): Promise<Display>
 		const app = targetApp?.trim();
 		if (app && !SELF_APP_NAMES.has(app.toLowerCase())) {
 			try {
-				const raw = await runAppleScript(buildAppAnchorScript(app, cursor.x, cursor.y), 2500);
-				const point = parsePoint(raw);
-				if (point) return screen.getDisplayNearestPoint(point);
+				const raw = await runAppleScript(
+					buildAppWindowBoundsScript(app, cursor.x, cursor.y),
+					2500,
+				);
+				const rect = parseBounds(raw);
+				if (rect) {
+					const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+					return { rect, display: screen.getDisplayNearestPoint(center) };
+				}
 			} catch {
 				// fall through
 			}
 		}
 
 		try {
-			const raw = await runAppleScript(FRONT_WINDOW_CENTER_SCRIPT, 2500);
-			const point = parsePoint(raw);
-			if (point) return screen.getDisplayNearestPoint(point);
+			const raw = await runAppleScript(FRONT_WINDOW_BOUNDS_SCRIPT, 2500);
+			const rect = parseBounds(raw);
+			if (rect) {
+				const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+				return { rect, display: screen.getDisplayNearestPoint(center) };
+			}
 		} catch {
 			// fall through
 		}
 	}
 
-	return cursorDisplay;
+	return { rect: fallbackWindowRect(cursorDisplay), display: cursorDisplay };
 }
 
 function applyOverlayBounds(window: BrowserWindow, bounds: Rectangle): void {
 	window.setBounds(bounds);
 }
 
-/** Span all displays and compute voice-tab placement for the anchor screen. */
+/** Span all displays and anchor the voice tab above the target window's bottom bar. */
 export async function positionOverlayForActiveContext(
 	window: BrowserWindow | null,
 	targetApp?: string | null,
@@ -151,13 +197,13 @@ export async function positionOverlayForActiveContext(
 	if (!window || window.isDestroyed()) return null;
 
 	const span = getOverlaySpanBounds();
-	const display = await resolveAnchorDisplay(targetApp);
-	const placement = computeVoiceTabPlacement(display, span);
+	const { rect, display } = await resolveTargetWindowRect(targetApp);
+	const placement = computeVoiceTabPlacement(rect, span, display);
 	applyOverlayBounds(window, span);
 
 	const bounds = window.getBounds();
 	console.log(
-		`[fold:overlay-display] targetApp=${targetApp ?? "—"} display=${display.id} placement=${placement.left},${placement.bottom} span=${bounds.x},${bounds.y} ${bounds.width}x${bounds.height}`,
+		`[fold:overlay-display] targetApp=${targetApp ?? "—"} display=${display.id} window=${rect.x},${rect.y} ${rect.width}x${rect.height} placement=${placement.left},${placement.top} span=${bounds.x},${bounds.y} ${bounds.width}x${bounds.height}`,
 	);
 	return placement;
 }

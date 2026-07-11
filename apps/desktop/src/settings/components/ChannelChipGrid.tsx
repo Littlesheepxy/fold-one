@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ChevronDown, RefreshCw } from "lucide-react";
 import type { CapabilityItem } from "../types.js";
-import { ConnectionIcon } from "./ConnectionIcon.js";
+import { ConnectionIcon, CONNECTION_CHIP_ICON_SIZE } from "./ConnectionIcon.js";
 import { IosSwitch, StatusDot } from "./FormFields.js";
 
 function chipConnectionId(cap: CapabilityItem): string {
@@ -51,7 +51,7 @@ export function ChannelChipGrid({
 							}}
 						>
 							<span className="fold-connection-chip-icon" aria-hidden="true">
-								<ConnectionIcon id={chipConnectionId(cap)} size={16} />
+								<ConnectionIcon id={chipConnectionId(cap)} size={CONNECTION_CHIP_ICON_SIZE} />
 							</span>
 							<span className="fold-connection-chip-label">{cap.label}</span>
 							<StatusDot status={connectionDotStatus(cap)} />

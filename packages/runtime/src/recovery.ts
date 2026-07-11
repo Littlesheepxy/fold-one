@@ -328,7 +328,6 @@ function buildWorkbuddyRecoveryPlan(action: Extract<RecoveryAction, { type: "rep
 				skill: "workbuddy.run",
 				args: {
 					query: action.brief,
-					capability: "wb_search",
 				},
 				retryable: false,
 				timeout: action.budget.timeoutMs,

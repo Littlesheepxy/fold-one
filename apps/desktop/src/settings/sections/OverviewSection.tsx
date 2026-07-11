@@ -12,7 +12,7 @@ import {
 	WandSparkles,
 	X,
 } from "lucide-react";
-import type { HomeAhaGuess, HomeEpisode, HomeSnapshot, LiveContextLite } from "../types.js";
+import type { ClipboardHistoryItem, HomeAhaGuess, HomeEpisode, HomeSnapshot, LiveContextLite } from "../types.js";
 import { buildContextTargets, type ContextTarget } from "../lib/context-targets.js";
 import { estimateHomeMetrics, formatSavedDuration } from "../lib/home-metrics.js";
 import { ContextTargetChip } from "../components/ContextTargetChip.js";
@@ -78,6 +78,7 @@ function useLiveContextTargets(snapshot: HomeSnapshot) {
 			recentUrls: snapshot.liveContext.recentUrls,
 			recentFiles: snapshot.liveContext.recentFiles,
 			clipboardPreview: null,
+			recentClipboards: [],
 			events: [],
 		});
 
@@ -100,6 +101,99 @@ function focusTarget(target: ContextTarget) {
 		return;
 	}
 	void window.fold.focusContext({ kind: "url", url: target.url });
+}
+
+function useClipboardHistory() {
+	const [history, setHistory] = useState<ClipboardHistoryItem[]>([]);
+	const [dismissedId, setDismissedId] = useState<string | null>(null);
+
+	useEffect(() => {
+		if (typeof window.fold === "undefined") return;
+		const apply = (ctx: LiveContextLite) => {
+			setHistory(ctx.recentClipboards ?? []);
+		};
+		void window.fold.getLiveContext().then(apply);
+		const off = window.fold.onContextEvent((event) => {
+			if (event.type === "clipboard.changed" && event.data.origin !== "fold" && event.data.text) {
+				const text = event.data.text.trim();
+				if (text.length < 4) return;
+				setHistory((prev) => {
+					if (prev[0]?.text === text) return prev;
+					const next: ClipboardHistoryItem = {
+						id: event.id,
+						timestamp: event.timestamp,
+						text,
+						appName: event.data.appName ?? null,
+						windowTitle: event.data.windowTitle ?? null,
+						appPath: event.data.appPath ?? null,
+					};
+					return [next, ...prev].slice(0, 50);
+				});
+			}
+		});
+		return () => off();
+	}, []);
+
+	return { history, dismissedId, dismiss: setDismissedId };
+}
+
+function ClipboardRecallBanner({
+	onNavigateWork,
+}: {
+	onNavigateWork: () => void;
+}) {
+	const { history, dismissedId, dismiss } = useClipboardHistory();
+	const [restoring, setRestoring] = useState(false);
+
+	if (history.length < 2) return null;
+	const current = history[0]!;
+	const previous = history[1]!;
+	if (current.text === previous.text) return null;
+	if (Date.now() - current.timestamp > 3 * 60_000) return null;
+	if (dismissedId === current.id) return null;
+
+	const preview = previous.text.slice(0, 72) + (previous.text.length > 72 ? "…" : "");
+	const app = previous.appName ?? "未知应用";
+
+	return (
+		<section className="fold-clipboard-recall-banner" aria-label="复制找回">
+			<div className="fold-clipboard-recall-copy">
+				<p className="fold-clipboard-recall-title">你刚换了复制内容</p>
+				<p className="fold-clipboard-recall-sub">
+					上一段来自 {app}，需要找回来吗？
+				</p>
+				<p className="fold-clipboard-recall-preview" title={previous.text}>
+					{preview}
+				</p>
+			</div>
+			<div className="fold-clipboard-recall-actions">
+				<button
+					type="button"
+					className="fold-clipboard-recall-btn is-primary"
+					disabled={restoring}
+					onClick={() => {
+						setRestoring(true);
+						void window.fold
+							.restoreClipboard({ id: previous.id, text: previous.text })
+							.finally(() => setRestoring(false));
+					}}
+				>
+					{restoring ? "恢复中…" : "恢复上一段"}
+				</button>
+				<button type="button" className="fold-clipboard-recall-btn" onClick={onNavigateWork}>
+					查看全部
+				</button>
+				<button
+					type="button"
+					className="fold-clipboard-recall-dismiss"
+					aria-label="忽略"
+					onClick={() => dismiss(current.id)}
+				>
+					<X size={14} strokeWidth={2} />
+				</button>
+			</div>
+		</section>
+	);
 }
 
 function FoldNoticedPanel({
@@ -323,6 +417,8 @@ export function OverviewSection({
 					</p>
 				)}
 			</section>
+
+			<ClipboardRecallBanner onNavigateWork={() => onNavigate("work")} />
 
 			<FoldNoticedPanel active={active} onNavigate={(section) => onNavigate(section)} />
 

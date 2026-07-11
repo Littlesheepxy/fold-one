@@ -40,6 +40,7 @@ export interface FoldConfig {
 	allowUitars?: boolean;
 	allowWorkbuddy?: boolean;
 	workbuddyGatewayUrl?: string;
+	workbuddyMcpToken?: string;
 	uitarsVlmBaseUrl?: string;
 	uitarsVlmApiKey?: string;
 	uitarsVlmModel?: string;
@@ -152,9 +153,18 @@ export function applyConfigToEnv(config: FoldConfig = loadConfig()): void {
 	if (typeof config.allowWorkbuddy === "boolean") {
 		process.env.FOLD_ALLOW_WORKBUDDY = config.allowWorkbuddy ? "1" : "0";
 	}
-	if (config.workbuddyGatewayUrl) {
-		process.env.FOLD_WORKBUDDY_GATEWAY_URL = config.workbuddyGatewayUrl;
+	if (config.workbuddyGatewayUrl?.trim()) {
+		process.env.FOLD_WORKBUDDY_GATEWAY_URL_MANUAL = config.workbuddyGatewayUrl.trim();
+	} else {
+		delete process.env.FOLD_WORKBUDDY_GATEWAY_URL_MANUAL;
 	}
+	if (config.workbuddyMcpToken?.trim()) {
+		process.env.FOLD_WORKBUDDY_MCP_TOKEN_MANUAL = config.workbuddyMcpToken.trim();
+	} else {
+		delete process.env.FOLD_WORKBUDDY_MCP_TOKEN_MANUAL;
+	}
+	delete process.env.FOLD_WORKBUDDY_GATEWAY_URL;
+	delete process.env.FOLD_WORKBUDDY_MCP_TOKEN;
 	if (config.uitarsVlmBaseUrl) {
 		process.env.FOLD_UITARS_VLM_BASE_URL = config.uitarsVlmBaseUrl;
 	}

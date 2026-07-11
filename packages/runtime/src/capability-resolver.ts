@@ -7,6 +7,7 @@
  * 需要它，而 ai 不能反向依赖 runtime），这里统一转出口。
  */
 import { isMailCountIntent } from "@fold/ai";
+import { isClipboardRecallIntent } from "@fold/context";
 
 export { isMailCountIntent };
 

@@ -146,7 +146,9 @@ export async function runProbes(intent: string, context: LiveContext): Promise<P
 			});
 		}),
 		runProbe("uitars.available", async () => ok("uitars.available", await probeUitars())),
-		runProbe("workbuddy.available", async () => ok("workbuddy.available", await probeWorkBuddyGateway())),
+		runProbe("workbuddy.available", async () =>
+			ok("workbuddy.available", await probeWorkBuddyGateway({ requireEnabled: false })),
+		),
 	]);
 	return { probes };
 }

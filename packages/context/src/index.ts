@@ -8,6 +8,7 @@ export {
 export type {
 	ContextBriefScope,
 	ContextEvent,
+	ClipboardHistoryEntry,
 	FocusDwell,
 	LiveContext,
 } from "./types.js";
@@ -17,6 +18,13 @@ export {
 	formatDwellDuration,
 	formatFocusDwellBrief,
 } from "./dwell.js";
+export {
+	isClipboardRecallIntent,
+	offerClipboardRecovery,
+	resolveClipboardRecall,
+	type ClipboardRecallResult,
+	type ClipboardRecoveryOffer,
+} from "./clipboard-recall.js";
 export {
 	hedgedPrefix,
 	scoreContextConfidence,

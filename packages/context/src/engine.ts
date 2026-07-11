@@ -27,9 +27,14 @@ export class ContextEngine {
 	private appTimer: ReturnType<typeof setInterval> | null = null;
 	private lastClipboard = "";
 	private lastBrowserUrl = "";
+	private suppressClipboardUntil = 0;
 	private modifiedTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 	constructor(private opts: ContextEngineOptions = {}) {}
+
+	async refreshActiveApp(): Promise<void> {
+		await this.pollActiveApp();
+	}
 
 	getLiveContext() {
 		return this.store.get();
@@ -59,6 +64,11 @@ export class ContextEngine {
 		this.modifiedTimers.clear();
 		if (this.appTimer) clearInterval(this.appTimer);
 		if (this.clipboardTimer) clearInterval(this.clipboardTimer);
+	}
+
+	/** Fold 写入剪贴板时短暂跳过轮询，避免污染复制记录。 */
+	suppressClipboardCapture(ms = 4000): void {
+		this.suppressClipboardUntil = Date.now() + ms;
 	}
 
 	private resolveWatchRoots(): WatchRoot[] {
@@ -201,16 +211,24 @@ export class ContextEngine {
 
 	private async pollClipboard() {
 		if (process.platform !== "darwin") return;
+		if (Date.now() < this.suppressClipboardUntil) return;
 		try {
 			const { stdout } = await execFileAsync("pbpaste", []);
 			const text = stdout.trim();
 			if (text && text !== this.lastClipboard) {
 				this.lastClipboard = text;
+				const ctx = this.store.get();
 				this.push({
 					type: "clipboard.changed",
 					source: "clipboard",
 					timestamp: Date.now(),
-					data: { text },
+					data: {
+						text,
+						appName: ctx.activeApp ?? undefined,
+						windowTitle: ctx.activeWindow ?? undefined,
+						appPath: ctx.activeAppPath ?? undefined,
+						origin: "user",
+					},
 				});
 			}
 		} catch {
