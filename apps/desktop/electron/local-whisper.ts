@@ -3,12 +3,13 @@ import { homedir } from "node:os";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { resolveDataDir } from "./data-dir.js";
 
 export const LOCAL_VOICE_MODEL_NAME = "ggml-small.bin";
 export const LOCAL_VOICE_MODEL_SIZE_MB = 470;
 
 export function getDefaultLocalModelPath(): string {
-	return join(homedir(), ".fold", "models", LOCAL_VOICE_MODEL_NAME);
+	return join(resolveDataDir(), "models", LOCAL_VOICE_MODEL_NAME);
 }
 
 function expandHome(path: string): string {

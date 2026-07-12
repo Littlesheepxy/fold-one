@@ -28,6 +28,8 @@ try {
 		process.env.FOLD_PLANNER_PROVIDER = cfg.plannerProvider;
 	if (typeof cfg.plannerApiKey === "string") process.env.FOLD_PLANNER_API_KEY = cfg.plannerApiKey;
 	if (typeof cfg.plannerModel === "string") process.env.FOLD_PLANNER_MODEL = cfg.plannerModel;
+	if (typeof cfg.fastProvider === "string") process.env.FOLD_FAST_PROVIDER = cfg.fastProvider;
+	if (typeof cfg.fastModel === "string") process.env.FOLD_FAST_MODEL = cfg.fastModel;
 } catch {}
 
 const INTENT =

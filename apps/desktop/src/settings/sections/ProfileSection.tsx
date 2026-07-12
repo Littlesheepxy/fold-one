@@ -65,13 +65,13 @@ function buildProfileLine(
 		return `你是${stored.role}${domains}。`;
 	}
 	if (episodes.length === 0) {
-		return "开始使用 Fold 后，这里会根据你的任务记录逐步形成个人画像。";
+		return "开始使用 知更 后，这里会根据你的任务记录逐步形成个人画像。";
 	}
 	const topics = inferTopics(habits);
 	if (topics.length > 0) {
-		return `你主要用 Fold 处理${topics.join("、")}相关事务，习惯通过语音快速下达指令。`;
+		return `你主要用 知更 处理${topics.join("、")}相关事务，习惯通过语音快速下达指令。`;
 	}
-	return `你已执行 ${episodes.length} 次任务，Fold 会持续从你的使用习惯中学习偏好。`;
+	return `你已执行 ${episodes.length} 次任务，知更 会持续从你的使用习惯中学习偏好。`;
 }
 
 function taskStats(episodes: EpisodeSummary[]) {

@@ -20,6 +20,7 @@ export interface FoldConfig {
 	enabledCapabilities?: string[];
 	preferredExecutor?: "claude-code" | "codex" | "cursor" | "workbuddy" | "auto";
 	skipLocalAgent?: boolean;
+	structureAutoInsert?: boolean;
 	asrProvider?: AsrProvider;
 	localWhisperModelPath?: string;
 	trialSmartActionsRemaining?: number;
@@ -31,6 +32,8 @@ export interface FoldConfig {
 	zhipuOcrModel?: string;
 	plannerProvider?: string;
 	plannerModel?: string;
+	fastProvider?: string;
+	fastModel?: string;
 	mailProvider?: string;
 	nangoSecretKey?: string;
 	hubApiKey?: string;
@@ -205,5 +208,6 @@ export interface UserProfileData {
 	workPatterns?: string[];
 	communicationStyle?: string;
 	constraints?: string[];
+	migrationArchive?: string;
 	updatedAt?: number;
 }

@@ -110,7 +110,7 @@ export function PredictConfirmCard({
 					) : null}
 					<div className="min-w-0 flex-1">
 						<p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-white/45">
-							{phase === "result" ? surfaceTitle(surface) : phase === "pick" ? "猜你想做" : "Fold"}
+							{phase === "result" ? surfaceTitle(surface) : phase === "pick" ? "猜你想做" : "知更"}
 						</p>
 						{sceneTitle ? (
 							<p className="mt-0.5 truncate text-[14px] font-semibold text-white/95" title={sceneTitle}>

@@ -10,9 +10,12 @@ import { StepList } from "./components/StepList";
 import { ProgressLine } from "./components/ProgressLine";
 import { AskOptions } from "./components/AskOptions";
 import { PredictConfirmCard } from "./components/PredictConfirmCard";
+import { voiceSurfaceLabel } from "../lib/page-context";
+import { StructureDraftCard } from "./components/StructureDraftCard";
 import { ContextAppIcon } from "./components/ContextAppIcon";
 import { playFoldSoundForStatus, preloadFoldSounds } from "./sounds.js";
-import { FoldLogoMark } from "../components/FoldLogoMark.js";
+import { ZhigengLogoMark } from "../components/ZhigengLogoMark";
+import { PRODUCT_NAME } from "../brand/constants";
 
 function friendlyError(raw: string | null | undefined): string {
 	if (!raw) return "出错了";
@@ -173,7 +176,7 @@ function MultiColorBorderBeam({
 }
 
 function compactSummary(result: string | null | undefined) {
-	return result ?? "Fold 已完成任务";
+	return result ?? `${PRODUCT_NAME} 已完成任务`;
 }
 
 function PredictSuggestions({
@@ -197,7 +200,7 @@ function PredictSuggestions({
 					{isLoading ? anchor : "暂无高把握推荐"}
 				</p>
 				{!isLoading && (
-					<p className="mt-1 text-xs text-white/45">多执行几次任务后，Fold 会根据你的习惯预测下一步</p>
+					<p className="mt-1 text-xs text-white/45">多执行几次任务后，{PRODUCT_NAME} 会根据你的习惯预测下一步</p>
 				)}
 				{!isLoading && (
 					<button
@@ -258,11 +261,11 @@ function PredictSuggestions({
 }
 
 const EDGE_GAP = 12;
-const ORB_SIZE = 48;
-const DOCKED_WIDTH = 78;
+const ORB_SIZE = 44;
+const DOCKED_WIDTH = 70;
 const PANEL_SAFE_WIDTH = 460;
 const SNAP_THRESHOLD = 28;
-const DOCK_PEEK = 52;
+const DOCK_PEEK = 46;
 
 type SnapSide = "left" | "right" | null;
 interface WidgetPosition {
@@ -333,8 +336,11 @@ export function OverlayApp() {
 		contextAppName,
 		contextAppPath,
 		contextWindowTitle,
+		contextPageUrl,
+		contextPageLabel,
 		predictRefining,
 		voiceTabPlacement,
+		structureDraftOpen,
 		voiceLevel,
 		setState,
 		setVoiceLevel,
@@ -420,12 +426,27 @@ export function OverlayApp() {
 	const fillComplete = fillProgress >= PROCESSING_FILL_COMPLETE;
 	const isAuthPrompt = status === "ask";
 	const isPredictCard = status === "predict" && Boolean(predictCursor);
+	const isStructureDraftCard = Boolean(structureDraftOpen) && voiceMode === "structure";
+	const voiceSurface = voiceSurfaceLabel({
+		voiceMode,
+		contextPageUrl,
+		contextPageLabel,
+		contextWindowTitle,
+	});
 	const inputScene =
 		isVoiceAssist &&
 		(status === "listening" || isVoiceFormatting || status === "done");
 	const replyPredictScene =
 		status === "predict" && predictSurface === "reply" && Boolean(voiceTabPlacement);
 	const voiceTabAnchorScene = inputScene || replyPredictScene;
+
+	useEffect(() => {
+		if (voiceTabAnchorScene) {
+			x.set(0);
+			y.set(0);
+		}
+	}, [voiceTabAnchorScene, x, y]);
+
 	const inputSettling = inputScene && status === "done" && !fillComplete;
 	const isVoiceFormattingActive = isVoiceFormatting || inputSettling;
 	const isExecuting = isAgentExecuting || isVoiceFormattingActive;
@@ -443,7 +464,13 @@ export function OverlayApp() {
 						y: Math.max(12, window.innerHeight - 360),
 					}
 				: predictCursor;
-	const collapsed = (status === "idle" && !panelOpen) || isPredictCard;
+	const structureDraftPosition =
+		isStructureDraftCard && voiceTabPlacement
+			? { x: voiceTabPlacement.left, y: voiceTabPlacement.top }
+			: isStructureDraftCard && typeof window !== "undefined"
+				? { x: window.innerWidth / 2, y: window.innerHeight - 120 }
+				: null;
+	const collapsed = (status === "idle" && !panelOpen) || isPredictCard || isStructureDraftCard;
 	const dockedSide = collapsed ? anchorPosition.snapSide : null;
 	const idleShellWidth = idleRailOpen ? 424 : 360;
 	const shellWidth = inputScene
@@ -453,7 +480,9 @@ export function OverlayApp() {
 				? fillComplete
 					? 58
 					: 96
-				: contextAppName
+				: contextPageUrl
+					? 196
+					: contextAppName
 					? 148
 					: 124
 		: collapsed
@@ -550,6 +579,8 @@ export function OverlayApp() {
 									top: voiceTabPlacement.top,
 									right: "auto",
 									bottom: "auto",
+									x: 0,
+									y: 0,
 									transform: "translateX(-50%)",
 								}
 							: {
@@ -557,6 +588,8 @@ export function OverlayApp() {
 									right: "auto",
 									top: "auto",
 									bottom: Math.max(96, Math.round(window.innerHeight * 0.12)),
+									x: 0,
+									y: 0,
 									transform: "translateX(-50%)",
 								}
 						: { x, y }
@@ -608,9 +641,9 @@ export function OverlayApp() {
 								if (collapsed) setPanelOpen(true);
 								else if (status === "idle") setPanelOpen(false);
 							}}
-							aria-label={collapsed ? "打开 Fold" : "收起 Fold"}
+							aria-label={collapsed ? `打开 ${PRODUCT_NAME}` : `收起 ${PRODUCT_NAME}`}
 						>
-							<FoldLogoMark className="fold-logo-mark" />
+							<ZhigengLogoMark className="fold-logo-mark" size={32} mono />
 						</button>
 					)}
 
@@ -641,7 +674,7 @@ export function OverlayApp() {
 								{status === "idle" && (
 									<>
 										<div className="min-w-0 flex-1">
-											<p className="text-sm font-medium whitespace-nowrap">Fold 准备好了</p>
+											<p className="text-sm font-medium whitespace-nowrap">{PRODUCT_NAME} 准备好了</p>
 											<p className="mt-1 text-xs text-white/45 whitespace-nowrap">⌥Space Agent · 右⌘ 转写/代回</p>
 										</div>
 										<button
@@ -670,22 +703,26 @@ export function OverlayApp() {
 
 								{status === "listening" && (
 									inputScene ? (
-										<>
-											{contextAppName ? (
+										<div className="fold-input-tab-row">
+											{contextAppName || contextPageUrl ? (
 												<span className="fold-input-app-icon" aria-hidden="true">
 													<ContextAppIcon
 														appName={contextAppName}
 														appPath={contextAppPath}
+														pageUrl={contextPageUrl}
 														size={18}
 													/>
 												</span>
 											) : null}
-											<span className="fold-input-mode">
-												{voiceMode === "reply" ? "代回" : "转写"}
+											<span
+												className="fold-input-mode max-w-[132px] truncate"
+												title={voiceSurface}
+											>
+												{voiceSurface}
 											</span>
 											<span className="fold-input-separator" />
 											<VoiceWave level={voiceLevel} />
-										</>
+										</div>
 									) : (
 										<>
 											<VoiceWave level={voiceLevel} />
@@ -871,6 +908,20 @@ export function OverlayApp() {
 					selectedIntent={predictSelectedIntent}
 					onPickIntent={(intent) => void window.fold.predictPickIntent(intent)}
 					onInsertDraft={(text) => void window.fold.predictInsertDraft(text)}
+					onDismiss={() => void window.fold.dismiss()}
+				/>
+			)}
+
+			{isStructureDraftCard && structureDraftPosition && resultDetail && (
+				<StructureDraftCard
+					key={transcript || resultDetail}
+					x={structureDraftPosition.x}
+					y={structureDraftPosition.y}
+					text={resultDetail}
+					appName={contextAppName}
+					appPath={contextAppPath}
+					pageUrl={contextPageUrl}
+					onInsert={(text) => window.fold.structureInsertDraft(text, contextAppName)}
 					onDismiss={() => void window.fold.dismiss()}
 				/>
 			)}

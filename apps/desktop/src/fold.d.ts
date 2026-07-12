@@ -77,6 +77,8 @@ interface FoldApi {
 	getEpisode(id: string): Promise<EpisodeDetail | null>;
 	predictPickIntent(intent: string): Promise<{ ok: boolean }>;
 	predictInsertDraft(text: string): Promise<{ ok: boolean; pasted: boolean }>;
+	structureInsertDraft(text: string, targetAppName?: string | null): Promise<{ ok: boolean; pasted: boolean }>;
+	copyText(text: string): Promise<{ ok: boolean }>;
 	predictStartVoice(): Promise<{ ok: boolean }>;
 	predictRefineVoice(): Promise<{ ok: boolean }>;
 	profileImportOptions(): Promise<ProfileImportOption[]>;

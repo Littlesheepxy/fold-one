@@ -1,19 +1,27 @@
 import { useEffect, useState } from "react";
+import { faviconUrlForPage } from "../../lib/page-context.js";
 
 export function ContextAppIcon({
 	appPath,
 	appName,
+	pageUrl,
 	size = 20,
 	className = "shrink-0 rounded-[22%]",
 }: {
 	appPath?: string | null;
 	appName?: string | null;
+	pageUrl?: string | null;
 	size?: number;
 	className?: string;
 }) {
 	const [icon, setIcon] = useState<string | null>(null);
 
 	useEffect(() => {
+		const favicon = pageUrl?.startsWith("http") ? faviconUrlForPage(pageUrl) : null;
+		if (favicon) {
+			setIcon(favicon);
+			return;
+		}
 		if (!appName && !appPath) {
 			setIcon(null);
 			return;
@@ -25,7 +33,7 @@ export function ContextAppIcon({
 		return () => {
 			cancelled = true;
 		};
-	}, [appPath, appName]);
+	}, [appPath, appName, pageUrl]);
 
 	if (icon) {
 		return <img src={icon} alt="" width={size} height={size} className={className} draggable={false} />;

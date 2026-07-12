@@ -22,7 +22,7 @@ export function probeAccessibility(prompt = false): AccessibilityProbe {
 		return { available: true, appLabel: app.getName() };
 	}
 	const bundlePath = getAccessibilityBundlePath();
-	const appLabel = !app.isPackaged ? "Electron" : app.getName() || "Fold";
+	const appLabel = !app.isPackaged ? "Electron" : app.getName() || "知更";
 	const available = systemPreferences.isTrustedAccessibilityClient(prompt);
 	const devHint = !app.isPackaged
 		? `开发模式请点左下角 +，添加：\n${bundlePath}`

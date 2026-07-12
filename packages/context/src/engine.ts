@@ -195,7 +195,9 @@ export class ContextEngine {
 				[url = "", title = ""] = stdout.split("\n").map((s) => s.trim());
 			}
 
-			if (url && url !== this.lastBrowserUrl) {
+			if (!url) return;
+			this.store.syncActiveBrowserPage(appName, url, title || url);
+			if (url !== this.lastBrowserUrl) {
 				this.lastBrowserUrl = url;
 				this.push({
 					type: "browser.urlChanged",

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ConnectionIcon } from "./ConnectionIcon.js";
-import { FoldLogoMark } from "./FoldLogo.js";
+import { ZhigengLogoMark } from "./FoldLogo.js";
 
 export interface ConnectFlowTarget {
 	connectionId: string;
@@ -134,7 +134,7 @@ export function ConnectFlowModal({
 			if (!result.opened && result.url) {
 				await window.fold.openExternal(result.url);
 			}
-			setMessage("已复制。请在 WorkBuddy 新建对话粘贴发送，Fold 会自动检测连接。");
+			setMessage("已复制。请在 WorkBuddy 新建对话粘贴发送，知更 会自动检测连接。");
 			setPhase("waiting");
 			startPolling();
 		} catch (err) {
@@ -154,7 +154,7 @@ export function ConnectFlowModal({
 			<div className="fold-connect-modal" onClick={(e) => e.stopPropagation()}>
 				<div className="fold-connect-logos">
 					<div className="fold-connect-logo-tile fold-connect-logo-fold">
-						<FoldLogoMark size={22} className="text-[#1d1d1f]" />
+						<ZhigengLogoMark size={22} className="text-[#1d1d1f]" />
 					</div>
 					<div className="fold-connect-logo-link" aria-hidden="true">
 						<span />
@@ -183,7 +183,7 @@ export function ConnectFlowModal({
 						<ol>
 							<li>点击下方按钮，复制配对命令并打开 WorkBuddy</li>
 							<li>在 WorkBuddy 新建对话，粘贴发送</li>
-							<li>Fold 将自动完成连接</li>
+							<li>知更 将自动完成连接</li>
 						</ol>
 						{copyText && (
 							<p className="fold-connect-command" title={copyText}>
@@ -194,7 +194,7 @@ export function ConnectFlowModal({
 				)}
 
 				{phase === "waiting" && !authUrl && !copyThenOpen && (
-					<p className="fold-connect-hint">完成上述步骤后，Fold 会自动检测连接状态…</p>
+					<p className="fold-connect-hint">完成上述步骤后，知更 会自动检测连接状态…</p>
 				)}
 
 				{phase === "waiting" && copyThenOpen && (

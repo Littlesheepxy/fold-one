@@ -86,6 +86,13 @@ contextBridge.exposeInMainWorld("fold", {
 		ipcRenderer.invoke("fold:predict-pick-intent", intent) as Promise<{ ok: boolean }>,
 	predictInsertDraft: (text: string) =>
 		ipcRenderer.invoke("fold:predict-insert-draft", text) as Promise<{ ok: boolean; pasted: boolean }>,
+	structureInsertDraft: (text: string, targetAppName?: string | null) =>
+		ipcRenderer.invoke("fold:structure-insert-draft", text, targetAppName) as Promise<{
+			ok: boolean;
+			pasted: boolean;
+		}>,
+	copyText: (text: string) =>
+		ipcRenderer.invoke("fold:copy-text", text) as Promise<{ ok: boolean }>,
 	predictStartVoice: () =>
 		ipcRenderer.invoke("fold:predict-start-voice") as Promise<{ ok: boolean }>,
 	predictRefineVoice: () =>

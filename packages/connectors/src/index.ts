@@ -157,6 +157,7 @@ export {
 	captureScreenshot,
 	probeScreenCapture,
 	readFrontWindowAccessibilityText,
+	readProcessAccessibilityText,
 	type FrontWindowAccessibility,
 	type ScreenshotResult,
 	type ScreenshotTarget,

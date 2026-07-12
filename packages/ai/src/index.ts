@@ -18,7 +18,6 @@ export {
 	generateRecoveryPlan,
 	isMailCountIntent,
 	mockActionPlan,
-	hasPlannerApiKey,
 	ActionPlanSchema,
 	ActionStepSchema,
 	type ActionPlan,
@@ -37,8 +36,15 @@ export {
 } from "./structure-speech.js";
 export {
 	PROVIDER_TABLE,
-	resolveModelChoice,
 	type Provider,
 	type ModelChoice,
 	type ModelRole,
 } from "./types.js";
+export {
+	defaultFastModel,
+	hasApiKeyForProvider,
+	hasFastModelApiKey,
+	hasPlannerApiKey,
+	resolveModelChoice,
+} from "./model-choice.js";
+export { generateFastText } from "./fast-text.js";

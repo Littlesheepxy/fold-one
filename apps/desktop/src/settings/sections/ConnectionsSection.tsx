@@ -14,7 +14,7 @@ const MODE_OPTIONS: Array<{
 	{
 		id: "auto",
 		label: "自动",
-		description: "快的 Fold 处理，难的交给你的 Agent",
+		description: "快的 知更 处理，难的交给你的 Agent",
 		recommended: true,
 	},
 	{
@@ -24,8 +24,8 @@ const MODE_OPTIONS: Array<{
 	},
 	{
 		id: "fold_only",
-		label: "仅用 Fold",
-		description: "不调用本地 Agent，全部由 Fold 完成",
+		label: "仅用 知更",
+		description: "不调用本地 Agent，全部由 知更 完成",
 	},
 ];
 
@@ -257,9 +257,9 @@ export function ConnectionsSection({
 						</div>
 						{mode === "auto" ? (
 							<p className="fold-capability-hint">
-								没有本地 Agent？仍可先用 Fold 处理日常任务。
+								没有本地 Agent？仍可先用 知更 处理日常任务。
 								<button type="button" className="fold-home-inline-btn" onClick={() => setShowHub(true)}>
-									使用 Fold 托管
+									使用 知更 托管
 								</button>
 							</p>
 						) : null}
@@ -268,7 +268,7 @@ export function ConnectionsSection({
 			) : (
 				<section className="fold-capability-inline-row">
 					<StatusDot status={snapshot.configSummary.hasPlannerKey ? "ok" : "off"} />
-					<span>Fold 执行</span>
+					<span>知更 执行</span>
 					<span className="fold-capability-inline-detail">
 						{snapshot.configSummary.hasPlannerKey ? "Planner 已配置" : "建议配置 API Key"}
 					</span>

@@ -1,5 +1,4 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import {
 	canUseSmartAction,
@@ -12,6 +11,7 @@ import {
 	normalizeExecutionMode,
 	type PlanTier,
 } from "@fold/runtime";
+import { resolveDataDir } from "./data-dir.js";
 
 export type AsrProvider = "auto" | "local-funasr" | "local-whisper" | "dashscope";
 
@@ -28,6 +28,9 @@ export interface FoldConfig {
 	zhipuOcrModel?: string;
 	plannerProvider?: string;
 	plannerModel?: string;
+	/** 转写净化、代回草案；留空则用各 Provider 默认快模型 */
+	fastProvider?: string;
+	fastModel?: string;
 	mailProvider?: string;
 	nangoSecretKey?: string;
 	hubApiKey?: string;
@@ -48,23 +51,28 @@ export interface FoldConfig {
 	enabledCapabilities?: string[];
 	preferredExecutor?: "claude-code" | "codex" | "cursor" | "workbuddy" | "auto";
 	skipLocalAgent?: boolean;
+	/** 转写整理完成后自动粘贴到前台输入框；默认 true */
+	structureAutoInsert?: boolean;
 }
 
 export type ExecutionMode = "auto" | "local_agent" | "fold_only";
 
-const CONFIG_DIR = (process.env.FOLD_DATA_DIR ?? join(homedir(), ".fold")).replace(
-	/^~/,
-	homedir(),
-);
-const CONFIG_PATH = join(CONFIG_DIR, "config.json");
+function configDir(): string {
+	return resolveDataDir();
+}
+
+function configPath(): string {
+	return join(configDir(), "config.json");
+}
 
 export function getConfigPath(): string {
-	return CONFIG_PATH;
+	return configPath();
 }
 
 export function loadConfig(): FoldConfig {
+	const path = configPath();
 	try {
-		if (!existsSync(CONFIG_PATH)) {
+		if (!existsSync(path)) {
 			return {
 				planTier: "free",
 				asrProvider: "auto",
@@ -72,7 +80,7 @@ export function loadConfig(): FoldConfig {
 				trialSmartActionsRemaining: INITIAL_TRIAL_SMART_ACTIONS,
 			};
 		}
-		const config = JSON.parse(readFileSync(CONFIG_PATH, "utf8")) as FoldConfig;
+		const config = JSON.parse(readFileSync(path, "utf8")) as FoldConfig;
 		return {
 			...config,
 			planTier: normalizePlanTier(config.planTier),
@@ -91,7 +99,8 @@ export function loadConfig(): FoldConfig {
 }
 
 export function saveConfig(config: FoldConfig): void {
-	if (!existsSync(CONFIG_DIR)) mkdirSync(CONFIG_DIR, { recursive: true });
+	const dir = configDir();
+	if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 	const normalized: FoldConfig = {
 		...config,
 		planTier: normalizePlanTier(config.planTier),
@@ -100,7 +109,7 @@ export function saveConfig(config: FoldConfig): void {
 			config.trialSmartActionsRemaining,
 		),
 	};
-	writeFileSync(CONFIG_PATH, JSON.stringify(normalized, null, 2), "utf8");
+	writeFileSync(configPath(), JSON.stringify(normalized, null, 2), "utf8");
 }
 
 /** Merge saved config into process.env for runtime packages. */
@@ -130,6 +139,8 @@ export function applyConfigToEnv(config: FoldConfig = loadConfig()): void {
 	if (config.zhipuOcrModel) process.env.ZHIPU_OCR_MODEL = config.zhipuOcrModel;
 	if (config.plannerProvider) process.env.FOLD_PLANNER_PROVIDER = config.plannerProvider;
 	if (config.plannerModel) process.env.FOLD_PLANNER_MODEL = config.plannerModel;
+	if (config.fastProvider) process.env.FOLD_FAST_PROVIDER = config.fastProvider;
+	if (config.fastModel) process.env.FOLD_FAST_MODEL = config.fastModel;
 	if (config.mailProvider) process.env.FOLD_MAIL_PROVIDER = config.mailProvider;
 	if (config.nangoSecretKey) process.env.FOLD_NANGO_SECRET_KEY = config.nangoSecretKey;
 	if (config.hubApiKey) process.env.FOLD_HUB_API_KEY = config.hubApiKey;

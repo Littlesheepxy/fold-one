@@ -57,12 +57,14 @@ export function SettingsSection({
 	onUpdate,
 	onUpdateBoolean,
 	onSave,
+	onPersistBoolean,
 }: {
 	config: FoldConfig;
 	saved: boolean;
 	onUpdate: (key: keyof FoldConfig, value: string) => void;
 	onUpdateBoolean: (key: keyof FoldConfig, value: boolean) => void;
 	onSave: () => void;
+	onPersistBoolean: (key: keyof FoldConfig, value: boolean) => Promise<void>;
 }) {
 	const [voiceSetup, setVoiceSetup] = useState<VoiceSetup | null>(null);
 	const [downloading, setDownloading] = useState(false);
@@ -114,6 +116,14 @@ export function SettingsSection({
 						description="杂乱的想法 → 清晰的文本"
 						keys={["右 ⌘", "短按"]}
 					/>
+					<div className="fold-home-settings-panel fold-home-settings-panel--nested">
+						<BooleanField
+							label="转写后自动插入输入框"
+							checked={config.structureAutoInsert !== false}
+							onChange={(v) => void onPersistBoolean("structureAutoInsert", v)}
+							hint="关闭后先在 知更 草稿窗里查看、修改，再手动插入或复制"
+						/>
+					</div>
 					<ShortcutRow
 						title="代回"
 						description="聊天上下文 → 拟好的回复"
@@ -226,6 +236,20 @@ export function SettingsSection({
 							label="Planner Model"
 							value={config.plannerModel ?? "openai/gpt-5.5"}
 							onChange={(v) => onUpdate("plannerModel", v)}
+							hint="Agent 任务规划；转写/代回见下方 Fast Model"
+						/>
+						<Field
+							label="Fast Provider"
+							value={config.fastProvider ?? ""}
+							onChange={(v) => onUpdate("fastProvider", v)}
+							options={["", "openrouter", "openai", "anthropic", "dashscope", "deepseek", "moonshot"]}
+							hint="留空继承 Planner Provider"
+						/>
+						<Field
+							label="Fast Model"
+							value={config.fastModel ?? ""}
+							onChange={(v) => onUpdate("fastModel", v)}
+							hint="转写净化、代回草案。留空默认：OpenRouter→gemini-3.1-flash-lite，DashScope→qwen-flash"
 						/>
 						<Field
 							label="Zhipu API Key（OCR）"

@@ -1,1 +1,1 @@
-export { FoldLogoMark } from "../../components/FoldLogoMark.js";
+export { ZhigengLogoMark, ZhigengLogoMark as FoldLogoMark } from "../../components/ZhigengLogoMark.js";

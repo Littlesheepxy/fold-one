@@ -159,7 +159,7 @@ export function WorkTrailSection({ snapshot }: { snapshot: HomeSnapshot }) {
 			<div>
 				<h1 className="fold-home-page-title">轨迹</h1>
 				<p className="fold-home-page-subtitle">
-					实时操作记录与应用上下文（复制记录保留近 4 小时，Fold 注入的不计入）
+					实时操作记录与应用上下文（复制记录保留近 4 小时，知更 注入的不计入）
 				</p>
 			</div>
 

@@ -1,7 +1,5 @@
-import { generateText } from "ai";
-import { hasPlannerApiKey } from "./planner.js";
-import { toLanguageModel } from "./providers.js";
-import { resolveModelChoice } from "./types.js";
+import { hasFastModelApiKey } from "./model-choice.js";
+import { generateFastText } from "./fast-text.js";
 
 export interface PredictDraftLine {
 	id: string;
@@ -78,7 +76,7 @@ function parseDraftJson(text: string): PredictDraftLine[] | null {
 }
 
 export async function generatePredictDrafts(input: PredictDraftInput): Promise<PredictDraftLine[]> {
-	if (input.allowCloud === false || !hasPlannerApiKey()) return heuristicDrafts(input);
+	if (input.allowCloud === false || !hasFastModelApiKey()) return heuristicDrafts(input);
 
 	const action = surfaceActionLabel(input.surface);
 	const screen = input.contextSnippet?.trim().slice(0, 1200) ?? "（无页面文本）";
@@ -109,8 +107,7 @@ ${screen}
 输出示例：["第一句","第二句"]`;
 
 	try {
-		const model = toLanguageModel(resolveModelChoice("planner"));
-		const { text } = await generateText({ model, prompt });
+		const text = await generateFastText(prompt, { maxOutputTokens: 640, temperature: 0.35 });
 		const parsed = parseDraftJson(text);
 		if (!parsed) return heuristicDrafts(input);
 		input.onCloudSuccess?.();

@@ -1,7 +1,5 @@
-import { generateText } from "ai";
-import { hasPlannerApiKey } from "./planner.js";
-import { toLanguageModel } from "./providers.js";
-import { resolveModelChoice } from "./types.js";
+import { hasFastModelApiKey } from "./model-choice.js";
+import { generateFastText } from "./fast-text.js";
 
 export interface StructuredSpeech {
 	headline: string;
@@ -118,7 +116,7 @@ export async function structureSpeechText(
 	if (!text) return { headline: "", detail: "" };
 	const cleaned = formatCleanedText(cleanSpeechText(text), context);
 	if (shouldCleanSpeechLocally(text)) return { headline: cleaned, detail: "" };
-	if (context.allowCloud === false || !hasPlannerApiKey()) return heuristicStructure(text);
+	if (context.allowCloud === false || !hasFastModelApiKey()) return heuristicStructure(text);
 
 	const app = [context.app, context.windowTitle].filter(Boolean).join(" · ") || "未知";
 	const prompt = `用户刚说完一段语音输入。请做“输入净化”，不是总结，不要扩写，不要补充事实。
@@ -143,8 +141,7 @@ export async function structureSpeechText(
 ${text}`;
 
 	try {
-		const model = toLanguageModel(resolveModelChoice("planner"));
-		const { text: out } = await generateText({ model, prompt });
+		const out = await generateFastText(prompt, { maxOutputTokens: 400, temperature: 0.2 });
 		const parsed = parseStructureJson(out, text);
 		if (!parsed) return heuristicStructure(text);
 		context.onCloudSuccess?.();

@@ -6,7 +6,7 @@ export type Provider =
 	| "moonshot"
 	| "openrouter";
 
-export type ModelRole = "planner" | "repair" | "validator";
+export type ModelRole = "planner" | "repair" | "validator" | "fast";
 
 export interface ModelChoice {
 	provider: Provider;
@@ -51,19 +51,3 @@ export const PROVIDER_TABLE: Record<Provider, ProviderEnvConfig> = {
 		displayName: "OpenRouter",
 	},
 };
-
-export function resolveModelChoice(role: ModelRole): ModelChoice {
-	if (role === "planner") {
-		const provider = (process.env.FOLD_PLANNER_PROVIDER ?? "openai") as Provider;
-		const model = process.env.FOLD_PLANNER_MODEL ?? "gpt-4o-mini";
-		return { provider, model };
-	}
-	if (role === "repair") {
-		const provider = (process.env.FOLD_REPAIR_PROVIDER ?? process.env.FOLD_PLANNER_PROVIDER ?? "openai") as Provider;
-		const model = process.env.FOLD_REPAIR_MODEL ?? process.env.FOLD_PLANNER_MODEL ?? "gpt-4o-mini";
-		return { provider, model };
-	}
-	const provider = (process.env.FOLD_PLANNER_PROVIDER ?? "openai") as Provider;
-	const model = process.env.FOLD_PLANNER_MODEL ?? "gpt-4o-mini";
-	return { provider, model };
-}

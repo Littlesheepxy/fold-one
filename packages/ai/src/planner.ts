@@ -2,7 +2,7 @@ import { generateText } from "ai";
 import { z } from "zod";
 import { buildPlannerPrompt, buildReplannerPrompt, type ReplannerPromptInput } from "./prompt.js";
 import { toLanguageModel } from "./providers.js";
-import { resolveModelChoice } from "./types.js";
+import { resolveModelChoice } from "./model-choice.js";
 
 export const ActionStepSchema = z.object({
 	id: z.string(),
@@ -150,18 +150,4 @@ export function mockActionPlan(intent: string): ActionPlan {
 		],
 		validate: ["pdf.fields.nonEmpty", "mail.draft.exists"],
 	};
-}
-
-export function hasPlannerApiKey(): boolean {
-	const provider = process.env.FOLD_PLANNER_PROVIDER ?? "openai";
-	const envMap: Record<string, string> = {
-		openai: "OPENAI_API_KEY",
-		anthropic: "ANTHROPIC_API_KEY",
-		dashscope: "DASHSCOPE_API_KEY",
-		deepseek: "DEEPSEEK_API_KEY",
-		moonshot: "MOONSHOT_API_KEY",
-		openrouter: "OPENROUTER_API_KEY",
-	};
-	const key = envMap[provider] ?? "OPENAI_API_KEY";
-	return Boolean(process.env[key]?.trim());
 }

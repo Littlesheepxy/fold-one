@@ -10,6 +10,7 @@ import { AccountSection } from "./sections/AccountSection.js";
 import { SettingsSection } from "./sections/SettingsSection.js";
 import { AccountSidebar } from "./components/AccountSidebar.js";
 import { SidebarShortcuts } from "./components/SidebarShortcuts.js";
+import { MARK_ASSET, PRODUCT_NAME } from "../brand/constants.js";
 
 const NAV: Array<{ id: HomeSection; label: string }> = [
 	{ id: "overview", label: "主页" },
@@ -63,7 +64,7 @@ const PREVIEW_SNAPSHOT: HomeSnapshot = {
 		{ id: "4", intent: "研究竞品定价策略", status: "success", timestamp: Date.now() - 52 * 60 * 60_000, summary: "完成产品对比，生成要点与参考。" },
 		{ id: "5", intent: "改写发布更新说明", status: "partial", timestamp: Date.now() - 76 * 60 * 60_000, summary: "已完成初稿，等待审阅。" },
 	],
-	liveContext: { activeApp: "Google Chrome", activeWindow: "Fold 首页设计", recentUrls: [], recentFiles: [] },
+	liveContext: { activeApp: "Google Chrome", activeWindow: "知更 首页设计", recentUrls: [], recentFiles: [] },
 	connections: [{ id: "codex", label: "Codex", status: "ok" }],
 	capabilitySnapshot: {
 		executionMode: "auto",
@@ -186,6 +187,14 @@ export function SettingsApp() {
 		void refreshSnapshot();
 	};
 
+	const persistBoolean = async (key: keyof FoldConfig, value: boolean) => {
+		const next = { ...config, [key]: value };
+		setConfig(next);
+		await window.fold.saveConfig(next);
+		setSaved(true);
+		setTimeout(() => setSaved(false), 2000);
+	};
+
 	const navigateTo = (next: HomeSection, taskId?: string) => {
 		if (taskId) setFocusTaskId(taskId);
 		setSection(next);
@@ -209,8 +218,8 @@ export function SettingsApp() {
 			<div className="fold-home flex h-full">
 			<aside className="fold-home-sidebar" style={{ width: sidebarWidth }}>
 				<div className="fold-home-brand">
-					<img className="fold-home-brand-mark" src="/fold-mark.svg" alt="" />
-					<p className="fold-home-brand-name">Fold One</p>
+					<img className="fold-home-brand-mark" src={MARK_ASSET} alt="" />
+					<p className="fold-home-brand-name">{PRODUCT_NAME}</p>
 					<span className={`fold-home-plan-badge is-${planTier}`}>{PLAN_BADGE[planTier]}</span>
 				</div>
 
@@ -304,6 +313,7 @@ export function SettingsApp() {
 							onUpdate={update}
 							onUpdateBoolean={updateBoolean}
 							onSave={() => void handleSave()}
+							onPersistBoolean={persistBoolean}
 						/>
 					)}
 				</div>

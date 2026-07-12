@@ -29,6 +29,10 @@ function restoreClipboardSnapshot(snapshot: Data): void {
 	clipboard.write(payload);
 }
 
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /** 复制文本；激活目标 App 后 Cmd+V 粘贴（需辅助功能权限）。粘贴后恢复用户原剪贴板。 */
 export async function insertTextToFrontApp(
 	text: string,
@@ -40,6 +44,7 @@ export async function insertTextToFrontApp(
 	const previousClipboard = readClipboardSnapshot();
 	clipboard.writeText(trimmed);
 	const app = targetApp?.trim();
+	let pasted = false;
 	try {
 		const activate = app
 			? `tell application "${escapeAppleScript(app)}" to activate\ndelay 0.2\n`
@@ -49,13 +54,16 @@ export async function insertTextToFrontApp(
 ${activate}tell application "System Events"
   keystroke "v" using command down
 end tell
+delay 0.3
 `.trim(),
 			5000,
 		);
-		return { ok: true, pasted: true };
+		pasted = true;
 	} catch {
-		return { ok: true, pasted: false };
-	} finally {
-		restoreClipboardSnapshot(previousClipboard);
+		pasted = false;
 	}
+	// 等目标 App 读完剪贴板再恢复，否则 Cmd+V 可能贴上旧内容。
+	await sleep(200);
+	restoreClipboardSnapshot(previousClipboard);
+	return { ok: true, pasted };
 }

@@ -1,4 +1,5 @@
 import type { HomeContextEvent } from "../types.js";
+import { friendlyBrowserName, formatBrowserPageLabel } from "../../lib/page-context.js";
 
 export type ContextTarget =
 	| {
@@ -14,6 +15,7 @@ export type ContextTarget =
 			url: string;
 			label: string;
 			subtitle?: string | null;
+			browserName?: string | null;
 	  };
 
 const MAX_TARGETS = 6;
@@ -39,11 +41,11 @@ function friendlySiteLabel(url: string, title?: string): string {
 		if (/cursor/i.test(cleanedTitle)) return "Cursor";
 		if (cleanedTitle.length <= 28) return cleanedTitle;
 	}
-	return host || url;
+	return host || formatBrowserPageLabel(title, url);
 }
 
-function isFoldSelf(name: string | null | undefined): boolean {
-	return !name || /electron|fold/i.test(name);
+function isSelfApp(name: string | null | undefined): boolean {
+	return !name || /electron|fold|知更|zhigeng/i.test(name);
 }
 
 function isBrowserApp(name: string): boolean {
@@ -65,9 +67,10 @@ export function buildContextTargets(input: {
 	const out: ContextTarget[] = [];
 	const seenApps = new Set<string>();
 	const seenUrlLabels = new Set<string>();
+	let hasUrlTarget = false;
 
 	const pushApp = (appName: string, appPath?: string | null, subtitle?: string | null) => {
-		if (isFoldSelf(appName) || isBrowserApp(appName)) return;
+		if (isSelfApp(appName) || isBrowserApp(appName)) return;
 		const key = normalizeAppKey(appName);
 		if (seenApps.has(key)) return;
 		seenApps.add(key);
@@ -80,21 +83,23 @@ export function buildContextTargets(input: {
 		});
 	};
 
-	const pushUrl = (url: string, title?: string) => {
+	const pushUrl = (url: string, title?: string, browserName?: string | null) => {
 		const label = friendlySiteLabel(url, title);
 		const key = label.toLowerCase();
 		if (!label || seenUrlLabels.has(key)) return;
 		seenUrlLabels.add(key);
+		hasUrlTarget = true;
 		out.push({
 			id: `url:${url}`,
 			kind: "url",
 			url,
 			label,
-			subtitle: title || url,
+			subtitle: friendlyBrowserName(browserName),
+			browserName,
 		});
 	};
 
-	const urlSources: Array<{ url: string; title: string }> = [];
+	const urlSources: Array<{ url: string; title: string; browserName?: string | null }> = [];
 	for (const page of input.recentUrls ?? []) {
 		urlSources.push({ url: page.url, title: page.title || page.url });
 	}
@@ -103,6 +108,7 @@ export function buildContextTargets(input: {
 			urlSources.push({
 				url: event.data.url,
 				title: event.data.windowTitle || event.data.url,
+				browserName: event.data.appName,
 			});
 		}
 	}
@@ -113,7 +119,7 @@ export function buildContextTargets(input: {
 	}
 
 	for (const page of urlSources) {
-		pushUrl(page.url, page.title);
+		pushUrl(page.url, page.title, page.browserName);
 		if (out.length >= MAX_TARGETS) return out;
 	}
 
@@ -121,7 +127,7 @@ export function buildContextTargets(input: {
 	for (const event of input.events ?? []) {
 		if (event.type !== "app.active" || !event.data.appName) continue;
 		const appName = event.data.appName;
-		if (isFoldSelf(appName) || isBrowserApp(appName)) continue;
+		if (isSelfApp(appName) || isBrowserApp(appName)) continue;
 		trailApps.push({
 			appName,
 			appPath: event.data.appPath,
@@ -134,7 +140,7 @@ export function buildContextTargets(input: {
 		if (out.length >= MAX_TARGETS) return out;
 	}
 
-	if (activeApp && isBrowserApp(activeApp)) {
+	if (activeApp && isBrowserApp(activeApp) && !hasUrlTarget) {
 		const key = normalizeAppKey(activeApp);
 		if (!seenApps.has(key)) {
 			seenApps.add(key);

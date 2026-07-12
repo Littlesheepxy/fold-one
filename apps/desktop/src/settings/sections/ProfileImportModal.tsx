@@ -171,8 +171,8 @@ export function ProfileImportModal({ onClose, onSaved }: { onClose: () => void; 
 					<div className="space-y-4">
 						<div>
 							<p className="text-[12px] leading-relaxed text-[#86868b]">
-								Fold 会根据本地任务摘要生成 prompt，发送到你选择的 AI 聊天页。发送前可预览内容；仅 ChatGPT / Claude
-								支持全自动填发，其他平台请复制后手动粘贴。
+								Fold 会生成「三层协作上下文」迁移 prompt，并附上本地任务摘要。AI 应返回完整档案，并在文末附带
+								知更 Profile Appendix（JSON）供 Fold 写回简要画像。仅 ChatGPT / Claude 支持全自动填发，其他平台请复制后手动粘贴。
 							</p>
 						</div>
 
@@ -256,7 +256,7 @@ export function ProfileImportModal({ onClose, onSaved }: { onClose: () => void; 
 								rows={8}
 								value={responseText}
 								onChange={(e) => setResponseText(e.target.value)}
-								placeholder="全自动完成后会填在这里；或手动粘贴 AI 返回的 JSON"
+								placeholder="粘贴 AI 返回的完整档案（含文末 知更 Profile Appendix JSON）"
 							/>
 						</label>
 

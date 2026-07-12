@@ -10,6 +10,8 @@ export interface UserProfileData {
 	communicationStyle?: string;
 	constraints?: string[];
 	updatedAt?: number;
+	/** 三层协作上下文档案全文（Markdown） */
+	migrationArchive?: string;
 }
 
 const PROFILE_PREFIX = "profile.";
@@ -108,6 +110,7 @@ export function saveProfileMemories(profile: UserProfileData, source: string, da
 		["workPatterns", JSON.stringify(profile.workPatterns ?? [])],
 		["communicationStyle", profile.communicationStyle ?? ""],
 		["constraints", JSON.stringify(profile.constraints ?? [])],
+		["migrationArchive", profile.migrationArchive ?? ""],
 		["updatedAt", String(profile.updatedAt ?? now)],
 	];
 	for (const [key, value] of entries) {
@@ -138,6 +141,7 @@ export function loadProfileMemories(dataDir?: string): UserProfileData | null {
 		workPatterns: parseList("workPatterns"),
 		communicationStyle: map.get("communicationStyle") || undefined,
 		constraints: parseList("constraints"),
+		migrationArchive: map.get("migrationArchive") || undefined,
 		updatedAt: Number(map.get("updatedAt")) || undefined,
 	};
 }

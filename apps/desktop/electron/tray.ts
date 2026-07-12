@@ -1,13 +1,14 @@
 import { app, Menu, Tray } from "electron";
 import { listRecentEpisodes } from "@fold/memory";
-import { createFoldTrayImage } from "./tray-icon.js";
+import { PRODUCT_NAME } from "./brand.js";
+import { createZhigengTrayImage } from "./tray-icon.js";
 
 export function createTray(opts: {
 	onOpenSettings: () => void;
 	onQuit: () => void;
 }): Tray {
-	const tray = new Tray(createFoldTrayImage());
-	tray.setToolTip("Fold");
+	const tray = new Tray(createZhigengTrayImage());
+	tray.setToolTip(PRODUCT_NAME);
 
 	const buildMenu = () => {
 		let episodeItems: Electron.MenuItemConstructorOptions[] = [{ label: "暂无记录", enabled: false }];
@@ -24,7 +25,7 @@ export function createTray(opts: {
 		}
 
 		return Menu.buildFromTemplate([
-			{ label: "Fold", enabled: false },
+			{ label: PRODUCT_NAME, enabled: false },
 			{ type: "separator" },
 			{ label: "最近任务", enabled: false },
 			...episodeItems,
@@ -34,7 +35,7 @@ export function createTray(opts: {
 				click: opts.onOpenSettings,
 			},
 			{
-				label: "退出 Fold",
+				label: `退出 ${PRODUCT_NAME}`,
 				click: opts.onQuit,
 			},
 		]);

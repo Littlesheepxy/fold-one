@@ -1,7 +1,7 @@
 import { type BrowserWindow, type Display, type Rectangle, screen } from "electron";
 import { runAppleScript } from "@fold/connectors";
 
-const SELF_APP_NAMES = new Set(["electron", "fold", "fold-runtime"]);
+const SELF_APP_NAMES = new Set(["electron", "fold", "fold-runtime", "知更", "zhigeng"]);
 /** 目标窗口底部程序栏/输入区预留高度 */
 const PROGRAM_BAR_HEIGHT = 52;
 /** 语音条底边距程序栏顶部的间距 */
@@ -54,7 +54,7 @@ const FRONT_WINDOW_BOUNDS_SCRIPT = `
 tell application "System Events"
   set proc to first application process whose frontmost is true
   set procName to name of proc
-  if procName is "Electron" or procName is "Fold" then return ""
+  if procName is "Electron" or procName is "Fold" or procName is "知更" then return ""
   try
     set win to window 1 of proc
     set {x, y} to position of win
@@ -119,7 +119,8 @@ function computeVoiceTabPlacement(
 	const workAreaBottom = workArea.y + workArea.height;
 	// 窗口矩形常延伸到 Dock 区域；锚定在可见工作区底边之上
 	const effectiveBottom = Math.min(windowBottom, workAreaBottom);
-	const centerX = targetWindow.x + targetWindow.width / 2;
+	// 水平：当前显示器工作区中心（屏幕视觉中心），非前台窗口中心
+	const centerX = workArea.x + workArea.width / 2;
 	const topY =
 		effectiveBottom -
 		PROGRAM_BAR_HEIGHT -
@@ -203,7 +204,7 @@ export async function positionOverlayForActiveContext(
 
 	const bounds = window.getBounds();
 	console.log(
-		`[fold:overlay-display] targetApp=${targetApp ?? "—"} display=${display.id} window=${rect.x},${rect.y} ${rect.width}x${rect.height} placement=${placement.left},${placement.top} span=${bounds.x},${bounds.y} ${bounds.width}x${bounds.height}`,
+		`[fold:overlay-display] targetApp=${targetApp ?? "—"} display=${display.id} workArea=${display.workArea.x},${display.workArea.y} ${display.workArea.width}x${display.workArea.height} window=${rect.x},${rect.y} ${rect.width}x${rect.height} placement=${placement.left},${placement.top} span=${bounds.x},${bounds.y} ${bounds.width}x${bounds.height}`,
 	);
 	return placement;
 }

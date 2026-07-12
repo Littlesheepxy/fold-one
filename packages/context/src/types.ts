@@ -45,6 +45,8 @@ export interface LiveContext {
 	activeApp: string | null;
 	activeWindow: string | null;
 	activeAppPath: string | null;
+	/** 前台浏览器标签页 URL（Chrome/Arc 等） */
+	activeUrl: string | null;
 	recentFiles: Array<{ path: string; name: string; timestamp: number }>;
 	recentUrls: Array<{ url: string; title: string; timestamp: number }>;
 	clipboard: { text: string; timestamp: number } | null;
@@ -60,6 +62,7 @@ export function createEmptyContext(): LiveContext {
 		activeApp: null,
 		activeWindow: null,
 		activeAppPath: null,
+		activeUrl: null,
 		recentFiles: [],
 		recentUrls: [],
 		clipboard: null,

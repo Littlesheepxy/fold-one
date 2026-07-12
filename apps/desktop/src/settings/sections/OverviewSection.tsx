@@ -8,6 +8,7 @@ import {
 	Mic2,
 	RefreshCw,
 	Repeat2,
+	ChevronDown,
 	Sparkles,
 	WandSparkles,
 	X,
@@ -16,6 +17,8 @@ import type { ClipboardHistoryItem, HomeAhaGuess, HomeEpisode, HomeSnapshot, Liv
 import { buildContextTargets, type ContextTarget } from "../lib/context-targets.js";
 import { estimateHomeMetrics, formatSavedDuration } from "../lib/home-metrics.js";
 import { ContextTargetChip } from "../components/ContextTargetChip.js";
+import { TAGLINE, TAGLINE_FOOT, TAGLINE_LEAD } from "../../brand/constants.js";
+import { offerClipboardRecovery } from "../../lib/clipboard-offer.js";
 
 const REPLY_HINT = /回复|reply|邮件|mail|微信|消息/i;
 const REWRITE_HINT = /改写|整理|总结|润色|rewrite|summary/i;
@@ -110,31 +113,90 @@ function useClipboardHistory() {
 	useEffect(() => {
 		if (typeof window.fold === "undefined") return;
 		const apply = (ctx: LiveContextLite) => {
-			setHistory(ctx.recentClipboards ?? []);
+			const next = ctx.recentClipboards ?? [];
+			setHistory(next);
+			// 新一次复制后重新提示
+			setDismissedId((prev) => {
+				const latestId = next[0]?.id ?? null;
+				return prev && latestId && prev !== latestId ? null : prev;
+			});
 		};
 		void window.fold.getLiveContext().then(apply);
-		const off = window.fold.onContextEvent((event) => {
-			if (event.type === "clipboard.changed" && event.data.origin !== "fold" && event.data.text) {
-				const text = event.data.text.trim();
-				if (text.length < 4) return;
-				setHistory((prev) => {
-					if (prev[0]?.text === text) return prev;
-					const next: ClipboardHistoryItem = {
-						id: event.id,
-						timestamp: event.timestamp,
-						text,
-						appName: event.data.appName ?? null,
-						windowTitle: event.data.windowTitle ?? null,
-						appPath: event.data.appPath ?? null,
-					};
-					return [next, ...prev].slice(0, 50);
-				});
-			}
+		const off = window.fold.onContextEvent(() => {
+			void window.fold.getLiveContext().then(apply);
 		});
 		return () => off();
 	}, []);
 
 	return { history, dismissedId, dismiss: setDismissedId };
+}
+
+function ContextSceneSection({
+	targets,
+	onFocus,
+}: {
+	targets: ContextTarget[];
+	onFocus: (target: ContextTarget) => void;
+}) {
+	const [expanded, setExpanded] = useState(false);
+	const scrollRef = useRef<HTMLDivElement>(null);
+	const [overflows, setOverflows] = useState(false);
+
+	useEffect(() => {
+		const el = scrollRef.current;
+		if (!el || expanded) {
+			setOverflows(false);
+			return;
+		}
+		const check = () => setOverflows(el.scrollWidth > el.clientWidth + 2);
+		check();
+		const ro = new ResizeObserver(check);
+		ro.observe(el);
+		return () => ro.disconnect();
+	}, [targets, expanded]);
+
+	const showToggle = targets.length > 0 && (overflows || expanded);
+
+	return (
+		<section className="fold-context-scene" aria-label="回到现场">
+			<div className="fold-context-scene-head">
+				<h2 className="fold-context-scene-title">回到现场</h2>
+				{showToggle ? (
+					<button
+						type="button"
+						className="fold-context-scene-toggle"
+						onClick={() => setExpanded((open) => !open)}
+						aria-expanded={expanded}
+					>
+						{expanded ? "收起" : "展开全部"}
+						<ChevronDown size={14} className={expanded ? "is-open" : undefined} strokeWidth={2} />
+					</button>
+				) : null}
+			</div>
+			{targets.length > 0 ? (
+				<div
+					className={`fold-context-scene-scroll${expanded ? " is-expanded" : ""}${overflows && !expanded ? " has-overflow" : ""}`}
+				>
+					<div
+						ref={scrollRef}
+						className={`fold-context-scene-chips${expanded ? " is-expanded" : " is-scroll"}`}
+					>
+						{targets.map((target) => (
+							<ContextTargetChip
+								key={target.id}
+								target={target}
+								onClick={() => onFocus(target)}
+							/>
+						))}
+					</div>
+				</div>
+			) : (
+				<p className="fold-context-scene-empty">
+					切换几个应用或浏览几个页面后，你刚操作过的现场会出现在这里。
+				</p>
+			)}
+		</section>
+	);
 }
 
 function ClipboardRecallBanner({
@@ -145,12 +207,11 @@ function ClipboardRecallBanner({
 	const { history, dismissedId, dismiss } = useClipboardHistory();
 	const [restoring, setRestoring] = useState(false);
 
-	if (history.length < 2) return null;
-	const current = history[0]!;
-	const previous = history[1]!;
-	if (current.text === previous.text) return null;
-	if (Date.now() - current.timestamp > 3 * 60_000) return null;
-	if (dismissedId === current.id) return null;
+	const offer = offerClipboardRecovery(history);
+	if (!offer) return null;
+	if (dismissedId === offer.current.id) return null;
+
+	const { previous, current } = offer;
 
 	const preview = previous.text.slice(0, 72) + (previous.text.length > 72 ? "…" : "");
 	const app = previous.appName ?? "未知应用";
@@ -196,7 +257,7 @@ function ClipboardRecallBanner({
 	);
 }
 
-function FoldNoticedPanel({
+function ZhigengNoticedPanel({
 	active,
 	onNavigate,
 }: {
@@ -210,6 +271,7 @@ function FoldNoticedPanel({
 	const [confidenceLevel, setConfidenceLevel] = useState<HomeAhaGuess["confidenceLevel"]>();
 	const runIdRef = useRef<number | null>(null);
 	const startedRef = useRef(false);
+	const wasActiveRef = useRef(false);
 
 	useEffect(() => {
 		if (typeof window.fold === "undefined") {
@@ -258,10 +320,15 @@ function FoldNoticedPanel({
 	};
 
 	useEffect(() => {
-		if (!active) return;
-		if (startedRef.current) return;
-		if (reply) return;
-		startedRef.current = true;
+		if (!active) {
+			wasActiveRef.current = false;
+			return;
+		}
+		const entering = !wasActiveRef.current;
+		wasActiveRef.current = true;
+		if (!entering) return;
+		setDismissed(false);
+		startedRef.current = false;
 		void startGuess();
 	}, [active]);
 
@@ -294,17 +361,17 @@ function FoldNoticedPanel({
 				}}
 			>
 				<Sparkles size={16} strokeWidth={1.8} />
-				Fold 注意到了
+				知更 注意到了
 			</button>
 		);
 	}
 
 	return (
-		<section className="fold-aha-panel" aria-label="Fold 注意到了">
+		<section className="fold-aha-panel" aria-label="知更 注意到了">
 			<div className="fold-aha-head-row">
 				<div className="fold-aha-title">
-					<Sparkles size={16} strokeWidth={1.8} />
-					<span>Fold 注意到了</span>
+					<Sparkles size={14} strokeWidth={1.8} />
+					<span>知更 注意到了</span>
 					{confidenceLevel === "low" ? (
 						<span className="fold-aha-confidence">把握较低</span>
 					) : confidenceLevel === "medium" ? (
@@ -381,13 +448,18 @@ export function OverviewSection({
 		profile?.preferredTools?.[0] ? `你常用 ${profile.preferredTools[0]} 完成任务` : null,
 		profile?.workPatterns?.[0] ?? null,
 	].filter((item): item is string => Boolean(item));
-	const routine = profile?.workPatterns?.[0] ?? "完成更多任务后，Fold 会发现你的重复流程";
+	const routine = profile?.workPatterns?.[0] ?? "完成更多任务后，知更 会发现你的重复流程";
 
 	return (
 		<div className="fold-dashboard">
 			<header className="fold-dashboard-hero">
 				<div>
-					<h1>说到，做到。</h1>
+					<h1>{TAGLINE}</h1>
+					<p>
+						{TAGLINE_LEAD}
+						<br />
+						{TAGLINE_FOOT}
+					</p>
 				</div>
 				<button
 					type="button"
@@ -399,28 +471,11 @@ export function OverviewSection({
 				</button>
 			</header>
 
-			<section className="fold-context-scene" aria-label="回到现场">
-				<h2 className="fold-context-scene-title">回到现场</h2>
-				{contextTargets.length > 0 ? (
-					<div className="fold-context-scene-chips">
-						{contextTargets.map((target) => (
-							<ContextTargetChip
-								key={target.id}
-								target={target}
-								onClick={() => focusTarget(target)}
-							/>
-						))}
-					</div>
-				) : (
-					<p className="fold-context-scene-empty">
-						切换几个应用或浏览几个页面后，你刚操作过的现场会出现在这里。
-					</p>
-				)}
-			</section>
+			<ContextSceneSection targets={contextTargets} onFocus={focusTarget} />
 
 			<ClipboardRecallBanner onNavigateWork={() => onNavigate("work")} />
 
-			<FoldNoticedPanel active={active} onNavigate={(section) => onNavigate(section)} />
+			<ZhigengNoticedPanel active={active} onNavigate={(section) => onNavigate(section)} />
 
 			<section className="fold-home-metrics-compact" aria-label="本周概览">
 				<div className="fold-home-metric-pill">
@@ -471,7 +526,7 @@ export function OverviewSection({
 											<strong>
 												{meta.label} · {episode.intent}
 											</strong>
-											<small>{episode.summary || "Fold 已完成处理"}</small>
+											<small>{episode.summary || "知更 已完成处理"}</small>
 										</span>
 										<time>{formatActivityTime(episode.timestamp)}</time>
 										<span className={`fold-activity-state is-${episode.status}`}>
@@ -494,14 +549,14 @@ export function OverviewSection({
 
 				<section className="fold-intelligence-section">
 					<div className="fold-section-heading">
-						<h2>你的 Fold</h2>
+						<h2>你的 知更</h2>
 						<button type="button" onClick={() => onNavigate("profile")}>
 							管理记忆 <ArrowRight size={15} />
 						</button>
 					</div>
 					<div className="fold-intelligence-panel">
 						<h3>
-							<Sparkles size={17} /> Fold 学会了
+							<Sparkles size={17} /> 知更 学会了
 						</h3>
 						{learned.length ? (
 							<ul>
@@ -511,7 +566,7 @@ export function OverviewSection({
 							</ul>
 						) : (
 							<p className="fold-intelligence-empty">
-								Fold 会在这里展示经过你确认的表达偏好和工作习惯。
+								知更 会在这里展示经过你确认的表达偏好和工作习惯。
 							</p>
 						)}
 						<div className="fold-routine">
@@ -520,7 +575,7 @@ export function OverviewSection({
 							</h3>
 							<strong>{routine}</strong>
 							<small>
-								{learned.length ? "下次可以让 Fold 主动提醒" : "保持使用，Fold 会逐渐理解你的节奏"}
+								{learned.length ? "下次可以让 知更 主动提醒" : "保持使用，知更 会逐渐理解你的节奏"}
 							</small>
 						</div>
 					</div>

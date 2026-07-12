@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen, shell } from "electron";
+import { app, BrowserWindow, clipboard, ipcMain, screen, shell } from "electron";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ContextEngine, isClipboardRecallIntent, resolveClipboardRecall, type ContextEvent } from "@fold/context";
@@ -29,6 +29,7 @@ import {
 	setPredictTargetApp,
 } from "./predict-enrich.js";
 import { insertTextToFrontApp } from "./insert-text.js";
+import { buildVoiceOverlayContext } from "./voice-overlay-context.js";
 import { focusApp, focusUrl } from "./focus-context.js";
 import { getAppIconDataUrl, getFirstAppIconDataUrl, resolveAppBundlePath } from "./app-icon.js";
 import {
@@ -54,7 +55,9 @@ import {
 } from "./profile-import.js";
 import { startHoldHotkey } from "./hotkey.js";
 import { createTray } from "./tray.js";
-import { createFoldAppIcon } from "./tray-icon.js";
+import { migrateLegacyDataDir } from "./data-dir.js";
+import { PRODUCT_NAME } from "./brand.js";
+import { createZhigengAppIcon } from "./tray-icon.js";
 import {
 	appendLocalWhisperAudio,
 	cancelLocalWhisperSession,
@@ -66,10 +69,11 @@ import {
 } from "./local-whisper.js";
 import { downloadVoicePack, getVoiceSetupStatus } from "./voice-setup.js";
 
+migrateLegacyDataDir();
 applyConfigToEnv();
 
 const contextEngine = new ContextEngine({
-	ignoreApps: ["Electron", "Fold", "fold"],
+	ignoreApps: ["Electron", "Fold", "fold", "知更", "Zhigeng", "zhigeng"],
 	onEvent: (event) => {
 		try {
 			saveContextEvent(event);
@@ -186,7 +190,7 @@ function syncDockVisibility() {
 	const devMode = Boolean(process.env.VITE_DEV_SERVER_URL);
 	const settingsOpen = Boolean(settingsWindow && !settingsWindow.isDestroyed());
 	if (devMode || settingsOpen) {
-		app.dock?.setIcon(createFoldAppIcon());
+		app.dock?.setIcon(createZhigengAppIcon());
 		app.dock?.show();
 		return;
 	}
@@ -258,7 +262,7 @@ function openSettingsWindow(section?: string) {
 	settingsWindow = new BrowserWindow({
 		width: 1120,
 		height: 780,
-		title: "Fold",
+		title: PRODUCT_NAME,
 		resizable: true,
 		minWidth: 880,
 		minHeight: 640,
@@ -432,11 +436,11 @@ function clearPredictState(): Partial<FoldStateEvent> {
 		predictSelectedIntent: null,
 		predictDraftsLoading: false,
 		predictCursor: null,
-		contextAppName: null,
-		contextAppPath: null,
-		contextWindowTitle: null,
+		contextPageUrl: null,
+		contextPageLabel: null,
 		predictRefining: false,
 		voiceTabPlacement: null,
+		structureDraftOpen: false,
 	};
 }
 
@@ -514,6 +518,7 @@ async function structureVoiceTranscript(transcript: string) {
 		voiceMode: "structure",
 		voiceTabPlacement,
 		...clearPredictState(),
+		...buildVoiceOverlayContext(ctx),
 	});
 	try {
 		if (isClipboardRecallIntent(text)) {
@@ -554,25 +559,44 @@ async function structureVoiceTranscript(transcript: string) {
 			.join("\n\n");
 		const output = body || text;
 		const targetApp = voiceTargetApp ?? ctx.activeApp;
-		contextEngine.suppressClipboardCapture(5000);
-		await insertTextToFrontApp(output, targetApp);
+		const autoInsert = loadConfig().structureAutoInsert !== false;
 		recordVoiceInteraction("structure", text, output);
-		emitState({
-			status: "done",
-			transcript: text,
-			voiceMode: "structure",
-			result: "已输入",
-			resultDetail: output,
-		});
-		setTimeout(() => {
-			if (lastOverlayState.status === "done" && lastOverlayState.voiceMode === "structure") {
-				emitState({ status: "idle", voiceMode: null, ...clearPredictState() });
-			}
-		}, 850);
+
+		if (autoInsert) {
+			contextEngine.suppressClipboardCapture(5000);
+			await insertTextToFrontApp(output, targetApp);
+			emitState({
+				status: "done",
+				transcript: text,
+				voiceMode: "structure",
+				result: "已输入",
+				resultDetail: output,
+				voiceTabPlacement,
+				structureDraftOpen: false,
+			});
+			setTimeout(() => {
+				if (lastOverlayState.status === "done" && lastOverlayState.voiceMode === "structure") {
+					emitState({ status: "idle", voiceMode: null, ...clearPredictState() });
+				}
+			}, 850);
+		} else {
+			emitState({
+				status: "done",
+				transcript: text,
+				voiceMode: "structure",
+				result: "转写完成",
+				resultDetail: output,
+				voiceTabPlacement,
+				structureDraftOpen: true,
+				...buildVoiceOverlayContext(ctx),
+			});
+		}
 	} catch (err) {
 		emitState({ status: "error", error: (err as Error).message, transcript: text });
 	} finally {
-		voiceTargetApp = null;
+		if (loadConfig().structureAutoInsert !== false) {
+			voiceTargetApp = null;
+		}
 	}
 }
 
@@ -942,6 +966,32 @@ function registerIpc() {
 		return result;
 	});
 
+	ipcMain.handle(
+		"fold:structure-insert-draft",
+		async (_e, text: string, targetAppName?: string | null) => {
+			const trimmed = String(text ?? "").trim();
+			if (!trimmed) return { ok: false, pasted: false };
+			await contextEngine.refreshActiveApp();
+			const targetApp =
+				String(targetAppName ?? "").trim() ||
+				voiceTargetApp ||
+				contextEngine.getLiveContext().activeApp;
+			overlayWindow?.setIgnoreMouseEvents(true, { forward: true });
+			contextEngine.suppressClipboardCapture(5000);
+			const result = await insertTextToFrontApp(trimmed, targetApp);
+			voiceTargetApp = null;
+			emitState({ status: "idle", voiceMode: null, ...clearPredictState() });
+			return result;
+		},
+	);
+
+	ipcMain.handle("fold:copy-text", (_e, text: string) => {
+		const trimmed = String(text ?? "").trim();
+		if (!trimmed) return { ok: false };
+		clipboard.writeText(trimmed);
+		return { ok: true };
+	});
+
 	ipcMain.handle("fold:predict-start-voice", () => {
 		emitState({ status: "idle", ...clearPredictState() });
 		toggleVoiceRecording("structure");
@@ -1040,6 +1090,7 @@ function registerIpc() {
 			pendingUserAction = null;
 		}
 		clearPredictTargetApp();
+		voiceTargetApp = null;
 		emitState({ status: "idle", ...clearPredictState() });
 	});
 
@@ -1075,13 +1126,13 @@ async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 	emitState({
 		status: "listening",
 		transcript: "",
+		result: null,
+		resultDetail: null,
 		voiceMode: outcome,
 		voiceTabPlacement,
-		contextAppName: ctx.activeApp,
-		contextAppPath: ctx.activeAppPath,
-		contextWindowTitle: ctx.activeWindow,
 		predictRefining: false,
 		...clearPredictState(),
+		...buildVoiceOverlayContext(ctx),
 	});
 	overlayWindow?.webContents.send("fold:hotkey-down", outcome);
 }
@@ -1176,7 +1227,7 @@ function registerHotkeys() {
 
 app.whenReady().then(() => {
 	if (process.platform === "darwin") {
-		app.setName("Fold");
+		app.setName(PRODUCT_NAME);
 	}
 	syncDockVisibility();
 

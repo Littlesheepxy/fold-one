@@ -1,7 +1,6 @@
 import { generateText, streamText } from "ai";
-import { hasPlannerApiKey } from "./planner.js";
+import { hasPlannerApiKey, resolveModelChoice } from "./model-choice.js";
 import { toLanguageModel } from "./providers.js";
-import { resolveModelChoice } from "./types.js";
 
 export interface AhaGuessPage {
 	title: string;

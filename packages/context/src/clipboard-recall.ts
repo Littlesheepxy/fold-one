@@ -119,15 +119,13 @@ export interface ClipboardRecoveryOffer {
 	current: ClipboardHistoryEntry;
 }
 
-/** 刚换复制且存在上一条时，提示用户可找回。 */
+/** 刚换复制且存在上一条时，提示用户可找回（主页横幅用，不做时间限制）。 */
 export function offerClipboardRecovery(
 	history: ClipboardHistoryEntry[],
-	now = Date.now(),
 ): ClipboardRecoveryOffer | null {
 	if (history.length < 2) return null;
 	const current = history[0]!;
 	const previous = history[1]!;
 	if (current.text === previous.text) return null;
-	if (now - current.timestamp > 3 * 60_000) return null;
 	return { previous, current };
 }

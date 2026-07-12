@@ -1,5 +1,4 @@
 import { clipboard } from "electron";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import {
 	detectChatPlatforms,
@@ -8,9 +7,10 @@ import {
 } from "@fold/connectors";
 import { listRecentEpisodes, loadProfileMemories, saveProfileMemories } from "@fold/memory";
 import { buildProfileImportPrompt, parseProfileImportResponse } from "@fold/runtime";
+import { resolveDataDir } from "./data-dir.js";
 
 function dataDir(): string {
-	return (process.env.FOLD_DATA_DIR ?? join(homedir(), ".fold")).replace(/^~/, homedir());
+	return resolveDataDir();
 }
 
 export interface ProfileImportOption {
@@ -63,7 +63,7 @@ export function saveProfileFromResponse(responseText: string): {
 } {
 	const parsed = parseProfileImportResponse(responseText);
 	if (!parsed) {
-		return { ok: false, error: "未能从回复中解析 JSON 画像，请检查 AI 是否按格式输出" };
+		return { ok: false, error: "未能从回复中解析画像：请确认 AI 已输出 Fold Profile Appendix 中的 JSON" };
 	}
 	saveProfileMemories({ ...parsed, updatedAt: Date.now() }, `ai-import:${Date.now()}`, dataDir());
 	return { ok: true, profile: loadProfileMemories(dataDir()) ?? undefined };

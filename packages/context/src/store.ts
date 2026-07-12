@@ -104,6 +104,9 @@ export class ContextStore {
 			this.ctx.activeApp = event.data.appName ?? null;
 			this.ctx.activeWindow = event.data.windowTitle ?? null;
 			this.ctx.activeAppPath = event.data.appPath ?? null;
+			if (!this.isBrowserApp(event.data.appName)) {
+				this.ctx.activeUrl = null;
+			}
 		}
 		if (
 			(event.type === "file.created" || event.type === "file.modified") &&
@@ -139,6 +142,22 @@ export class ContextStore {
 				timestamp: event.timestamp,
 			});
 			this.ctx.recentUrls = this.ctx.recentUrls.slice(0, 20);
+			this.syncActiveBrowserPage(event.data.appName, event.data.url, title);
+		}
+	}
+
+	private isBrowserApp(appName: string | null | undefined): boolean {
+		return /chrome|arc|edge|brave|safari|firefox/i.test(appName ?? "");
+	}
+
+	/** 前台浏览器时同步标签页标题/URL，供语音条展示具体页面。 */
+	syncActiveBrowserPage(appName: string | null | undefined, url: string, title: string): void {
+		if (!url || !appName) return;
+		if ((this.ctx.activeApp ?? "").toLowerCase() !== appName.toLowerCase()) return;
+		this.ctx.activeUrl = url;
+		const cleaned = title.trim() || url;
+		if (!/^google chrome$/i.test(cleaned)) {
+			this.ctx.activeWindow = cleaned;
 		}
 	}
 
