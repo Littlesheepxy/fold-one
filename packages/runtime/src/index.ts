@@ -139,9 +139,13 @@ export type {
 	FoldStateEvent,
 	OverlayStatus,
 	OrchestratorDeps,
+	ResolvedThought,
+	SurfaceLayout,
 	StateEmitter,
 	StepView,
 	TaskResult,
 	StepResult,
+	ThoughtBasis,
+	ThoughtPhase,
 	UserActionRequest,
 } from "./types.js";

@@ -78,7 +78,16 @@ export interface VoiceTabPlacement {
 	top: number;
 }
 
+export interface OverlayPlacements {
+	/** 底部 InputSurface */
+	input: VoiceTabPlacement;
+	/** 顶部 ThoughtSurface */
+	thought: VoiceTabPlacement;
+}
+
 const VOICE_TAB_HEIGHT = 34;
+/** 顶栏一念层距工作区顶边的间距 */
+const THOUGHT_TOP_OFFSET = 10;
 
 export function getOverlaySpanBounds(): Rectangle {
 	const displays = screen.getAllDisplays();
@@ -136,6 +145,30 @@ function computeVoiceTabPlacement(
 	};
 }
 
+function computeThoughtPlacement(
+	display: Display,
+	overlayBounds: Rectangle,
+): VoiceTabPlacement {
+	const { workArea } = display;
+	const centerX = workArea.x + workArea.width / 2;
+	const topY = workArea.y + THOUGHT_TOP_OFFSET;
+	return {
+		left: centerX - overlayBounds.x,
+		top: topY - overlayBounds.y,
+	};
+}
+
+function computeOverlayPlacements(
+	targetWindow: Rectangle,
+	overlayBounds: Rectangle,
+	display: Display,
+): OverlayPlacements {
+	return {
+		input: computeVoiceTabPlacement(targetWindow, overlayBounds, display),
+		thought: computeThoughtPlacement(display, overlayBounds),
+	};
+}
+
 function fallbackWindowRect(display: Display): Rectangle {
 	const { workArea } = display;
 	return {
@@ -190,23 +223,23 @@ function applyOverlayBounds(window: BrowserWindow, bounds: Rectangle): void {
 	window.setBounds(bounds);
 }
 
-/** Span all displays and anchor the voice tab above the target window's bottom bar. */
+/** Span all displays; return input (bottom) + thought (top) placements. */
 export async function positionOverlayForActiveContext(
 	window: BrowserWindow | null,
 	targetApp?: string | null,
-): Promise<VoiceTabPlacement | null> {
+): Promise<OverlayPlacements | null> {
 	if (!window || window.isDestroyed()) return null;
 
 	const span = getOverlaySpanBounds();
 	const { rect, display } = await resolveTargetWindowRect(targetApp);
-	const placement = computeVoiceTabPlacement(rect, span, display);
+	const placements = computeOverlayPlacements(rect, span, display);
 	applyOverlayBounds(window, span);
 
 	const bounds = window.getBounds();
 	console.log(
-		`[fold:overlay-display] targetApp=${targetApp ?? "—"} display=${display.id} workArea=${display.workArea.x},${display.workArea.y} ${display.workArea.width}x${display.workArea.height} window=${rect.x},${rect.y} ${rect.width}x${rect.height} placement=${placement.left},${placement.top} span=${bounds.x},${bounds.y} ${bounds.width}x${bounds.height}`,
+		`[fold:overlay-display] targetApp=${targetApp ?? "—"} display=${display.id} input=${placements.input.left},${placements.input.top} thought=${placements.thought.left},${placements.thought.top} span=${bounds.x},${bounds.y} ${bounds.width}x${bounds.height}`,
 	);
-	return placement;
+	return placements;
 }
 
 export function cursorPointInOverlay(

@@ -42,7 +42,7 @@ import {
 	type FoldConfig,
 } from "./config.js";
 import { buildHomeSnapshot } from "./home-snapshot.js";
-import { cursorPointInOverlay, getOverlaySpanBounds, positionOverlayForActiveContext } from "./overlay-display.js";
+import { cursorPointInOverlay, getOverlaySpanBounds, type OverlayPlacements, positionOverlayForActiveContext } from "./overlay-display.js";
 import { openAccessibilitySettings, probeAccessibility, ensureAccessibilityPermission } from "./permissions.js";
 import { buildEpisodeDetail, listEpisodesForHome } from "./episode-detail.js";
 import {
@@ -71,6 +71,16 @@ import { downloadVoicePack, getVoiceSetupStatus } from "./voice-setup.js";
 
 migrateLegacyDataDir();
 applyConfigToEnv();
+
+function spreadOverlayPlacements(placements: OverlayPlacements | null) {
+	if (!placements) {
+		return { voiceTabPlacement: null, thoughtPlacement: null };
+	}
+	return {
+		voiceTabPlacement: placements.input,
+		thoughtPlacement: placements.thought,
+	};
+}
 
 const contextEngine = new ContextEngine({
 	ignoreApps: ["Electron", "Fold", "fold", "知更", "Zhigeng", "zhigeng"],
@@ -241,8 +251,8 @@ function createOverlayWindow() {
 
 	overlayWindow.webContents.once("did-finish-load", () => {
 		const app = contextEngine.getLiveContext().activeApp;
-		void positionOverlayForActiveContext(overlayWindow, app).then((voiceTabPlacement) => {
-			emitState({ ...lastOverlayState, voiceTabPlacement });
+		void positionOverlayForActiveContext(overlayWindow, app).then((placements) => {
+			emitState({ ...lastOverlayState, ...spreadOverlayPlacements(placements) });
 		});
 	});
 }
@@ -440,6 +450,7 @@ function clearPredictState(): Partial<FoldStateEvent> {
 		contextPageLabel: null,
 		predictRefining: false,
 		voiceTabPlacement: null,
+		thoughtPlacement: null,
 		structureDraftOpen: false,
 	};
 }
@@ -465,7 +476,7 @@ function showReplyPredictions() {
 	void contextEngine.refreshActiveApp().then(async () => {
 		const fresh = contextEngine.getLiveContext();
 		const app = fresh.activeApp ?? targetApp;
-		const voiceTabPlacement = await positionOverlayForActiveContext(overlayWindow, app);
+		const placements = await positionOverlayForActiveContext(overlayWindow, app);
 		emitState({
 			status: "predict",
 			...clearPredictState(),
@@ -475,12 +486,12 @@ function showReplyPredictions() {
 			predictAnchor: "正在读取对话…",
 			predictSuggestions: [],
 			predictCursor: getCursorInOverlay(),
-			voiceTabPlacement,
+			...spreadOverlayPlacements(placements),
 			contextAppName: app,
 			contextAppPath: fresh.activeAppPath,
 		});
 		const result = await resolveReplyPredictions(fresh, app);
-		const placement = await positionOverlayForActiveContext(overlayWindow, app);
+		const refreshed = await positionOverlayForActiveContext(overlayWindow, app);
 		emitState({
 			status: "predict",
 			...clearPredictState(),
@@ -491,7 +502,7 @@ function showReplyPredictions() {
 			predictSuggestions: result.suggestions,
 			predictDrafts: result.drafts,
 			predictCursor: getCursorInOverlay(),
-			voiceTabPlacement: placement,
+			...spreadOverlayPlacements(refreshed),
 			contextAppName: app,
 			contextAppPath: fresh.activeAppPath,
 			contextWindowTitle: result.anchor,
@@ -508,7 +519,7 @@ async function structureVoiceTranscript(transcript: string) {
 	const ctx = contextEngine.getLiveContext();
 	const smartAccess = resolveSmartActionAccess();
 	const useLocal = shouldCleanSpeechLocally(text);
-	const voiceTabPlacement = await positionOverlayForActiveContext(
+	const placements = await positionOverlayForActiveContext(
 		overlayWindow,
 		voiceTargetApp ?? ctx.activeApp,
 	);
@@ -516,7 +527,7 @@ async function structureVoiceTranscript(transcript: string) {
 		status: "formatting",
 		transcript: text,
 		voiceMode: "structure",
-		voiceTabPlacement,
+		...spreadOverlayPlacements(placements),
 		...clearPredictState(),
 		...buildVoiceOverlayContext(ctx),
 	});
@@ -571,7 +582,7 @@ async function structureVoiceTranscript(transcript: string) {
 				voiceMode: "structure",
 				result: "已输入",
 				resultDetail: output,
-				voiceTabPlacement,
+				...spreadOverlayPlacements(placements),
 				structureDraftOpen: false,
 			});
 			setTimeout(() => {
@@ -586,7 +597,7 @@ async function structureVoiceTranscript(transcript: string) {
 				voiceMode: "structure",
 				result: "转写完成",
 				resultDetail: output,
-				voiceTabPlacement,
+				...spreadOverlayPlacements(placements),
 				structureDraftOpen: true,
 				...buildVoiceOverlayContext(ctx),
 			});
@@ -614,11 +625,11 @@ async function replyVoiceTranscript(transcript: string) {
 	const contextAppPath = ctx.activeAppPath;
 
 	createOverlayWindow();
-	const voiceTabPlacement = await positionOverlayForActiveContext(overlayWindow, contextAppName);
+	const replyPlacements = await positionOverlayForActiveContext(overlayWindow, contextAppName);
 	emitState({
 		status: "predict",
 		voiceMode: null,
-		voiceTabPlacement,
+		...spreadOverlayPlacements(replyPlacements),
 		...clearPredictState(),
 		predictMode: "full",
 		predictPhase: "result",
@@ -639,7 +650,7 @@ async function replyVoiceTranscript(transcript: string) {
 		emitState({
 			status: "predict",
 			voiceMode: null,
-			voiceTabPlacement,
+			...spreadOverlayPlacements(replyPlacements),
 			predictMode: "full",
 			predictPhase: "result",
 			predictSurface: "reply",
@@ -1122,14 +1133,17 @@ async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 	voiceTargetApp = ctx.activeApp ?? null;
 	isRecording = true;
 	createOverlayWindow();
-	const voiceTabPlacement = await positionOverlayForActiveContext(overlayWindow, voiceTargetApp);
+	const recordingPlacements = await positionOverlayForActiveContext(overlayWindow, voiceTargetApp);
 	emitState({
 		status: "listening",
 		transcript: "",
+		interimTranscript: "",
+		thought: null,
+		thoughtPhase: "hidden",
 		result: null,
 		resultDetail: null,
 		voiceMode: outcome,
-		voiceTabPlacement,
+		...spreadOverlayPlacements(recordingPlacements),
 		predictRefining: false,
 		...clearPredictState(),
 		...buildVoiceOverlayContext(ctx),
@@ -1151,14 +1165,14 @@ function startReplyRefineRecording() {
 	isRecording = true;
 	createOverlayWindow();
 	const app = voiceTargetApp ?? contextEngine.getLiveContext().activeApp;
-	void positionOverlayForActiveContext(overlayWindow, app).then((voiceTabPlacement) => {
+	void positionOverlayForActiveContext(overlayWindow, app).then((placements) => {
 		emitState({
 			...lastOverlayState,
 			status: "predict",
 			voiceMode: "reply",
 			predictRefining: true,
 			predictDraftsLoading: false,
-			voiceTabPlacement,
+			...spreadOverlayPlacements(placements),
 		});
 	});
 	overlayWindow?.webContents.send("fold:hotkey-down", "reply");

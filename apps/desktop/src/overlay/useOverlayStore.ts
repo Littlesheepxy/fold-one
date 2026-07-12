@@ -1,10 +1,11 @@
 import { create } from "zustand";
-import type { FoldStateEvent, PredictSuggestion } from "@fold/runtime";
+import type { FoldStateEvent, PredictSuggestion, ResolvedThought, ThoughtPhase } from "@fold/runtime";
 
 interface OverlayStore extends FoldStateEvent {
 	voiceLevel: number;
 	setState: (partial: Partial<FoldStateEvent>) => void;
 	setVoiceLevel: (level: number) => void;
+	setLocalThought: (thought: ResolvedThought | null, phase: ThoughtPhase) => void;
 	reset: () => void;
 }
 
@@ -39,10 +40,15 @@ export const useOverlayStore = create<OverlayStore>((set) => ({
 	contextPageLabel: null,
 	predictRefining: false,
 	voiceTabPlacement: null,
+	thoughtPlacement: null,
+	thoughtPhase: "hidden",
+	thought: null,
+	interimTranscript: "",
 	structureDraftOpen: false,
 	voiceLevel: 0,
 	setState: (partial) => set((s) => ({ ...s, ...partial })),
 	setVoiceLevel: (level) => set({ voiceLevel: level }),
+	setLocalThought: (thought, thoughtPhase) => set({ thought, thoughtPhase }),
 	reset: () =>
 		set({
 			status: "idle",
@@ -75,6 +81,10 @@ export const useOverlayStore = create<OverlayStore>((set) => ({
 			contextPageLabel: null,
 			predictRefining: false,
 			voiceTabPlacement: null,
+			thoughtPlacement: null,
+			thoughtPhase: "hidden",
+			thought: null,
+			interimTranscript: "",
 			structureDraftOpen: false,
 			voiceLevel: 0,
 		}),

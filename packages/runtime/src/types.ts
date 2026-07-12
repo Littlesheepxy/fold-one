@@ -75,8 +75,40 @@ export interface FoldStateEvent {
 	predictRefining?: boolean;
 	/** 转写/代回胶囊在跨屏 overlay 内的定位（主进程按锚点显示器计算） */
 	voiceTabPlacement?: { left: number; top: number } | null;
+	/** 一念层顶栏定位（相对 overlay span） */
+	thoughtPlacement?: { left: number; top: number } | null;
+	/** 一念层 UI 阶段 */
+	thoughtPhase?: ThoughtPhase | null;
+	/** 当前 A+1 判断（Thought Resolver 产出；PR1 可 mock） */
+	thought?: ResolvedThought | null;
+	/** ASR 实时 partial（InputSurface） */
+	interimTranscript?: string;
 	/** 转写完成且未开启自动插入时，展示可编辑草稿卡 */
 	structureDraftOpen?: boolean;
+}
+
+export type ThoughtPhase = "hidden" | "forming" | "ready" | "handoff";
+
+export type ThoughtBasis =
+	| "current_context"
+	| "conversation"
+	| "personal_context"
+	| "intent_inference"
+	| "task_state";
+
+export interface ResolvedThought {
+	insight: string;
+	basis: ThoughtBasis[];
+	confidence: number;
+	noveltyScore: number;
+	stableForMs: number;
+}
+
+export interface SurfaceLayout {
+	input: boolean;
+	thought: boolean;
+	card: boolean;
+	orb: boolean;
 }
 
 export interface UserActionOption {

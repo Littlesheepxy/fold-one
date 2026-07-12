@@ -5,6 +5,7 @@ import {
 	createMockAsr,
 	type AsrController,
 } from "@fold/voice";
+import { useOverlayStore } from "./useOverlayStore.js";
 
 const WS_BASE = import.meta.env.VITE_ASR_WS_URL ?? "ws://localhost:3003";
 
@@ -52,8 +53,11 @@ export function useVoiceHandlers() {
 					window.dispatchEvent(new CustomEvent("fold:voice-level-local", { detail: level }));
 				});
 				await asr.start({
-					// 界面用音波，不再推实时字幕；ASR 仍在后台出最终文本
-					onPartial: () => {},
+					onPartial: (partial) => {
+						const text = partial.trim();
+						if (!text) return;
+						useOverlayStore.getState().setState({ interimTranscript: text });
+					},
 					onError: (err) => {
 						asrRef.current = null;
 						void window.fold.voiceError(err.message);

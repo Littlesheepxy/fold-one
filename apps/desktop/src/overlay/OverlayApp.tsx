@@ -13,6 +13,10 @@ import { PredictConfirmCard } from "./components/PredictConfirmCard";
 import { voiceSurfaceLabel } from "../lib/page-context";
 import { StructureDraftCard } from "./components/StructureDraftCard";
 import { ContextAppIcon } from "./components/ContextAppIcon";
+import { InputSurface } from "./surfaces/InputSurface";
+import { ThoughtSurface } from "./surfaces/ThoughtSurface";
+import { resolveSemanticSurfaces } from "./semantic-surface-resolver";
+import { useThoughtMock } from "./useThoughtMock";
 import { playFoldSoundForStatus, preloadFoldSounds } from "./sounds.js";
 import { ZhigengLogoMark } from "../components/ZhigengLogoMark";
 import { PRODUCT_NAME } from "../brand/constants";
@@ -340,10 +344,15 @@ export function OverlayApp() {
 		contextPageLabel,
 		predictRefining,
 		voiceTabPlacement,
+		thoughtPlacement,
+		thoughtPhase,
+		thought,
+		interimTranscript,
 		structureDraftOpen,
 		voiceLevel,
 		setState,
 		setVoiceLevel,
+		setLocalThought,
 	} = useOverlayStore();
 
 	const [mockAsr, setMockAsr] = useState(true);
@@ -436,9 +445,37 @@ export function OverlayApp() {
 	const inputScene =
 		isVoiceAssist &&
 		(status === "listening" || isVoiceFormatting || status === "done");
+	const useDualSurfaces =
+		(voiceMode === "structure" || voiceMode === "reply") && status === "listening";
+	const isSpeaking = status === "listening";
+	const listeningText = (interimTranscript || transcript || "").trim();
+
+	useThoughtMock({
+		enabled: useDualSurfaces,
+		isSpeaking,
+		sourceText: listeningText,
+		onThought: setLocalThought,
+	});
+
+	const surfaceLayout = resolveSemanticSurfaces({
+		interaction: { state: status, isSpeaking },
+		asr: { hasInterimText: listeningText.length > 0 },
+		thought: thought ?? null,
+		thoughtPhase: thoughtPhase ?? "hidden",
+		hasDraft: Boolean(resultDetail || predictDrafts?.[0]?.text),
+		agentRun:
+			status === "working" || status === "planning" || status === "understanding"
+				? { isLongRunning: true }
+				: null,
+	});
+
+	const hideOrbShell =
+		useDualSurfaces || (!surfaceLayout.orb && (surfaceLayout.input || surfaceLayout.thought));
+
 	const replyPredictScene =
 		status === "predict" && predictSurface === "reply" && Boolean(voiceTabPlacement);
-	const voiceTabAnchorScene = inputScene || replyPredictScene;
+	const voiceTabAnchorScene =
+		(inputScene || replyPredictScene) && !(useDualSurfaces && isSpeaking);
 
 	useEffect(() => {
 		if (voiceTabAnchorScene) {
@@ -555,6 +592,26 @@ export function OverlayApp() {
 
 	return (
 		<div className="fixed inset-0 pointer-events-none">
+			<AnimatePresence>
+				{surfaceLayout.input && (
+					<InputSurface
+						key="input-surface"
+						placement={voiceTabPlacement ?? null}
+						text={listeningText}
+						voiceLevel={voiceLevel}
+					/>
+				)}
+				{surfaceLayout.thought && (
+					<ThoughtSurface
+						key="thought-surface"
+						placement={thoughtPlacement ?? null}
+						phase={thoughtPhase ?? "forming"}
+						thought={thought ?? null}
+					/>
+				)}
+			</AnimatePresence>
+
+			{!hideOrbShell && (
 			<motion.div
 				data-fold-interactive=""
 				drag={!inputScene}
@@ -889,6 +946,7 @@ export function OverlayApp() {
 					)}
 				</AnimatePresence>
 			</motion.div>
+			)}
 
 			{isPredictCard && predictCardPosition && (
 				<PredictConfirmCard

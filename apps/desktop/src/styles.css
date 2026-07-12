@@ -142,6 +142,81 @@ body.fold-home-page #root {
   max-width: 100%;
 }
 
+.zh-thought-surface-anchor,
+.zh-input-surface-anchor {
+  position: fixed;
+  margin: 0;
+  z-index: 3;
+}
+
+.zh-thought-surface {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  min-width: 120px;
+  max-width: min(72vw, 520px);
+  padding: 0 14px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.82);
+  border: 1px solid rgb(255 255 255 / 0.1);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.28);
+  overflow: hidden;
+}
+
+.zh-thought-surface-mist {
+  position: absolute;
+  inset: -20% -10%;
+  background: radial-gradient(
+    60% 80% at 50% 50%,
+    rgb(120 180 255 / 0.16),
+    transparent 70%
+  );
+  pointer-events: none;
+}
+
+.zh-thought-surface-line {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  color: rgb(255 255 255 / 0.94);
+}
+
+.zh-input-surface {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  max-width: min(80vw, 560px);
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.78);
+  border: 1px solid rgb(255 255 255 / 0.08);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.28);
+}
+
+.zh-input-surface .fold-voice-wave {
+  flex: 0 0 auto;
+  max-width: 52px;
+}
+
+.zh-input-surface-text {
+  margin: 0;
+  min-width: 0;
+  max-width: 480px;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgb(255 255 255 / 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .fold-input-tab .fold-logo-button {
   width: 24px;
   height: 24px;
