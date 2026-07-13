@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Keyboard, Mic } from "lucide-react";
 import type { FoldConfig } from "../types.js";
 import { BooleanField, ConnectionBadge, Field, StatusDot } from "../components/FormFields.js";
+import { InputHabitScannerPanel } from "./InputHabitScannerPanel.js";
 
 type VoiceSetup = Awaited<ReturnType<typeof window.fold.getVoiceSetup>>;
 
@@ -302,6 +303,8 @@ export function SettingsSection({
 							onChange={(v) => onUpdateBoolean("allowWorkbuddy", v)}
 							hint="通常由「连接」页执行模式管理"
 						/>
+
+						<InputHabitScannerPanel />
 
 						<div className="flex items-center gap-3 pt-1">
 							<button type="button" onClick={onSave} className="fold-home-save">

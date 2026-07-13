@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, ipcMain, screen, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, screen, shell } from "electron";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ContextEngine, isClipboardRecallIntent, resolveClipboardRecall, type ContextEvent } from "@fold/context";
@@ -68,6 +68,12 @@ import {
 	startLocalWhisperSession,
 } from "./local-whisper.js";
 import { downloadVoicePack, getVoiceSetupStatus } from "./voice-setup.js";
+import { scanInputHabits, listInstalledInputMethods } from "./input-habit-scanner/index.js";
+import { exportInputHabitsToRime } from "./input-habit-scanner/export-rime.js";
+import {
+	importInputHabitsOneClick,
+	loadImportedInputHabits,
+} from "./input-habit-scanner/import.js";
 
 migrateLegacyDataDir();
 applyConfigToEnv();
@@ -1105,6 +1111,21 @@ function registerIpc() {
 
 	ipcMain.handle("fold:open-settings", (_e, section?: string) => {
 		openSettingsWindow(section);
+	});
+
+	ipcMain.handle("fold:scan-input-habits", () => scanInputHabits());
+	ipcMain.handle("fold:list-installed-input-methods", () => listInstalledInputMethods());
+
+	ipcMain.handle("fold:import-input-habits", () => importInputHabitsOneClick());
+	ipcMain.handle("fold:get-imported-input-habits", () => loadImportedInputHabits());
+	ipcMain.handle("fold:export-input-habits-rime", async () => {
+		const { canceled, filePaths } = await dialog.showOpenDialog({
+			title: "选择搜狗词库备份（偏好设置 → 词库 → 导出）",
+			filters: [{ name: "搜狗词库备份", extensions: ["bin"] }],
+			properties: ["openFile"],
+		});
+		if (canceled || !filePaths[0]) return { canceled: true as const };
+		return exportInputHabitsToRime({ sogouBinPath: filePaths[0] });
 	});
 
 	ipcMain.handle("fold:quit", () => {

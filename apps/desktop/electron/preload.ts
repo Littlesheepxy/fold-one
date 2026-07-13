@@ -204,6 +204,16 @@ contextBridge.exposeInMainWorld("fold", {
 	voiceError: (message: string) => ipcRenderer.invoke("fold:voice-error", message) as Promise<void>,
 	openSettings: (section?: string) =>
 		ipcRenderer.invoke("fold:open-settings", section) as Promise<void>,
+	scanInputHabits: () => ipcRenderer.invoke("fold:scan-input-habits") as Promise<Record<string, unknown>>,
+	listInstalledInputMethods: () =>
+		ipcRenderer.invoke("fold:list-installed-input-methods") as Promise<Record<string, unknown>[]>,
+	importInputHabits: () => ipcRenderer.invoke("fold:import-input-habits") as Promise<Record<string, unknown>>,
+	getImportedInputHabits: () =>
+		ipcRenderer.invoke("fold:get-imported-input-habits") as Promise<Record<string, unknown> | null>,
+	exportInputHabitsRime: () =>
+		ipcRenderer.invoke("fold:export-input-habits-rime") as Promise<
+			Record<string, unknown> & { canceled?: boolean }
+		>,
 	quit: () => ipcRenderer.invoke("fold:quit") as Promise<void>,
 	onHotkeyDown(cb: (mode: "structure" | "reply" | "agent") => void) {
 		const handler = (_: unknown, mode?: "structure" | "reply" | "agent") => cb(mode ?? "structure");

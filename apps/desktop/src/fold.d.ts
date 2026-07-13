@@ -123,6 +123,11 @@ interface FoldApi {
 	toggleVoice(): Promise<void>;
 	voiceError(message: string): Promise<void>;
 	openSettings(section?: string): Promise<void>;
+	scanInputHabits(): Promise<Record<string, unknown>>;
+	listInstalledInputMethods(): Promise<Record<string, unknown>[]>;
+	importInputHabits(): Promise<Record<string, unknown>>;
+	getImportedInputHabits(): Promise<Record<string, unknown> | null>;
+	exportInputHabitsRime(): Promise<Record<string, unknown> & { canceled?: boolean }>;
 	quit(): Promise<void>;
 	onHotkeyDown(cb: (mode: "structure" | "reply" | "agent") => void): () => void;
 	onHotkeyUp(cb: (mode: "structure" | "reply" | "agent") => void): () => void;
