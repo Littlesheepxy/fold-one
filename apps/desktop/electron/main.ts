@@ -1181,6 +1181,20 @@ function isReplyPredictCard(): boolean {
 	return lastOverlayState.status === "predict" && lastOverlayState.predictSurface === "reply";
 }
 
+function cancelActiveSession() {
+	replyLatched = false;
+	replyRefineHold = false;
+	if (isRecording) {
+		isRecording = false;
+		overlayWindow?.webContents.send("fold:hotkey-cancel");
+		emitState({ status: "idle", ...clearPredictState() });
+		return;
+	}
+	if (lastOverlayState.status === "predict") {
+		emitState({ status: "idle", ...clearPredictState() });
+	}
+}
+
 function registerHotkeys() {
 	stopHotkey = startHoldHotkey({
 		onAgentToggle: () => toggleVoiceRecording("agent"),
@@ -1209,19 +1223,7 @@ function registerHotkeys() {
 			}
 		},
 		onReplyToggle: () => toggleVoiceRecording("reply"),
-		onCancel: () => {
-			replyLatched = false;
-			replyRefineHold = false;
-			if (isRecording) {
-				isRecording = false;
-				overlayWindow?.webContents.send("fold:hotkey-cancel");
-				emitState({ status: "idle", ...clearPredictState() });
-				return;
-			}
-			if (lastOverlayState.status === "predict") {
-				emitState({ status: "idle", ...clearPredictState() });
-			}
-		},
+		onCancel: cancelActiveSession,
 	});
 }
 
@@ -1239,8 +1241,16 @@ app.whenReady().then(() => {
 	void refreshPredictCacheEnriched(contextEngine.getLiveContext());
 
 	createTray({
+		onVoiceStructure: () => toggleVoiceRecording("structure"),
+		onReplyPredict: () => showReplyPredictions(),
+		onVoiceAgent: () => toggleVoiceRecording("agent"),
+		onCancel: cancelActiveSession,
 		onOpenSettings: openSettingsWindow,
 		onQuit: () => app.quit(),
+		getSessionState: () => ({
+			recording: isRecording,
+			predicting: lastOverlayState.status === "predict",
+		}),
 	});
 
 	// 未授权时弹系统对话框并打开辅助功能设置（开发模式登记为 Electron）

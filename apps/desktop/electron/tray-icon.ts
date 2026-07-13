@@ -5,7 +5,7 @@ import { nativeImage } from "electron";
 const MODULE_DIR = __dirname;
 const ASSET_ROOTS = [join(MODULE_DIR, "../public"), join(MODULE_DIR, "../dist")];
 
-const TRAY_LOGICAL_PT = 18;
+const TRAY_LOGICAL_PT = 28;
 const TRAY_SCALE = 2;
 
 function resolveAsset(filenames: string[]): string | null {
@@ -23,17 +23,17 @@ function resolveAsset(filenames: string[]): string | null {
 	return null;
 }
 
-function trayImageFromPng(png: Buffer, scaleFactor = TRAY_SCALE, template = true) {
+function trayImageFromPng(png: Buffer, scaleFactor = TRAY_SCALE, template = false) {
 	const image = nativeImage.createFromBuffer(png, { scaleFactor });
 	if (template) image.setTemplateImage(true);
 	return image;
 }
 
-/** macOS menu bar tray — white template silhouette. */
+/** macOS menu bar tray — mono 白鸟保留眼/翅线，不用 template（template 会把内部细节压成实心） */
 export function createZhigengTrayImage() {
 	const custom2x = resolveAsset(["zhigeng-tray@2x.png"]);
 	if (custom2x) {
-		return trayImageFromPng(readFileSync(custom2x), TRAY_SCALE, true);
+		return trayImageFromPng(readFileSync(custom2x), TRAY_SCALE, false);
 	}
 
 	const custom = resolveAsset(["zhigeng-tray.png"]);
@@ -42,8 +42,7 @@ export function createZhigengTrayImage() {
 		if (image.isEmpty()) throw new Error(`Failed to load icon: ${custom}`);
 		const { width } = image.getSize();
 		const scaleFactor = width >= TRAY_LOGICAL_PT * 2 ? TRAY_SCALE : 1;
-		const out = trayImageFromPng(readFileSync(custom), scaleFactor, true);
-		return out;
+		return trayImageFromPng(readFileSync(custom), scaleFactor, false);
 	}
 
 	throw new Error("zhigeng-tray asset not found");

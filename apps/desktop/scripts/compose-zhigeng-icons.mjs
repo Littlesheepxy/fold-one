@@ -98,6 +98,18 @@ function resolveMonoSource() {
 	return fallback;
 }
 
+function writeOverlayMarkSilhouette(outPath, size) {
+	const birdB64 = pngBase64(NORMALIZED);
+	const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+  <image xlink:href="data:image/png;base64,${birdB64}" width="${size}" height="${size}" preserveAspectRatio="xMidYMid meet"
+    style="filter: brightness(0) invert(1);"/>
+</svg>`;
+	const svgPath = join(BRAND, "zhigeng-overlay-mark.svg");
+	writeFileSync(svgPath, svg);
+	rasterizeSvg(svgPath, outPath, size);
+}
+
 normalizeMaster();
 
 const dockSvgPath = writeDockSvg();
@@ -105,15 +117,19 @@ const appIcon = join(PUBLIC, "zhigeng-app-icon.png");
 rasterizeSvg(dockSvgPath, appIcon, 1024);
 buildIcns(appIcon);
 
-const monoSource = resolveMonoSource();
 const tray2x = join(PUBLIC, "zhigeng-tray@2x.png");
 const tray = join(PUBLIC, "zhigeng-tray.png");
 const overlayMark = join(PUBLIC, "zhigeng-mark-mono.png");
 const colorMark = join(PUBLIC, "zhigeng-mark.png");
 
-resizePng(monoSource, tray2x, 36);
-resizePng(monoSource, tray, 18);
-resizePng(monoSource, overlayMark, 128);
+// ponytail: tray 必须来自 zhigeng-robin-mono（白鸟+眼+翅线），勿用 DOCK_BIRD/彩色
+if (!existsSync(MONO)) {
+	console.error(`Missing ${MONO}`);
+	process.exit(1);
+}
+resizePng(MONO, tray2x, 56);
+resizePng(MONO, tray, 28);
+writeOverlayMarkSilhouette(overlayMark, 128);
 resizePng(DOCK_BIRD, colorMark, 192);
 
 const favicon = join(PUBLIC, "zhigeng-favicon.png");
