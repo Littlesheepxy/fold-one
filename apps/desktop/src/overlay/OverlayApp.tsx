@@ -1,5 +1,5 @@
 import { animate, motion, AnimatePresence, useMotionValue } from "framer-motion";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useOverlayStore } from "./useOverlayStore";
 import { useVoiceHandlers } from "./useVoice";
 import { useProcessingFill, PROCESSING_FILL_COMPLETE } from "./useProcessingFill";
@@ -16,6 +16,20 @@ import { ContextAppIcon } from "./components/ContextAppIcon";
 import { playFoldSoundForStatus, preloadFoldSounds } from "./sounds.js";
 import { ZhigengLogoMark } from "../components/ZhigengLogoMark";
 import { PRODUCT_NAME } from "../brand/constants";
+import {
+	type DisplayBounds,
+	type WidgetPosition,
+	DOCKED_WIDTH,
+	ORB_SIZE,
+	clampDragX,
+	clampWidgetPosition,
+	clampY,
+	defaultWidgetPosition,
+	dockedX,
+	expandedX,
+	isUsableSavedPosition,
+	resolveSnapSide,
+} from "./widget-position";
 
 function friendlyError(raw: string | null | undefined): string {
 	if (!raw) return "出错了";
@@ -260,52 +274,15 @@ function PredictSuggestions({
 	);
 }
 
-const EDGE_GAP = 12;
-const ORB_SIZE = 44;
-const DOCKED_WIDTH = 70;
 const PANEL_SAFE_WIDTH = 460;
-const SNAP_THRESHOLD = 28;
-const DOCK_PEEK = 46;
 
-type SnapSide = "left" | "right" | null;
-interface WidgetPosition {
-	x: number;
-	y: number;
-	snapSide?: SnapSide;
-}
-
-function clampY(y: number) {
-	return Math.min(Math.max(EDGE_GAP, y), window.innerHeight - ORB_SIZE - EDGE_GAP);
-}
-
-function clampDragX(x: number) {
-	return Math.min(Math.max(EDGE_GAP, x), window.innerWidth - ORB_SIZE - EDGE_GAP);
-}
-
-function resolveSnapSide(x: number): SnapSide {
-	if (x <= SNAP_THRESHOLD) return "left";
-	if (x + ORB_SIZE >= window.innerWidth - SNAP_THRESHOLD) return "right";
-	return null;
-}
-
-function dockedX(side: Exclude<SnapSide, null>) {
-	return side === "left" ? -(DOCKED_WIDTH - DOCK_PEEK) : window.innerWidth - DOCK_PEEK;
-}
-
-function clampWidgetPosition(pos: WidgetPosition): WidgetPosition {
-	const snapSide = pos.snapSide ?? resolveSnapSide(pos.x);
+function fallbackDisplayBounds(): DisplayBounds {
 	return {
-		x: snapSide ? dockedX(snapSide) : clampDragX(pos.x),
-		y: clampY(pos.y),
-		snapSide,
+		x: 0,
+		y: 0,
+		width: typeof window !== "undefined" ? window.innerWidth : 1512,
+		height: typeof window !== "undefined" ? window.innerHeight : 900,
 	};
-}
-
-function expandedX(anchorX: number, width: number, snapSide: SnapSide) {
-	const dockInset = DOCKED_WIDTH - DOCK_PEEK;
-	if (snapSide === "left") return -dockInset;
-	if (snapSide === "right") return window.innerWidth - width + dockInset;
-	return Math.min(Math.max(EDGE_GAP, anchorX), Math.max(EDGE_GAP, window.innerWidth - width - EDGE_GAP));
 }
 
 export function OverlayApp() {
@@ -340,6 +317,8 @@ export function OverlayApp() {
 		contextPageLabel,
 		predictRefining,
 		voiceTabPlacement,
+		voiceHint,
+		widgetDisplayBounds,
 		structureDraftOpen,
 		voiceLevel,
 		setState,
@@ -349,23 +328,9 @@ export function OverlayApp() {
 	const [mockAsr, setMockAsr] = useState(true);
 	const [detailsOpen, setDetailsOpen] = useState(false);
 	const [panelOpen, setPanelOpen] = useState(false);
-	const initialPosition = useRef(
-		(() => {
-		if (typeof window === "undefined") return { x: 32, y: 32, snapSide: null };
-		const saved = window.localStorage.getItem("fold-widget-position");
-		if (saved) {
-			try {
-				return clampWidgetPosition(JSON.parse(saved) as WidgetPosition);
-			} catch {
-				// ignore corrupt localStorage
-			}
-		}
-		return clampWidgetPosition({
-			x: Math.max(24, window.innerWidth - 92),
-			y: Math.max(24, window.innerHeight - 128),
-		});
-		})(),
-	);
+	const [displayBounds, setDisplayBounds] = useState<DisplayBounds>(fallbackDisplayBounds);
+	const [bootstrapped, setBootstrapped] = useState(false);
+	const initialPosition = useRef<WidgetPosition>({ x: 0, y: 0, snapSide: null });
 	const x = useMotionValue(initialPosition.current.x);
 	const y = useMotionValue(initialPosition.current.y);
 	const positionRef = useRef(initialPosition.current);
@@ -377,6 +342,87 @@ export function OverlayApp() {
 
 	useVoiceHandlers();
 	useMousePassthrough();
+
+	const applyWidgetPosition = (pos: WidgetPosition, area: DisplayBounds) => {
+		const next = clampWidgetPosition(pos, area);
+		x.set(next.x);
+		y.set(next.y);
+		positionRef.current = next;
+		setAnchorPosition(next);
+		window.localStorage.setItem("fold-widget-position", JSON.stringify(next));
+		return next;
+	};
+
+	const bootstrapWidgetPosition = (area: DisplayBounds) => {
+		const saved = window.localStorage.getItem("fold-widget-position");
+		let seed = defaultWidgetPosition(area);
+		if (saved) {
+			try {
+				const parsed = JSON.parse(saved) as WidgetPosition;
+				if (isUsableSavedPosition(parsed, area)) {
+					seed = clampWidgetPosition({ x: parsed.x, y: parsed.y, snapSide: parsed.snapSide ?? null }, area);
+				}
+			} catch {
+				// ignore corrupt localStorage
+			}
+		}
+		setDisplayBounds(area);
+		initialPosition.current = applyWidgetPosition(seed, area);
+		setBootstrapped(true);
+	};
+
+	const boundsKey = widgetDisplayBounds
+		? `${widgetDisplayBounds.x}:${widgetDisplayBounds.y}:${widgetDisplayBounds.width}:${widgetDisplayBounds.height}`
+		: "";
+
+	useLayoutEffect(() => {
+		if (!widgetDisplayBounds) return;
+		bootstrapWidgetPosition(widgetDisplayBounds);
+	}, [boundsKey]);
+
+	useEffect(() => {
+		const syncViewport = () => {
+			const w = window.innerWidth;
+			const h = window.innerHeight;
+			for (const el of [document.documentElement, document.body, document.getElementById("root")]) {
+				if (!el) continue;
+				el.style.width = `${w}px`;
+				el.style.height = `${h}px`;
+			}
+		};
+		syncViewport();
+		window.addEventListener("resize", syncViewport);
+		return () => window.removeEventListener("resize", syncViewport);
+	}, []);
+
+	useEffect(() => {
+		if (widgetDisplayBounds) return;
+		let cancelled = false;
+		void (async () => {
+			try {
+				const area = await window.fold.getDisplayWorkArea();
+				if (cancelled) return;
+				bootstrapWidgetPosition(area);
+			} catch {
+				if (cancelled) return;
+				const state = await window.fold.getOverlayState();
+				if (state.widgetDisplayBounds) {
+					bootstrapWidgetPosition(state.widgetDisplayBounds);
+				}
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [widgetDisplayBounds]);
+
+	useEffect(() => {
+		return window.fold.onState((state) => setState(state));
+	}, [setState]);
+
+	useEffect(() => {
+		void window.fold.getOverlayState().then((state) => setState(state));
+	}, [setState]);
 
 	useEffect(() => {
 		void window.fold.getUseMockAsr().then(setMockAsr);
@@ -394,10 +440,6 @@ export function OverlayApp() {
 		if (status !== "idle") setIdleRailOpen(false);
 		prevStatusRef.current = status;
 	}, [status, voiceMode]);
-
-	useEffect(() => {
-		return window.fold.onState((state) => setState(state));
-	}, [setState]);
 
 	useEffect(() => {
 		const handler = (e: Event) => {
@@ -440,13 +482,6 @@ export function OverlayApp() {
 		status === "predict" && predictSurface === "reply" && Boolean(voiceTabPlacement);
 	const voiceTabAnchorScene = inputScene || replyPredictScene;
 
-	useEffect(() => {
-		if (voiceTabAnchorScene) {
-			x.set(0);
-			y.set(0);
-		}
-	}, [voiceTabAnchorScene, x, y]);
-
 	const inputSettling = inputScene && status === "done" && !fillComplete;
 	const isVoiceFormattingActive = isVoiceFormatting || inputSettling;
 	const isExecuting = isAgentExecuting || isVoiceFormattingActive;
@@ -480,6 +515,8 @@ export function OverlayApp() {
 				? fillComplete
 					? 58
 					: 96
+				: voiceHint
+					? 360
 				: contextPageUrl
 					? 196
 					: contextAppName
@@ -504,16 +541,19 @@ export function OverlayApp() {
 				: status === "listening"
 					? 320
 					: 390;
-	const expandedLeft = expandedX(anchorPosition.x, shellWidth, anchorPosition.snapSide ?? null);
+	const expandedLeft = expandedX(anchorPosition.x, shellWidth, anchorPosition.snapSide ?? null, displayBounds);
 
 	useEffect(() => {
+		if (!bootstrapped) return;
 		if (inputScene) return;
 		if (document.body.dataset.foldDragging === "true") return;
 		const target = {
 			x: collapsed
-				? (positionRef.current.snapSide ? dockedX(positionRef.current.snapSide) : clampDragX(positionRef.current.x))
+				? (positionRef.current.snapSide
+					? dockedX(positionRef.current.snapSide, displayBounds)
+					: clampDragX(positionRef.current.x, displayBounds))
 				: expandedLeft,
-			y: clampY(positionRef.current.y),
+			y: clampY(positionRef.current.y, displayBounds),
 			snapSide: collapsed ? positionRef.current.snapSide : positionRef.current.snapSide,
 		};
 		animate(x, target.x, { type: "spring", stiffness: 520, damping: 42, mass: 0.75 });
@@ -521,7 +561,7 @@ export function OverlayApp() {
 		positionRef.current = target;
 		setAnchorPosition(target);
 		window.localStorage.setItem("fold-widget-position", JSON.stringify(target));
-	}, [collapsed, expandedLeft, inputScene, x, y, shellWidth]);
+	}, [bootstrapped, collapsed, displayBounds, expandedLeft, inputScene, x, y, shellWidth]);
 
 	const onDragStart = () => {
 		dragMovedRef.current = true;
@@ -535,17 +575,24 @@ export function OverlayApp() {
 			x: x.get(),
 			y: y.get(),
 		};
-		const snapSide = collapsed ? resolveSnapSide(raw.x) : null;
-		const next = {
-			x: snapSide ? dockedX(snapSide) : clampDragX(raw.x),
-			y: clampY(raw.y),
-			snapSide,
-		};
-		animate(x, next.x, { type: "spring", stiffness: 520, damping: 38, mass: 0.8 });
-		animate(y, next.y, { type: "spring", stiffness: 520, damping: 38, mass: 0.8 });
-		positionRef.current = next;
-		setAnchorPosition(next);
-		window.localStorage.setItem("fold-widget-position", JSON.stringify(next));
+		void (async () => {
+			const area = await window.fold.getDisplayWorkArea({
+				x: raw.x + ORB_SIZE / 2,
+				y: raw.y + ORB_SIZE / 2,
+			});
+			setDisplayBounds(area);
+			const snapSide = collapsed ? resolveSnapSide(raw.x, area) : null;
+			const next = {
+				x: snapSide ? dockedX(snapSide, area) : clampDragX(raw.x, area),
+				y: clampY(raw.y, area),
+				snapSide,
+			};
+			animate(x, next.x, { type: "spring", stiffness: 520, damping: 38, mass: 0.8 });
+			animate(y, next.y, { type: "spring", stiffness: 520, damping: 38, mass: 0.8 });
+			positionRef.current = next;
+			setAnchorPosition(next);
+			window.localStorage.setItem("fold-widget-position", JSON.stringify(next));
+		})();
 		setTimeout(() => {
 			dragMovedRef.current = false;
 			delete document.body.dataset.foldDragging;
@@ -554,7 +601,7 @@ export function OverlayApp() {
 	};
 
 	return (
-		<div className="fixed inset-0 pointer-events-none">
+		<div className="pointer-events-none absolute inset-0">
 			<motion.div
 				data-fold-interactive=""
 				drag={!inputScene}
@@ -575,24 +622,22 @@ export function OverlayApp() {
 					voiceTabAnchorScene
 						? voiceTabPlacement
 							? {
-									left: voiceTabPlacement.left,
+									left: voiceTabPlacement.left - shellWidth / 2,
 									top: voiceTabPlacement.top,
 									right: "auto",
 									bottom: "auto",
 									x: 0,
 									y: 0,
-									transform: "translateX(-50%)",
 								}
 							: {
-									left: "50%",
+									left: `calc(50% - ${shellWidth / 2}px)`,
 									right: "auto",
 									top: "auto",
 									bottom: Math.max(96, Math.round(window.innerHeight * 0.12)),
 									x: 0,
 									y: 0,
-									transform: "translateX(-50%)",
 								}
-						: { x, y }
+						: { x, y, top: 0, left: 0, opacity: bootstrapped ? 1 : 0 }
 				}
 				className={`${voiceTabAnchorScene ? "fold-input-tab-anchor" : "absolute"} pointer-events-auto select-none`}
 			>
@@ -703,25 +748,30 @@ export function OverlayApp() {
 
 								{status === "listening" && (
 									inputScene ? (
-										<div className="fold-input-tab-row">
-											{contextAppName || contextPageUrl ? (
-												<span className="fold-input-app-icon" aria-hidden="true">
-													<ContextAppIcon
-														appName={contextAppName}
-														appPath={contextAppPath}
-														pageUrl={contextPageUrl}
-														size={18}
-													/>
+										<div className={voiceHint ? "fold-input-tab-stack" : undefined}>
+											<div className="fold-input-tab-row">
+												{contextAppName || contextPageUrl ? (
+													<span className="fold-input-app-icon" aria-hidden="true">
+														<ContextAppIcon
+															appName={contextAppName}
+															appPath={contextAppPath}
+															pageUrl={contextPageUrl}
+															size={18}
+														/>
+													</span>
+												) : null}
+												<span
+													className="fold-input-mode max-w-[132px] truncate"
+													title={voiceSurface}
+												>
+													{voiceSurface}
 												</span>
+												<span className="fold-input-separator" />
+												<VoiceWave level={voiceLevel} />
+											</div>
+											{voiceHint ? (
+												<p className="fold-input-voice-hint">{voiceHint}</p>
 											) : null}
-											<span
-												className="fold-input-mode max-w-[132px] truncate"
-												title={voiceSurface}
-											>
-												{voiceSurface}
-											</span>
-											<span className="fold-input-separator" />
-											<VoiceWave level={voiceLevel} />
 										</div>
 									) : (
 										<>

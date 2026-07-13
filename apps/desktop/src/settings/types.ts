@@ -50,6 +50,12 @@ export interface FoldConfig {
 	uitarsVlmBaseUrl?: string;
 	uitarsVlmApiKey?: string;
 	uitarsVlmModel?: string;
+	onboarding?: {
+		completedAt?: number;
+		step?: string;
+		profileImportedAt?: number;
+		profileImportSkippedAt?: number;
+	};
 }
 
 export interface HomeEpisode {

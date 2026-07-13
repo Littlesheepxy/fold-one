@@ -119,6 +119,13 @@ interface FoldApi {
 	openExternal(url: string): Promise<{ ok: boolean }>;
 	saveConfig(config: FoldConfig): Promise<{ ok: boolean }>;
 	setMousePassthrough(ignore: boolean): void;
+	getDisplayWorkArea(overlayPoint?: { x: number; y: number }): Promise<{
+		x: number;
+		y: number;
+		width: number;
+		height: number;
+	}>;
+	getOverlayState(): Promise<FoldStateEvent>;
 	dismiss(): Promise<void>;
 	toggleVoice(): Promise<void>;
 	voiceError(message: string): Promise<void>;
@@ -133,6 +140,56 @@ interface FoldApi {
 	onHotkeyUp(cb: (mode: "structure" | "reply" | "agent") => void): () => void;
 	onHotkeyCancel(cb: () => void): () => void;
 	onHomeNavigate(cb: (section: string) => void): () => void;
+	probeAccessibility(): Promise<{
+		available: boolean;
+		appLabel: string;
+		bundlePath?: string;
+		error?: string;
+	}>;
+	openAccessibilitySettings(): Promise<{ ok: boolean }>;
+	onboardingGetState(): Promise<{
+		completedAt?: number;
+		step?: string;
+		profileImportedAt?: number;
+		profileImportSkippedAt?: number;
+	}>;
+	openOnboarding(opts?: { reset?: boolean }): Promise<{ ok: boolean }>;
+	onboardingSetStep(step: string): Promise<Record<string, unknown>>;
+	onboardingComplete(): Promise<{ ok: boolean }>;
+	onboardingSkipProfile(): Promise<Record<string, unknown>>;
+	onboardingCompareDemo(opts: { withProfile: boolean }): Promise<OnboardingCompareResult>;
+	onboardingStructureVoice(transcript: string): Promise<string>;
+	onboardingSetVoiceApp(app: string, windowTitle?: string): Promise<{ ok: boolean }>;
+	onboardingAhaGuess(): Promise<{ ok: boolean; runId?: number }>;
+	onboardingSimulateClipboard(lines: string[]): Promise<{
+		ok: boolean;
+		previous?: { id: string; text: string; appName?: string };
+		current?: { id: string; text: string; appName?: string };
+	}>;
+	onOnboardingHotkeyEvent(cb: (payload: {
+		key: string;
+		phase: "down" | "up";
+		longPress?: boolean;
+	}) => void): () => void;
+	onOnboardingVoiceEvent(cb: (payload: {
+		phase: "listening" | "formatting" | "done" | "error";
+		raw?: string;
+		cleaned?: string;
+		error?: string;
+	}) => void): () => void;
+}
+
+interface OnboardingCompareResult {
+	incoming: string;
+	before: { transcript: string; reply: string };
+	after: { transcript: string; reply: string };
+	keywords: string[];
+	checklist: string[];
+	profileSummary?: {
+		role?: string;
+		domains?: string[];
+		communicationStyle?: string;
+	};
 }
 
 declare global {

@@ -92,6 +92,13 @@ export {
 	parseProfileImportResponse,
 	type ProfileImportFields,
 } from "./profile-prompt.js";
+export {
+	buildProfileBrief,
+	buildProfileChecklist,
+	buildOnboardingDemoSentence,
+	extractProfileKeywords,
+	type OnboardingDemoSentence,
+} from "./profile-brief.js";
 export { runPlan } from "./executor.js";
 export { formatRelevantEpisodes } from "./episode-context.js";
 export { formatProbeSummary, runProbes } from "./probe-runner.js";

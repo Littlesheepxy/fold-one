@@ -9,7 +9,10 @@ export interface StructuredSpeech {
 export interface SpeechFormatContext {
 	app?: string | null;
 	windowTitle?: string | null;
+	profileKeywords?: string[];
 	allowCloud?: boolean;
+	/** 引导/演示：跳过本地快路径，优先走模型（改口、渠道语气） */
+	preferQuality?: boolean;
 	onCloudSuccess?: () => void;
 }
 
@@ -20,13 +23,13 @@ function isChatContext(context: SpeechFormatContext): boolean {
 }
 
 function isFormalContext(context: SpeechFormatContext): boolean {
-	return /mail|gmail|outlook|邮件|邮箱|文档|docs|notion|飞书文档/i.test(
+	return /mail|gmail|outlook|邮件|邮箱|文档|知识库|docs|notion|飞书文档/i.test(
 		[context.app, context.windowTitle].filter(Boolean).join(" "),
 	);
 }
 
 function cleanSpeechText(transcript: string): string {
-	return transcript
+	let text = transcript
 		.trim()
 		.replace(/[，,]\s*/g, "，")
 		.replace(/\s+/g, "")
@@ -36,6 +39,18 @@ function cleanSpeechText(transcript: string): string {
 		.replace(/，{2,}/g, "，")
 		.replace(/^，|，$/g, "")
 		.trim();
+
+	// 改口：最后一次「不对」后的内容就是最终意思；不强求用户再说“改成/还是”
+	const revisions = [...text.matchAll(/(?:啊|哦)?不对[，,。.\s]*/g)];
+	const lastRevision = revisions.at(-1);
+	if (lastRevision?.index !== undefined) {
+		const tail = text
+			.slice(lastRevision.index + lastRevision[0].length)
+			.replace(/^(?:还是|改成|改到|那就)[，,。.\s]*/, "")
+			.trim();
+		if (tail.length >= 2) text = tail;
+	}
+	return text.replace(/，{2,}/g, "，").replace(/^，|，$/g, "").trim();
 }
 
 function formatCleanedText(text: string, context: SpeechFormatContext): string {
@@ -115,20 +130,27 @@ export async function structureSpeechText(
 	const text = transcript.trim();
 	if (!text) return { headline: "", detail: "" };
 	const cleaned = formatCleanedText(cleanSpeechText(text), context);
-	if (shouldCleanSpeechLocally(text)) return { headline: cleaned, detail: "" };
+	const useLocal = !context.preferQuality && shouldCleanSpeechLocally(text);
+	if (useLocal) return { headline: cleaned, detail: "" };
 	if (context.allowCloud === false || !hasFastModelApiKey()) return heuristicStructure(text);
 
 	const app = [context.app, context.windowTitle].filter(Boolean).join(" · ") || "未知";
+	const keywordNote =
+		context.profileKeywords?.length ?
+			`\n用户常用专名（听写错字请纠正为下列写法）：${context.profileKeywords.join("、")}`
+		:	"";
 	const prompt = `用户刚说完一段语音输入。请做“输入净化”，不是总结，不要扩写，不要补充事实。
 
 目标：
 - 去掉“嗯、呃、额、那个、就是、然后”等无用口头禅
-- “啊、呀、呢、哈、嘛、啦”等可能是自然语气词：微信/私聊可保留，邮件/文档应去掉或改成更正式表达
+- 若用户先说错再改口（如「九点……啊不对……九点半」），只保留最终决定，不要把改口过程写进结果
+- “啊、呀、呢、哈、嘛、啦”等可能是自然语气词：微信/飞书/Slack 私聊可少量保留，Gmail/邮件/文档应去掉或改成更正式表达
 - 修正明显前后颠倒、重复、断句混乱
 - 保留用户原意和信息量，不要新增“待补充”“可能是”等解释
-- 根据当前 App/场景轻微调整格式：
-  - 微信/飞书/私聊：短、自然、像聊天
-  - 邮件/Outlook/Gmail：稍完整、礼貌、可分段
+- 根据当前 App/场景调整语气与格式：
+  - 微信/飞书：短、自然、像聊天气泡
+  - Slack：可偏英文工作区语气（若原文偏中文仍用中文）
+  - Gmail/邮件：稍完整、礼貌，可分句
   - 文档/笔记：可用简短项目符号
 
 只输出 JSON：
@@ -136,13 +158,13 @@ export async function structureSpeechText(
   "text": "可直接输入到当前 App 的最终文本"
 }
 
-当前 App/窗口：${app}
-用户原话：
-${text}`;
+当前 App/窗口：${app}${keywordNote}
+已去除口头禅和改口过程的文本：
+${cleaned}`;
 
 	try {
 		const out = await generateFastText(prompt, { maxOutputTokens: 400, temperature: 0.2 });
-		const parsed = parseStructureJson(out, text);
+		const parsed = parseStructureJson(out, cleaned);
 		if (!parsed) return heuristicStructure(text);
 		context.onCloudSuccess?.();
 		return parsed;

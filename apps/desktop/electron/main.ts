@@ -12,6 +12,7 @@ import {
 	shouldCleanSpeechLocally,
 	startHabitRecallLoop,
 	structureSpeechText,
+	streamAhaGuess,
 	type FoldStateEvent,
 	type UserActionRequest,
 } from "@fold/runtime";
@@ -42,7 +43,17 @@ import {
 	type FoldConfig,
 } from "./config.js";
 import { buildHomeSnapshot } from "./home-snapshot.js";
-import { cursorPointInOverlay, getOverlaySpanBounds, positionOverlayForActiveContext } from "./overlay-display.js";
+import {
+	cursorPointInOverlay,
+	getDisplayWorkAreaForOverlayPoint,
+	getDisplayWorkAreaInOverlay,
+	getOverlaySpanBounds,
+	getPrimaryDisplayWorkAreaInOverlay,
+	overlayPointToScreen,
+	positionOverlayForActiveContext,
+	positionOverlayForAnchoredScreen,
+	positionOverlayForIdle,
+} from "./overlay-display.js";
 import { openAccessibilitySettings, probeAccessibility, ensureAccessibilityPermission } from "./permissions.js";
 import { buildEpisodeDetail, listEpisodesForHome } from "./episode-detail.js";
 import {
@@ -74,6 +85,20 @@ import {
 	importInputHabitsOneClick,
 	loadImportedInputHabits,
 } from "./input-habit-scanner/import.js";
+import {
+	completeOnboarding,
+	getOnboardingState,
+	isOnboardingComplete,
+	markProfileImported,
+	markProfileImportSkipped,
+	resetOnboardingForTest,
+	setOnboardingStep,
+} from "./onboarding.js";
+import {
+	getOnboardingAhaInput,
+	runOnboardingCompareDemo,
+	runOnboardingStructureVoice,
+} from "./onboarding-compare.js";
 
 migrateLegacyDataDir();
 applyConfigToEnv();
@@ -125,6 +150,8 @@ function hydrateContextFromDb() {
 
 let overlayWindow: BrowserWindow | null = null;
 let settingsWindow: BrowserWindow | null = null;
+let onboardingWindow: BrowserWindow | null = null;
+let onboardingStep: string | undefined;
 let pendingHomeSection: string | null = null;
 let isRecording = false;
 let voiceOutcome: "structure" | "reply" | "agent" = "structure";
@@ -195,7 +222,8 @@ function syncDockVisibility() {
 	if (process.platform !== "darwin") return;
 	const devMode = Boolean(process.env.VITE_DEV_SERVER_URL);
 	const settingsOpen = Boolean(settingsWindow && !settingsWindow.isDestroyed());
-	if (devMode || settingsOpen) {
+	const onboardingOpen = Boolean(onboardingWindow && !onboardingWindow.isDestroyed());
+	if (devMode || settingsOpen || onboardingOpen) {
 		app.dock?.setIcon(createZhigengAppIcon());
 		app.dock?.show();
 		return;
@@ -206,15 +234,16 @@ function syncDockVisibility() {
 function createOverlayWindow() {
 	if (overlayWindow && !overlayWindow.isDestroyed()) return;
 
-	const span = getOverlaySpanBounds();
+	const { workArea } = screen.getPrimaryDisplay();
 
 	overlayWindow = new BrowserWindow({
-		width: span.width,
-		height: span.height,
-		x: span.x,
-		y: span.y,
+		width: workArea.width,
+		height: workArea.height,
+		x: workArea.x,
+		y: workArea.y,
 		frame: false,
 		transparent: true,
+		backgroundColor: "#00000000",
 		alwaysOnTop: true,
 		focusable: false,
 		skipTaskbar: true,
@@ -227,11 +256,14 @@ function createOverlayWindow() {
 			preload: join(__dirname, "preload.js"),
 			contextIsolation: true,
 			nodeIntegration: false,
+			// overlay 窗 focusable:false，从不获用户手势；否则音效被 autoplay 策略拦掉
+			autoplayPolicy: "no-user-gesture-required",
 		},
 	});
 
 	overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 	overlayWindow.setAlwaysOnTop(true, "floating");
+	overlayWindow.showInactive();
 	// CSS pointer-events-none is not enough — pass clicks through to apps below.
 	overlayWindow.setIgnoreMouseEvents(true, { forward: true });
 
@@ -246,9 +278,14 @@ function createOverlayWindow() {
 	});
 
 	overlayWindow.webContents.once("did-finish-load", () => {
-		const app = contextEngine.getLiveContext().activeApp;
-		void positionOverlayForActiveContext(overlayWindow, app).then((voiceTabPlacement) => {
-			emitState({ ...lastOverlayState, voiceTabPlacement });
+		const widgetDisplayBounds = positionOverlayForIdle(overlayWindow);
+		console.log(
+			`[fold:widget] primary bounds=${widgetDisplayBounds.x},${widgetDisplayBounds.y} ${widgetDisplayBounds.width}x${widgetDisplayBounds.height}`,
+		);
+		emitState({
+			...lastOverlayState,
+			voiceTabPlacement: null,
+			widgetDisplayBounds,
 		});
 	});
 }
@@ -310,6 +347,105 @@ function openSettingsWindow(section?: string) {
 		settingsWindow = null;
 		syncDockVisibility();
 	});
+}
+
+function isOnboardingHotkeyTestStep(): boolean {
+	return Boolean(
+		onboardingWindow && !onboardingWindow.isDestroyed() && onboardingStep === "hotkey",
+	);
+}
+
+function isOnboardingVoiceLiveStep(): boolean {
+	return Boolean(
+		onboardingWindow && !onboardingWindow.isDestroyed() && onboardingStep === "voice-live",
+	);
+}
+
+/** 语音输入引导页：整理结果写回引导窗，不插入前台 App */
+let onboardingVoiceApp: string | null = null;
+let onboardingVoiceWindowTitle: string | null = null;
+
+function raiseOverlayForVoiceUi() {
+	if (!overlayWindow || overlayWindow.isDestroyed()) return;
+	overlayWindow.setAlwaysOnTop(true, "screen-saver");
+	overlayWindow.showInactive();
+	overlayWindow.moveTop();
+}
+
+function restoreOverlayZOrder() {
+	if (!overlayWindow || overlayWindow.isDestroyed()) return;
+	overlayWindow.setAlwaysOnTop(true, "floating");
+}
+
+function sendOnboardingVoiceEvent(payload: {
+	phase: "listening" | "formatting" | "done" | "error";
+	raw?: string;
+	cleaned?: string;
+	error?: string;
+}) {
+	if (onboardingWindow && !onboardingWindow.isDestroyed()) {
+		onboardingWindow.webContents.send("fold:onboarding-voice-event", payload);
+	}
+}
+
+function openOnboardingWindow() {
+	if (onboardingWindow && !onboardingWindow.isDestroyed()) {
+		onboardingStep = getOnboardingState().step;
+		onboardingWindow.focus();
+		syncDockVisibility();
+		return;
+	}
+
+	onboardingWindow = new BrowserWindow({
+		width: 1120,
+		height: 780,
+		title: PRODUCT_NAME,
+		resizable: true,
+		minWidth: 880,
+		minHeight: 640,
+		show: false,
+		...(process.platform === "darwin"
+			? {
+					frame: false,
+					transparent: true,
+					hasShadow: true,
+					backgroundColor: "#00000000",
+					titleBarStyle: "hidden" as const,
+					trafficLightPosition: { x: 16, y: 16 },
+				}
+			: {}),
+		webPreferences: {
+			preload: join(__dirname, "preload.js"),
+			contextIsolation: true,
+			nodeIntegration: false,
+		},
+	});
+
+	const onboardingUrl = process.env.VITE_DEV_SERVER_URL
+		? `${process.env.VITE_DEV_SERVER_URL}onboarding.html`
+		: pathToFileURL(join(__dirname, "../dist/onboarding.html")).href;
+
+	onboardingWindow.loadURL(onboardingUrl);
+	onboardingStep = getOnboardingState().step;
+	onboardingWindow.once("ready-to-show", () => {
+		onboardingWindow?.show();
+		syncDockVisibility();
+	});
+	onboardingWindow.on("closed", () => {
+		onboardingWindow = null;
+		onboardingStep = undefined;
+		syncDockVisibility();
+	});
+}
+
+function finishOnboardingFlow() {
+	completeOnboarding();
+	onboardingStep = undefined;
+	if (onboardingWindow && !onboardingWindow.isDestroyed()) {
+		onboardingWindow.close();
+		onboardingWindow = null;
+	}
+	openSettingsWindow("overview");
 }
 
 async function runUserAction(optionId: string, context?: Record<string, unknown>) {
@@ -391,7 +527,7 @@ function requestUserAction(req: UserActionRequest): Promise<string> {
 
 async function executeTask(intent: string) {
 	if (!intent.trim()) {
-		emitState({ status: "idle", ...clearPredictState() });
+		emitIdleState();
 		return;
 	}
 	lastIntent = intent.trim();
@@ -445,9 +581,21 @@ function clearPredictState(): Partial<FoldStateEvent> {
 		contextPageUrl: null,
 		contextPageLabel: null,
 		predictRefining: false,
-		voiceTabPlacement: null,
 		structureDraftOpen: false,
 	};
+}
+
+function emitIdleState(extra: Partial<FoldStateEvent> = {}) {
+	restoreOverlayZOrder();
+	const widgetDisplayBounds = positionOverlayForIdle(overlayWindow);
+	emitState({
+		status: "idle",
+		voiceTabPlacement: null,
+		voiceHint: null,
+		widgetDisplayBounds,
+		...clearPredictState(),
+		...extra,
+	});
 }
 
 function emitPredictResult(result: Awaited<ReturnType<typeof resolveReplyPredictions>>) {
@@ -508,12 +656,58 @@ function showReplyPredictions() {
 async function structureVoiceTranscript(transcript: string) {
 	const text = transcript.trim();
 	if (!text) {
-		emitState({ status: "idle", ...clearPredictState() });
+		emitIdleState();
 		return;
 	}
 	const ctx = contextEngine.getLiveContext();
 	const smartAccess = resolveSmartActionAccess();
 	const useLocal = shouldCleanSpeechLocally(text);
+
+	if (isOnboardingVoiceLiveStep()) {
+		const app = onboardingVoiceApp ?? "微信";
+		// 引导窗（Electron 自身）在前台：锚定到活跃屏底中，overlay 只覆盖该屏避免多屏 span 飘移
+		const voiceTabPlacement = await positionOverlayForAnchoredScreen(
+			overlayWindow,
+			voiceTargetApp,
+		);
+		raiseOverlayForVoiceUi();
+		sendOnboardingVoiceEvent({ phase: "formatting", raw: text });
+		emitState({
+			status: "formatting",
+			transcript: text,
+			voiceMode: "structure",
+			voiceTabPlacement,
+			voiceHint: null,
+			...clearPredictState(),
+			contextAppName: app,
+			contextWindowTitle: onboardingVoiceWindowTitle,
+		});
+		try {
+			const structured = await structureSpeechText(text, {
+				app,
+				windowTitle: onboardingVoiceWindowTitle ?? "Onboarding",
+				allowCloud: smartAccess.allowed,
+				preferQuality: true,
+			});
+			const body = [structured.headline, structured.detail]
+				.map((part) => part.trim())
+				.filter(Boolean)
+				.filter((part, index, arr) => index === 0 || part !== arr[0])
+				.join("\n\n");
+			const output = body || text;
+			sendOnboardingVoiceEvent({ phase: "done", raw: text, cleaned: output });
+			emitIdleState({ voiceMode: null });
+		} catch (err) {
+			sendOnboardingVoiceEvent({
+				phase: "error",
+				raw: text,
+				error: (err as Error).message,
+			});
+			emitState({ status: "error", error: (err as Error).message, transcript: text, voiceHint: null });
+		}
+		return;
+	}
+
 	const voiceTabPlacement = await positionOverlayForActiveContext(
 		overlayWindow,
 		voiceTargetApp ?? ctx.activeApp,
@@ -539,7 +733,7 @@ async function structureVoiceTranscript(transcript: string) {
 			});
 			setTimeout(() => {
 				if (lastOverlayState.status === "done" && lastOverlayState.voiceMode === "structure") {
-					emitState({ status: "idle", voiceMode: null, ...clearPredictState() });
+					emitIdleState({ voiceMode: null });
 				}
 			}, 2500);
 			return;
@@ -582,7 +776,7 @@ async function structureVoiceTranscript(transcript: string) {
 			});
 			setTimeout(() => {
 				if (lastOverlayState.status === "done" && lastOverlayState.voiceMode === "structure") {
-					emitState({ status: "idle", voiceMode: null, ...clearPredictState() });
+					emitIdleState({ voiceMode: null });
 				}
 			}, 850);
 		} else {
@@ -609,7 +803,7 @@ async function structureVoiceTranscript(transcript: string) {
 async function replyVoiceTranscript(transcript: string) {
 	const text = transcript.trim();
 	if (!text) {
-		emitState({ status: "idle", ...clearPredictState() });
+		emitIdleState();
 		return;
 	}
 	lastReplyTranscript = text;
@@ -701,6 +895,17 @@ const IPC_HANDLE_CHANNELS = [
 	"fold:voice-error",
 	"fold:open-settings",
 	"fold:quit",
+	"fold:probe-accessibility",
+	"fold:onboarding-get-state",
+	"fold:open-onboarding",
+	"fold:onboarding-set-step",
+	"fold:onboarding-complete",
+	"fold:onboarding-skip-profile",
+	"fold:onboarding-compare-demo",
+	"fold:onboarding-structure-voice",
+	"fold:onboarding-set-voice-app",
+	"fold:onboarding-aha-guess",
+	"fold:onboarding-simulate-clipboard",
 ] as const;
 
 function resolveAsrRuntime() {
@@ -930,9 +1135,112 @@ function registerIpc() {
 	ipcMain.handle("fold:profile-run-import", (_e, platformId: string, tabUrl?: string) =>
 		executeProfileImport(platformId, tabUrl),
 	);
-	ipcMain.handle("fold:profile-save-response", (_e, responseText: string) =>
-		saveProfileFromResponse(responseText),
+	ipcMain.handle("fold:profile-save-response", (_e, responseText: string) => {
+		const result = saveProfileFromResponse(responseText);
+		if (result.ok) markProfileImported();
+		return result;
+	});
+
+	ipcMain.handle("fold:probe-accessibility", () => probeAccessibility(false));
+	ipcMain.handle("fold:onboarding-get-state", () => getOnboardingState());
+	ipcMain.handle("fold:open-onboarding", (_e, opts?: { reset?: boolean }) => {
+		if (opts?.reset) resetOnboardingForTest();
+		openOnboardingWindow();
+		return { ok: true };
+	});
+	ipcMain.handle("fold:onboarding-set-step", (_e, step: string) => {
+		if (typeof step === "string" && step.trim()) {
+			onboardingStep = step.trim();
+			setOnboardingStep(step.trim());
+		}
+		return getOnboardingState();
+	});
+	ipcMain.handle("fold:onboarding-complete", () => {
+		finishOnboardingFlow();
+		return { ok: true };
+	});
+	ipcMain.handle("fold:onboarding-skip-profile", () => {
+		markProfileImportSkipped();
+		return getOnboardingState();
+	});
+	ipcMain.handle("fold:onboarding-compare-demo", (_e, opts: { withProfile?: boolean }) =>
+		runOnboardingCompareDemo({ withProfile: Boolean(opts?.withProfile) }),
 	);
+	ipcMain.handle("fold:onboarding-structure-voice", (_e, transcript: string) =>
+		runOnboardingStructureVoice(String(transcript ?? "")),
+	);
+	ipcMain.handle("fold:onboarding-set-voice-app", (_e, app: string, windowTitle?: string) => {
+		onboardingVoiceApp = typeof app === "string" && app.trim() ? app.trim() : null;
+		onboardingVoiceWindowTitle =
+			typeof windowTitle === "string" && windowTitle.trim() ? windowTitle.trim() : null;
+		return { ok: true };
+	});
+	ipcMain.handle("fold:onboarding-aha-guess", async () => {
+		const runId = ++ahaGuessRunId;
+		const win = onboardingWindow;
+		if (!win || win.isDestroyed()) return { ok: false };
+
+		const send = (channel: string, payload: Record<string, unknown>) => {
+			if (runId !== ahaGuessRunId || win.isDestroyed()) return;
+			win.webContents.send(channel, { runId, ...payload });
+		};
+
+		void (async () => {
+			try {
+				const input = getOnboardingAhaInput();
+				const reply = await streamAhaGuess(input, {
+					allowCloud: resolveSmartActionAccess().allowed,
+					onChunk: (chunk: string) => send("fold:aha-guess-chunk", { chunk }),
+					isCancelled: () => runId !== ahaGuessRunId,
+				});
+				if (runId !== ahaGuessRunId) return;
+				send("fold:aha-guess-done", {
+					reply,
+					suggestions: [
+						{
+							label: "回复进度",
+							intent: "回复同事关于预算评审的时间安排",
+							reason: "当前在飞书预算文档",
+							confidence: 0.72,
+						},
+					],
+					confidenceLevel: "medium",
+					confidenceScore: 0.72,
+				});
+			} catch {
+				if (runId !== ahaGuessRunId) return;
+				send("fold:aha-guess-done", {
+					error: "暂时没看清楚，稍后再试。",
+					suggestions: [],
+				});
+			}
+		})();
+
+		return { ok: true, runId };
+	});
+	ipcMain.handle("fold:onboarding-simulate-clipboard", (_e, lines: string[]) => {
+		const texts = Array.isArray(lines) ? lines.filter((t) => typeof t === "string" && t.trim()) : [];
+		if (texts.length < 2) return { ok: false };
+		const now = Date.now();
+		contextEngine.pushEvent({
+			type: "clipboard.changed",
+			source: "clipboard",
+			timestamp: now - 2000,
+			data: { text: texts[0]!.trim(), origin: "user", appName: "Safari" },
+		});
+		contextEngine.pushEvent({
+			type: "clipboard.changed",
+			source: "clipboard",
+			timestamp: now,
+			data: { text: texts[1]!.trim(), origin: "user", appName: "备忘录" },
+		});
+		const ctx = contextEngine.getLiveContext();
+		return {
+			ok: true,
+			previous: ctx.recentClipboards[1] ?? null,
+			current: ctx.recentClipboards[0] ?? null,
+		};
+	});
 
 	ipcMain.handle("fold:predict-pick-intent", async (_e, intent: string) => {
 		if (!intent?.trim()) return { ok: false };
@@ -968,7 +1276,7 @@ function registerIpc() {
 		}
 		lastReplyTranscript = "";
 		clearPredictTargetApp();
-		emitState({ status: "idle", ...clearPredictState() });
+		emitIdleState();
 		return result;
 	});
 
@@ -986,7 +1294,7 @@ function registerIpc() {
 			contextEngine.suppressClipboardCapture(5000);
 			const result = await insertTextToFrontApp(trimmed, targetApp);
 			voiceTargetApp = null;
-			emitState({ status: "idle", voiceMode: null, ...clearPredictState() });
+			emitIdleState({ voiceMode: null });
 			return result;
 		},
 	);
@@ -999,7 +1307,7 @@ function registerIpc() {
 	});
 
 	ipcMain.handle("fold:predict-start-voice", () => {
-		emitState({ status: "idle", ...clearPredictState() });
+		emitIdleState();
 		toggleVoiceRecording("structure");
 		return { ok: true };
 	});
@@ -1089,6 +1397,21 @@ function registerIpc() {
 		overlayWindow?.setIgnoreMouseEvents(ignore, { forward: ignore });
 	});
 
+	ipcMain.handle(
+		"fold:get-display-work-area",
+		(_e, overlayPoint?: { x: number; y: number }) => {
+			if (overlayPoint) {
+				const savedArea = getDisplayWorkAreaForOverlayPoint(overlayPoint);
+				if (savedArea) return savedArea;
+				const screenPoint = overlayPointToScreen(overlayPoint, overlayWindow);
+				return getDisplayWorkAreaInOverlay(screenPoint, overlayWindow);
+			}
+			return getPrimaryDisplayWorkAreaInOverlay(overlayWindow);
+		},
+	);
+
+	ipcMain.handle("fold:get-overlay-state", () => lastOverlayState);
+
 	ipcMain.handle("fold:dismiss", () => {
 		isRecording = false;
 		if (pendingUserAction) {
@@ -1097,7 +1420,7 @@ function registerIpc() {
 		}
 		clearPredictTargetApp();
 		voiceTargetApp = null;
-		emitState({ status: "idle", ...clearPredictState() });
+		emitIdleState();
 	});
 
 	ipcMain.handle("fold:toggle-voice", () => {
@@ -1143,6 +1466,34 @@ async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 	voiceTargetApp = ctx.activeApp ?? null;
 	isRecording = true;
 	createOverlayWindow();
+
+	if (outcome === "structure" && isOnboardingVoiceLiveStep()) {
+		const voiceTabPlacement = await positionOverlayForAnchoredScreen(
+			overlayWindow,
+			voiceTargetApp,
+		);
+		raiseOverlayForVoiceUi();
+		emitState({
+			status: "listening",
+			transcript: "",
+			result: null,
+			resultDetail: null,
+			voiceMode: "structure",
+			voiceTabPlacement,
+			voiceHint: null,
+			predictRefining: false,
+			...clearPredictState(),
+			contextAppName: onboardingVoiceApp ?? "微信",
+			contextAppPath: null,
+			contextWindowTitle: onboardingVoiceWindowTitle,
+			contextPageUrl: null,
+			contextPageLabel: null,
+		});
+		sendOnboardingVoiceEvent({ phase: "listening" });
+		overlayWindow?.webContents.send("fold:hotkey-down", outcome);
+		return;
+	}
+
 	const voiceTabPlacement = await positionOverlayForActiveContext(overlayWindow, voiceTargetApp);
 	emitState({
 		status: "listening",
@@ -1151,6 +1502,7 @@ async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 		resultDetail: null,
 		voiceMode: outcome,
 		voiceTabPlacement,
+		voiceHint: null,
 		predictRefining: false,
 		...clearPredictState(),
 		...buildVoiceOverlayContext(ctx),
@@ -1208,18 +1560,22 @@ function cancelActiveSession() {
 	if (isRecording) {
 		isRecording = false;
 		overlayWindow?.webContents.send("fold:hotkey-cancel");
-		emitState({ status: "idle", ...clearPredictState() });
+		emitIdleState();
 		return;
 	}
 	if (lastOverlayState.status === "predict") {
-		emitState({ status: "idle", ...clearPredictState() });
+		emitIdleState();
 	}
 }
 
 function registerHotkeys() {
 	stopHotkey = startHoldHotkey({
-		onAgentToggle: () => toggleVoiceRecording("agent"),
+		onAgentToggle: () => {
+			if (isOnboardingHotkeyTestStep()) return;
+			toggleVoiceRecording("agent");
+		},
 		onStructureToggle: () => {
+			if (isOnboardingHotkeyTestStep()) return;
 			if (isRecording && voiceOutcome === "reply" && replyLatched) {
 				stopVoiceRecording();
 				return;
@@ -1228,6 +1584,7 @@ function registerHotkeys() {
 			toggleVoiceRecording("structure");
 		},
 		onReplyHoldStart: () => {
+			if (isOnboardingHotkeyTestStep()) return;
 			if (isReplyPredictCard() && !isRecording) {
 				startReplyRefineRecording();
 				return;
@@ -1239,12 +1596,21 @@ function registerHotkeys() {
 			if (!isRecording) startReplyLatchedRecording();
 		},
 		onReplyHoldEnd: () => {
+			if (isOnboardingHotkeyTestStep()) return;
 			if (isRecording && voiceOutcome === "reply" && replyRefineHold) {
 				stopVoiceRecording();
 			}
 		},
-		onReplyToggle: () => toggleVoiceRecording("reply"),
+		onReplyToggle: () => {
+			if (isOnboardingHotkeyTestStep()) return;
+			toggleVoiceRecording("reply");
+		},
 		onCancel: cancelActiveSession,
+		onHotkeyTest: (event) => {
+			if (onboardingWindow && !onboardingWindow.isDestroyed()) {
+				onboardingWindow.webContents.send("fold:onboarding-hotkey-event", event);
+			}
+		},
 	});
 }
 
@@ -1274,8 +1640,11 @@ app.whenReady().then(() => {
 		}),
 	});
 
-	// 未授权时弹系统对话框并打开辅助功能设置（开发模式登记为 Electron）
-	setTimeout(() => void ensureAccessibilityPermission(), 1200);
+	if (!isOnboardingComplete()) {
+		openOnboardingWindow();
+	} else {
+		setTimeout(() => void ensureAccessibilityPermission(), 1200);
+	}
 });
 
 app.on("will-quit", () => {

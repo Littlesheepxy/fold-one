@@ -35,11 +35,11 @@ export function playFoldSound(id: FoldSoundId) {
 		lastPlayAt = now;
 		const audio = getAudio(id);
 		audio.currentTime = 0;
-		void audio.play().catch(() => {
-			// Autoplay policy: blocked until user gesture.
+		void audio.play().catch((error) => {
+			console.warn(`[fold:sound] ${id} 播放失败`, error);
 		});
-	} catch {
-		// ignore
+	} catch (error) {
+		console.warn(`[fold:sound] ${id} 初始化失败`, error);
 	}
 }
 
@@ -57,21 +57,7 @@ export function playFoldSoundForStatus(
 ) {
 	if (next === prev) return;
 
-	if (next === "listening" && prev !== "listening") {
-		playFoldSound("voiceStart");
-		return;
-	}
-
-	// 松键结束录音：保留现有「嘚嘚」；净化/代回完成后不再另播结束音
-	if (
-		prev === "listening" &&
-		(next === "understanding" || next === "planning" || next === "working")
-	) {
-		playFoldSound("startup");
-		return;
-	}
-
-	// 净化/代回完成：内容直接出来，不再播 Agent 任务完成音
+	// 录音开始/结束音由真实 hotkey down/up 触发，避免快速状态切换被 React 合并漏播。
 	if (next === "done" && prev !== "done") {
 		if (isVoiceAssistMode(voiceMode)) return;
 		playFoldSound("taskDone");
@@ -88,7 +74,13 @@ export function playFoldSoundForStatus(
 		return;
 	}
 
-	if (next === "idle" && prev !== "idle" && prev !== "done") {
+	if (
+		next === "idle" &&
+		prev !== "idle" &&
+		prev !== "done" &&
+		prev !== "formatting" &&
+		prev !== "listening"
+	) {
 		playFoldSound("end");
 		return;
 	}

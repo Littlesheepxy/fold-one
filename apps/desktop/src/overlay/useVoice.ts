@@ -5,6 +5,7 @@ import {
 	createMockAsr,
 	type AsrController,
 } from "@fold/voice";
+import { playFoldSound } from "./sounds";
 
 const WS_BASE = import.meta.env.VITE_ASR_WS_URL ?? "ws://localhost:3003";
 
@@ -96,9 +97,13 @@ export function useVoiceHandlers() {
 		const unsubs = [
 			window.fold.onHotkeyDown((mode) => {
 				voiceModeRef.current = mode;
+				playFoldSound("voiceStart");
 				void startRecording();
 			}),
-			window.fold.onHotkeyUp((mode) => void stopRecording(mode)),
+			window.fold.onHotkeyUp((mode) => {
+				playFoldSound("startup");
+				void stopRecording(mode);
+			}),
 			window.fold.onHotkeyCancel(cancelRecording),
 		];
 

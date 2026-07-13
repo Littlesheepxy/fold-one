@@ -73,12 +73,91 @@ export interface OverlayWorkArea {
 	height: number;
 }
 
+/** Work area of the primary display (menu bar), in overlay-window coordinates. */
+export function getPrimaryDisplayWorkAreaInOverlay(window: BrowserWindow | null = null): OverlayWorkArea {
+	const { workArea } = screen.getPrimaryDisplay();
+	if (window && !window.isDestroyed()) {
+		const bounds = window.getBounds();
+		if (
+			bounds.x === workArea.x &&
+			bounds.y === workArea.y &&
+			bounds.width === workArea.width &&
+			bounds.height === workArea.height
+		) {
+			return { x: 0, y: 0, width: workArea.width, height: workArea.height };
+		}
+	}
+	const span = getOverlaySpanBounds();
+	return {
+		x: workArea.x - span.x,
+		y: workArea.y - span.y,
+		width: workArea.width,
+		height: workArea.height,
+	};
+}
+
+/** Work area of the display nearest `screenPoint`, in overlay-window coordinates. */
+export function getDisplayWorkAreaInOverlay(
+	screenPoint?: { x: number; y: number },
+	window: BrowserWindow | null = null,
+): OverlayWorkArea {
+	if (!screenPoint) {
+		return getPrimaryDisplayWorkAreaInOverlay(window);
+	}
+	const display = screen.getDisplayNearestPoint(screenPoint);
+	const span = getOverlaySpanBounds();
+	const { workArea } = display;
+	return {
+		x: workArea.x - span.x,
+		y: workArea.y - span.y,
+		width: workArea.width,
+		height: workArea.height,
+	};
+}
+
+/** Overlay-local work area for a point; null if the point is outside every display work area. */
+export function getDisplayWorkAreaForOverlayPoint(overlayPoint: {
+	x: number;
+	y: number;
+}): OverlayWorkArea | null {
+	const span = getOverlaySpanBounds();
+	const screenPoint = { x: span.x + overlayPoint.x, y: span.y + overlayPoint.y };
+	const display = screen.getDisplayNearestPoint(screenPoint);
+	const { workArea } = display;
+	const area = {
+		x: workArea.x - span.x,
+		y: workArea.y - span.y,
+		width: workArea.width,
+		height: workArea.height,
+	};
+	const cx = overlayPoint.x + WIDGET_ORB_SIZE / 2;
+	const cy = overlayPoint.y + WIDGET_ORB_SIZE / 2;
+	if (
+		cx < area.x ||
+		cy < area.y ||
+		cx > area.x + area.width ||
+		cy > area.y + area.height
+	) {
+		return null;
+	}
+	return area;
+}
+
+export function overlayPointToScreen(
+	overlayPoint: { x: number; y: number },
+	window: BrowserWindow | null,
+): { x: number; y: number } {
+	const area = getOverlayWorkArea(window);
+	return { x: area.x + overlayPoint.x, y: area.y + overlayPoint.y };
+}
+
 export interface VoiceTabPlacement {
 	left: number;
 	top: number;
 }
 
 const VOICE_TAB_HEIGHT = 34;
+const WIDGET_ORB_SIZE = 44;
 
 export function getOverlaySpanBounds(): Rectangle {
 	const displays = screen.getAllDisplays();
@@ -190,6 +269,18 @@ function applyOverlayBounds(window: BrowserWindow, bounds: Rectangle): void {
 	window.setBounds(bounds);
 }
 
+/** Idle floating orb: keep overlay on the primary display only (simple 0-based coords). */
+export function positionOverlayForIdle(window: BrowserWindow | null): OverlayWorkArea {
+	const { workArea } = screen.getPrimaryDisplay();
+	if (window && !window.isDestroyed()) {
+		applyOverlayBounds(window, workArea);
+	}
+	console.log(
+		`[fold:overlay-display] idle overlay workArea=${workArea.x},${workArea.y} ${workArea.width}x${workArea.height}`,
+	);
+	return { x: 0, y: 0, width: workArea.width, height: workArea.height };
+}
+
 /** Span all displays and anchor the voice tab above the target window's bottom bar. */
 export async function positionOverlayForActiveContext(
 	window: BrowserWindow | null,
@@ -205,6 +296,29 @@ export async function positionOverlayForActiveContext(
 	const bounds = window.getBounds();
 	console.log(
 		`[fold:overlay-display] targetApp=${targetApp ?? "—"} display=${display.id} workArea=${display.workArea.x},${display.workArea.y} ${display.workArea.width}x${display.workArea.height} window=${rect.x},${rect.y} ${rect.width}x${rect.height} placement=${placement.left},${placement.top} span=${bounds.x},${bounds.y} ${bounds.width}x${bounds.height}`,
+	);
+	return placement;
+}
+
+/**
+ * 语音条锚定「当前活跃屏」底部中间：overlay 只覆盖该屏 workArea（0 基坐标），
+ * 避免多屏 span 让 placement 落到副屏。activeApp 决定活跃屏，取不到则用光标所在屏。
+ */
+export async function positionOverlayForAnchoredScreen(
+	window: BrowserWindow | null,
+	targetApp?: string | null,
+): Promise<VoiceTabPlacement | null> {
+	if (!window || window.isDestroyed()) return null;
+	const { display } = await resolveTargetWindowRect(targetApp);
+	const { workArea } = display;
+	applyOverlayBounds(window, workArea);
+	// 无前台输入栏，直接贴工作区底边（Dock 上方）留一点呼吸位
+	const placement = {
+		left: Math.round(workArea.width / 2),
+		top: Math.round(workArea.height - VOICE_TAB_HEIGHT - VOICE_TAB_ABOVE_BAR),
+	};
+	console.log(
+		`[fold:overlay-display] anchored-screen display=${display.id} workArea=${workArea.x},${workArea.y} ${workArea.width}x${workArea.height} placement=${placement.left},${placement.top}`,
 	);
 	return placement;
 }

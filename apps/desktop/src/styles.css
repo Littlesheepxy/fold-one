@@ -3,12 +3,22 @@
 html, body, #root {
   margin: 0;
   padding: 0;
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   background: transparent;
   overflow: hidden;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+/* 跨屏 overlay：100vw/100vh 只会铺满主屏，球坐标在主屏外会被裁掉 */
+html:has(body.fold-overlay-page),
+html:has(body.fold-overlay-page) body,
+html:has(body.fold-overlay-page) #root {
+  width: 100%;
+  height: 100%;
+  min-width: 100%;
+  min-height: 100%;
 }
 
 body.fold-home-page,
@@ -140,6 +150,32 @@ body.fold-home-page #root {
   justify-content: center;
   gap: 0;
   max-width: 100%;
+}
+
+.fold-input-tab-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 0;
+  width: 100%;
+}
+
+.fold-input-voice-hint {
+  margin: 0;
+  padding: 0 2px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: rgb(255 255 255 / 0.55);
+  white-space: normal;
+  text-align: left;
+}
+
+.fold-input-tab:has(.fold-input-voice-hint) {
+  height: auto;
+  min-height: 34px;
+  padding: 8px 14px;
+  align-items: stretch;
 }
 
 .fold-input-tab .fold-logo-button {
@@ -3856,4 +3892,633 @@ button.fold-connection-chip-main.needs-action:hover:not(:disabled) {
 .fold-connect-btn-muted {
   background: transparent;
   color: #6e6e73;
+}
+
+/* —— Onboarding —— */
+.fold-onboarding-page {
+  background: transparent;
+}
+
+.fold-onboarding-root {
+  display: flex;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: linear-gradient(145deg, #f5f5f7 0%, #e8eef5 55%, #f0ebe8 100%);
+}
+
+.fold-onboarding-window {
+  width: 100%;
+  max-width: 1040px;
+  min-height: 640px;
+  border-radius: 20px;
+  background: rgb(255 255 255 / 0.92);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 0.08);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.fold-onboarding-stepper {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px 24px 12px;
+  font-size: 13px;
+  color: #86868b;
+}
+
+.fold-onboarding-stepper-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fold-onboarding-stepper-sep {
+  color: #c7c7cc;
+}
+
+.fold-onboarding-stepper-item .is-active {
+  color: #1d1d1f;
+  font-weight: 600;
+  border-bottom: 2px solid #1d1d1f;
+  padding-bottom: 2px;
+}
+
+.fold-onboarding-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr;
+  min-height: 0;
+}
+
+.fold-onboarding-body.has-split {
+  grid-template-columns: 45fr 55fr;
+}
+
+.fold-onboarding-left {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 32px 28px;
+  min-height: 0;
+}
+
+.fold-onboarding-right {
+  padding: 24px 28px 28px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, rgb(255 255 255 / 0.4), rgb(240 245 250 / 0.8));
+}
+
+.fold-onboarding-back {
+  align-self: flex-start;
+  border: 0;
+  background: transparent;
+  color: #6e6e73;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 0 16px;
+}
+
+.fold-onboarding-back-spacer {
+  height: 36px;
+}
+
+.fold-onboarding-title {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #1d1d1f;
+  margin: 0 0 14px;
+}
+
+.fold-onboarding-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.fold-onboarding-title-row .fold-onboarding-title {
+  margin: 0;
+}
+
+.fold-onboarding-kbd--title {
+  padding: 4px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  border-radius: 7px;
+}
+
+.fold-onboarding-sub {
+  font-size: 14px;
+  line-height: 1.7;
+  color: #6e6e73;
+  margin: 0 0 14px;
+}
+
+.fold-onboarding-hint {
+  font-size: 13px;
+  line-height: 1.65;
+  color: #86868b;
+  margin: 0 0 12px;
+}
+
+.fold-onboarding-hint:last-child {
+  margin-bottom: 0;
+}
+
+.fold-onboarding-error {
+  font-size: 13px;
+  color: #d70015;
+  margin-top: 8px;
+}
+
+.fold-onboarding-footer {
+  margin-top: auto;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 24px;
+}
+
+.fold-onboarding-btn {
+  padding: 10px 20px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 0.5px solid rgb(0 0 0 / 0.1);
+}
+
+.fold-onboarding-btn.primary {
+  background: #1d1d1f;
+  color: #fff;
+  border-color: transparent;
+}
+
+.fold-onboarding-btn.primary:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.fold-onboarding-btn.secondary {
+  background: #fff;
+  color: #1d1d1f;
+}
+
+.fold-onboarding-kbd {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 0.5px solid rgb(0 0 0 / 0.12);
+  background: #f5f5f7;
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.fold-onboarding-scenario-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 14px;
+}
+
+.fold-onboarding-scenario-picker button {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 0.5px solid rgb(0 0 0 / 0.08);
+  background: rgb(255 255 255 / 0.7);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: #424245;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.fold-onboarding-scenario-picker button img {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.fold-onboarding-scenario-picker button.is-active {
+  border-color: rgb(56 189 248 / 0.55);
+  background: rgb(224 242 254 / 0.95);
+  color: #0369a1;
+}
+
+.fold-onboarding-visual-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  max-width: 360px;
+}
+
+.fold-onboarding-visual-card {
+  width: 100%;
+  max-width: 360px;
+  padding: 20px;
+  border-radius: 16px;
+  background: rgb(255 255 255 / 0.85);
+  box-shadow: 0 8px 32px rgb(0 0 0 / 0.06);
+}
+
+.fold-onboarding-mic-visual {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 320px;
+  padding: 32px;
+  border-radius: 16px;
+  background: rgb(255 255 255 / 0.7);
+}
+
+.fold-onboarding-mic-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 48px;
+}
+
+.fold-onboarding-mic-bar {
+  width: 8px;
+  height: 12px;
+  border-radius: 4px;
+  background: #d1d1d6;
+  transition: height 80ms ease, background 80ms ease;
+}
+
+.fold-onboarding-mic-bar.active {
+  height: 36px;
+  background: #5ac8fa;
+}
+
+.fold-onboarding-key-visual {
+  text-align: center;
+}
+
+.fold-onboarding-keyboard {
+  width: 100%;
+  max-width: 100%;
+  padding: 8px 0 16px;
+  display: flex;
+  justify-content: center;
+}
+
+.fold-onboarding-key-cap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 14px;
+  border: 2px solid #1d1d1f;
+  font-size: 28px;
+  font-weight: 600;
+  background: #fff;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.fold-onboarding-key-cap.active {
+  background: #5ac8fa;
+  border-color: #007aff;
+  color: #fff;
+}
+
+.fold-onboarding-compare-incoming {
+  font-size: 13px;
+  margin-bottom: 12px;
+  color: #1d1d1f;
+}
+
+.fold-onboarding-compare-label {
+  display: inline-block;
+  margin-right: 8px;
+  font-size: 11px;
+  color: #86868b;
+}
+
+.fold-onboarding-compare-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.fold-onboarding-compare-col-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #86868b;
+  margin-bottom: 8px;
+}
+
+.fold-onboarding-compare-col-title.is-highlight {
+  color: #248a3d;
+}
+
+.fold-onboarding-compare-card {
+  padding: 12px;
+  border-radius: 12px;
+  background: #f5f5f7;
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+.fold-onboarding-compare-card.muted {
+  opacity: 0.85;
+}
+
+.fold-onboarding-checklist {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: #1d1d1f;
+  line-height: 1.7;
+}
+
+.fold-onboarding-keywords {
+  margin-top: 16px;
+}
+
+.fold-onboarding-keywords-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6e6e73;
+  margin-bottom: 8px;
+}
+
+.fold-onboarding-keywords-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fold-onboarding-keyword-chip {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #e8f4fd;
+  color: #007aff;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.fold-onboarding-profile-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.fold-onboarding-profile-chips span {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #f5f5f7;
+  font-size: 12px;
+  color: #1d1d1f;
+}
+
+.fold-onboarding-compose,
+.fold-onboarding-wechat {
+  width: 100%;
+  max-width: 340px;
+  padding: 16px;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.08);
+}
+
+.fold-onboarding-compose-header,
+.fold-onboarding-wechat-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.fold-onboarding-compose-icon,
+.fold-onboarding-wechat-app-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.fold-onboarding-compose-bubble,
+.fold-onboarding-wechat-bubble {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.fold-onboarding-compose-avatar,
+.fold-onboarding-wechat-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: #e8e8ed;
+  color: #86868b;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.fold-onboarding-compose-input,
+.fold-onboarding-wechat-input {
+  min-height: 72px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 0.5px solid rgb(0 0 0 / 0.08);
+  font-size: 14px;
+  line-height: 1.65;
+  color: #1d1d1f;
+  background: #fafafa;
+  white-space: pre-wrap;
+}
+
+.fold-onboarding-compose--email .fold-onboarding-email-meta {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #6e6e73;
+}
+
+.fold-onboarding-compose--email .fold-onboarding-email-meta span {
+  display: inline-block;
+  width: 3em;
+  color: #86868b;
+}
+
+.fold-onboarding-live-field {
+  margin: 0 0 12px;
+}
+
+.fold-onboarding-live-label {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: #86868b;
+}
+
+.fold-onboarding-live-input {
+  width: 100%;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 0.5px solid rgb(0 0 0 / 0.1);
+  background: #fff;
+  font-size: 14px;
+  line-height: 1.65;
+  color: #1d1d1f;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.fold-onboarding-live-input.is-example {
+  color: #6e6e73;
+  font-style: italic;
+  background: #fafafa;
+}
+
+.fold-onboarding-live-input:focus {
+  outline: none;
+  border-color: rgb(56 189 248 / 0.65);
+  box-shadow: 0 0 0 3px rgb(56 189 248 / 0.15);
+}
+
+.fold-onboarding-live-input:disabled {
+  opacity: 0.7;
+  background: #f5f5f7;
+}
+
+.fold-onboarding-hint-list {
+  margin: 0 0 12px;
+  padding-left: 1.15em;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #86868b;
+}
+
+.fold-onboarding-hint-list li + li {
+  margin-top: 2px;
+}
+
+.fold-onboarding-sample-box {
+  padding: 14px;
+  border-radius: 12px;
+  background: #f5f5f7;
+  margin-bottom: 16px;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.fold-onboarding-aha-box {
+  padding: 16px;
+  border-radius: 12px;
+  background: #f5f5f7;
+  font-size: 15px;
+  line-height: 1.6;
+  min-height: 80px;
+}
+
+.fold-onboarding-shortcut-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.fold-onboarding-shortcut-card {
+  padding: 16px;
+  border-radius: 14px;
+  background: rgb(255 255 255 / 0.7);
+  border: 0.5px solid rgb(0 0 0 / 0.06);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.fold-onboarding-shortcut-card.is-selected {
+  border-color: rgb(56 189 248 / 0.55);
+  box-shadow: 0 0 0 1px rgb(56 189 248 / 0.35);
+}
+
+.fold-onboarding-shortcut-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 14px;
+}
+
+.fold-onboarding-shortcut-picker button {
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 0.5px solid rgb(0 0 0 / 0.08);
+  background: rgb(255 255 255 / 0.65);
+  font-size: 12px;
+  font-weight: 600;
+  color: #424245;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.fold-onboarding-shortcut-picker button.is-active {
+  border-color: rgb(56 189 248 / 0.55);
+  background: rgb(224 242 254 / 0.9);
+  color: #0369a1;
+}
+
+.fold-onboarding-shortcut-card.main {
+  grid-column: 1 / -1;
+}
+
+.fold-onboarding-skip-dialog {
+  max-width: 420px;
+  padding: 28px;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 20px 60px rgb(0 0 0 / 0.12);
+  text-align: center;
+}
+
+.fold-onboarding-skip-dialog h2 {
+  font-size: 18px;
+  margin: 0 0 10px;
+}
+
+.fold-onboarding-skip-dialog p {
+  font-size: 14px;
+  color: #6e6e73;
+  line-height: 1.55;
+  margin: 0 0 20px;
+}
+
+.fold-onboarding-skip-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
 }

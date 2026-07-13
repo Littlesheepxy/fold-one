@@ -199,6 +199,14 @@ contextBridge.exposeInMainWorld("fold", {
 	setMousePassthrough: (ignore: boolean) => {
 		ipcRenderer.send("fold:mouse-passthrough", ignore);
 	},
+	getDisplayWorkArea: (overlayPoint?: { x: number; y: number }) =>
+		ipcRenderer.invoke("fold:get-display-work-area", overlayPoint) as Promise<{
+			x: number;
+			y: number;
+			width: number;
+			height: number;
+		}>,
+	getOverlayState: () => ipcRenderer.invoke("fold:get-overlay-state") as Promise<Record<string, unknown>>,
 	dismiss: () => ipcRenderer.invoke("fold:dismiss") as Promise<void>,
 	toggleVoice: () => ipcRenderer.invoke("fold:toggle-voice") as Promise<void>,
 	voiceError: (message: string) => ipcRenderer.invoke("fold:voice-error", message) as Promise<void>,
@@ -234,5 +242,74 @@ contextBridge.exposeInMainWorld("fold", {
 		const handler = (_: unknown, section: string) => cb(section);
 		ipcRenderer.on("fold:home-navigate", handler);
 		return () => ipcRenderer.removeListener("fold:home-navigate", handler);
+	},
+	probeAccessibility: () =>
+		ipcRenderer.invoke("fold:probe-accessibility") as Promise<{
+			available: boolean;
+			appLabel: string;
+			bundlePath?: string;
+			error?: string;
+		}>,
+	openAccessibilitySettings: () =>
+		ipcRenderer.invoke("fold:connection-action", "accessibility:open-settings") as Promise<{
+			ok: boolean;
+		}>,
+	onboardingGetState: () => ipcRenderer.invoke("fold:onboarding-get-state") as Promise<{
+		completedAt?: number;
+		step?: string;
+		profileImportedAt?: number;
+		profileImportSkippedAt?: number;
+	}>,
+	openOnboarding: (opts?: { reset?: boolean }) =>
+		ipcRenderer.invoke("fold:open-onboarding", opts) as Promise<{ ok: boolean }>,
+	onboardingSetStep: (step: string) =>
+		ipcRenderer.invoke("fold:onboarding-set-step", step) as Promise<Record<string, unknown>>,
+	onboardingComplete: () =>
+		ipcRenderer.invoke("fold:onboarding-complete") as Promise<{ ok: boolean }>,
+	onboardingSkipProfile: () =>
+		ipcRenderer.invoke("fold:onboarding-skip-profile") as Promise<Record<string, unknown>>,
+	onboardingCompareDemo: (opts: { withProfile: boolean }) =>
+		ipcRenderer.invoke("fold:onboarding-compare-demo", opts) as Promise<Record<string, unknown>>,
+	onboardingStructureVoice: (transcript: string) =>
+		ipcRenderer.invoke("fold:onboarding-structure-voice", transcript) as Promise<string>,
+	onboardingSetVoiceApp: (app: string, windowTitle?: string) =>
+		ipcRenderer.invoke("fold:onboarding-set-voice-app", app, windowTitle) as Promise<{ ok: boolean }>,
+	onboardingAhaGuess: () =>
+		ipcRenderer.invoke("fold:onboarding-aha-guess") as Promise<{ ok: boolean; runId?: number }>,
+	onboardingSimulateClipboard: (lines: string[]) =>
+		ipcRenderer.invoke("fold:onboarding-simulate-clipboard", lines) as Promise<{
+			ok: boolean;
+			previous?: Record<string, unknown>;
+			current?: Record<string, unknown>;
+		}>,
+	onOnboardingHotkeyEvent(cb: (payload: {
+		key: string;
+		phase: "down" | "up";
+		longPress?: boolean;
+	}) => void) {
+		const handler = (
+			_: unknown,
+			payload: { key: string; phase: "down" | "up"; longPress?: boolean },
+		) => cb(payload);
+		ipcRenderer.on("fold:onboarding-hotkey-event", handler);
+		return () => ipcRenderer.removeListener("fold:onboarding-hotkey-event", handler);
+	},
+	onOnboardingVoiceEvent(cb: (payload: {
+		phase: "listening" | "formatting" | "done" | "error";
+		raw?: string;
+		cleaned?: string;
+		error?: string;
+	}) => void) {
+		const handler = (
+			_: unknown,
+			payload: {
+				phase: "listening" | "formatting" | "done" | "error";
+				raw?: string;
+				cleaned?: string;
+				error?: string;
+			},
+		) => cb(payload);
+		ipcRenderer.on("fold:onboarding-voice-event", handler);
+		return () => ipcRenderer.removeListener("fold:onboarding-voice-event", handler);
 	},
 });

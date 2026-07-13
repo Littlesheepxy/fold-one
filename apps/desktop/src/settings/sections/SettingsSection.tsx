@@ -304,6 +304,20 @@ export function SettingsSection({
 							hint="通常由「连接」页执行模式管理"
 						/>
 
+						<div className="rounded-lg border border-black/6 bg-[#fafafa] px-3 py-3">
+							<p className="text-[12px] font-medium text-[#1d1d1f]">引导流程（测试）</p>
+							<p className="mt-1 text-[11px] leading-relaxed text-[#86868b]">
+								重新打开首启引导窗口，从辅助功能步骤开始。无需手动改 config.json。
+							</p>
+							<button
+								type="button"
+								className="fold-home-save mt-2"
+								onClick={() => void window.fold.openOnboarding({ reset: true })}
+							>
+								打开引导
+							</button>
+						</div>
+
 						<InputHabitScannerPanel />
 
 						<div className="flex items-center gap-3 pt-1">

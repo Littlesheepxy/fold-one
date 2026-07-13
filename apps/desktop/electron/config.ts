@@ -53,6 +53,12 @@ export interface FoldConfig {
 	skipLocalAgent?: boolean;
 	/** 转写整理完成后自动粘贴到前台输入框；默认 true */
 	structureAutoInsert?: boolean;
+	onboarding?: {
+		completedAt?: number;
+		step?: string;
+		profileImportedAt?: number;
+		profileImportSkippedAt?: number;
+	};
 }
 
 export type ExecutionMode = "auto" | "local_agent" | "fold_only";

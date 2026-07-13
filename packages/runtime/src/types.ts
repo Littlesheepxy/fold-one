@@ -75,6 +75,10 @@ export interface FoldStateEvent {
 	predictRefining?: boolean;
 	/** 转写/代回胶囊在跨屏 overlay 内的定位（主进程按锚点显示器计算） */
 	voiceTabPlacement?: { left: number; top: number } | null;
+	/** 引导口述时语音条内的示例/提示文案 */
+	voiceHint?: string | null;
+	/** 悬浮球所在显示器 workArea，overlay 窗口内坐标（多屏 span 下吸附边界） */
+	widgetDisplayBounds?: { x: number; y: number; width: number; height: number } | null;
 	/** 转写完成且未开启自动插入时，展示可编辑草稿卡 */
 	structureDraftOpen?: boolean;
 }

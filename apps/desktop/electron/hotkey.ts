@@ -14,6 +14,12 @@ export interface HoldHotkeyHandlers {
 	/** 无 uiohook 时 F18 回退：toggle 代回 */
 	onReplyToggle: () => void;
 	onCancel: () => void;
+	/** onboarding 热键测试：仅通知 UI，不替代真实热键逻辑 */
+	onHotkeyTest?: (event: {
+		key: "right-cmd" | "f19" | "f18" | "alt-space";
+		phase: "down" | "up";
+		longPress?: boolean;
+	}) => void;
 }
 
 function hasAccessibility(): boolean {
@@ -56,6 +62,7 @@ export function startHoldHotkey(handlers: HoldHotkeyHandlers): () => void {
 	};
 
 	const onHoldDown = () => {
+		handlers.onHotkeyTest?.({ key: "right-cmd", phase: "down" });
 		if (holdActive) return;
 		holdActive = true;
 		longPressFired = false;
@@ -68,13 +75,18 @@ export function startHoldHotkey(handlers: HoldHotkeyHandlers): () => void {
 
 	const onHoldUp = () => {
 		if (!holdActive) return;
+		const wasLongPress = longPressFired;
 		holdActive = false;
 		clearLongPressTimer();
-		if (longPressFired) handlers.onReplyHoldEnd();
+		handlers.onHotkeyTest?.({ key: "right-cmd", phase: "up", longPress: wasLongPress });
+		if (wasLongPress) handlers.onReplyHoldEnd();
 		else handlers.onStructureToggle();
 	};
 
-	registerOrLog("Alt+Space", handlers.onAgentToggle);
+	registerOrLog("Alt+Space", () => {
+		handlers.onHotkeyTest?.({ key: "alt-space", phase: "down" });
+		handlers.onAgentToggle();
+	});
 	registerOrLog("Escape", handlers.onCancel);
 
 	if (ax) {
@@ -98,12 +110,24 @@ export function startHoldHotkey(handlers: HoldHotkeyHandlers): () => void {
 			console.log("[fold:hotkey] uiohook 已启动（右⌘ 按住≥450ms=代回 / 短按=转写）");
 		} catch (err) {
 			console.warn("[fold:hotkey] uiohook 启动失败，回退 F19/F18", err);
-			registerOrLog("F19", handlers.onStructureToggle);
-			registerOrLog("F18", handlers.onReplyToggle);
+			registerOrLog("F19", () => {
+				handlers.onHotkeyTest?.({ key: "f19", phase: "down" });
+				handlers.onStructureToggle();
+			});
+			registerOrLog("F18", () => {
+				handlers.onHotkeyTest?.({ key: "f18", phase: "down" });
+				handlers.onReplyToggle();
+			});
 		}
 	} else {
-		registerOrLog("F19", handlers.onStructureToggle);
-		registerOrLog("F18", handlers.onReplyToggle);
+		registerOrLog("F19", () => {
+			handlers.onHotkeyTest?.({ key: "f19", phase: "down" });
+			handlers.onStructureToggle();
+		});
+		registerOrLog("F18", () => {
+			handlers.onHotkeyTest?.({ key: "f18", phase: "down" });
+			handlers.onReplyToggle();
+		});
 		console.warn(
 			"[fold:hotkey] 未授权辅助功能 → F19=转写，F18=代回。开发模式请给 Electron 开辅助功能。",
 		);
