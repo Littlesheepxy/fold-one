@@ -7,7 +7,8 @@ import { attachAsrSession } from "./session.js";
 
 const PORT = Number(process.env.ASR_PROXY_PORT ?? 3003);
 const API_KEY = (process.env.DASHSCOPE_API_KEY ?? "").trim().replace(/^["']|["']$/g, "");
-const DEFAULT_MODEL = process.env.DASHSCOPE_ASR_MODEL ?? "fun-asr-realtime";
+const DEFAULT_MODEL =
+	process.env.DASHSCOPE_ASR_MODEL ?? "qwen3.5-omni-plus-realtime";
 
 if (!API_KEY) {
 	console.warn("[asr-proxy] DASHSCOPE_API_KEY missing — ASR will fail until configured.");

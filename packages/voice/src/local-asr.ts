@@ -1,6 +1,6 @@
 import { pcm16AudioLevel } from "./audio-level.js";
 import type { AsrController } from "./aliyun-asr.js";
-import type { VoiceConfig } from "./types.js";
+import type { VoiceConfig, VoiceResult } from "./types.js";
 
 export interface LocalAsrTransport {
 	start(): Promise<void>;
@@ -19,9 +19,9 @@ export function createLocalAsr(
 	let sourceNode: MediaStreamAudioSourceNode | null = null;
 	let levelCb: ((level: number) => void) | null = null;
 	let cancelled = false;
-	let resolveDone!: (result: { fullText: string }) => void;
+	let resolveDone!: (result: VoiceResult) => void;
 	let rejectDone!: (error: Error) => void;
-	const done = new Promise<{ fullText: string }>((resolve, reject) => {
+	const done = new Promise<VoiceResult>((resolve, reject) => {
 		resolveDone = resolve;
 		rejectDone = reject;
 	});
@@ -79,8 +79,9 @@ export function createLocalAsr(
 			cleanup();
 			try {
 				const fullText = await config.transport.finish();
-				resolveDone({ fullText });
-				return fullText;
+				const result = { text: fullText, directStructured: false };
+				resolveDone(result);
+				return result;
 			} catch (error) {
 				const reason = error instanceof Error ? error : new Error(String(error));
 				rejectDone(reason);
@@ -91,7 +92,7 @@ export function createLocalAsr(
 			cancelled = true;
 			cleanup();
 			void config.transport.cancel();
-			resolveDone({ fullText: "" });
+			resolveDone({ text: "", directStructured: false });
 		},
 		onLevel(cb) {
 			levelCb = cb;

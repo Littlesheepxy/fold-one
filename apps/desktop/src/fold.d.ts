@@ -21,6 +21,12 @@ interface ProfileImportOption {
 	automationSupported: boolean;
 }
 
+interface VoiceSessionStart {
+	mode: "structure" | "reply" | "agent";
+	app?: string | null;
+	windowTitle?: string | null;
+}
+
 interface FoldApi {
 	onState(cb: (state: FoldStateEvent) => void): () => void;
 	onTranscript(cb: (text: string) => void): () => void;
@@ -46,7 +52,7 @@ interface FoldApi {
 	localAsrFinish(): Promise<string>;
 	localAsrCancel(): Promise<{ ok: boolean }>;
 	runTask(intent: string): Promise<void>;
-	structureVoice(transcript: string): Promise<void>;
+	structureVoice(transcript: string, opts?: { directStructured?: boolean }): Promise<void>;
 	replyVoice(transcript: string): Promise<void>;
 	retryTask(): Promise<void>;
 	askResponse(optionId: string): Promise<void>;
@@ -136,7 +142,7 @@ interface FoldApi {
 	getImportedInputHabits(): Promise<Record<string, unknown> | null>;
 	exportInputHabitsRime(): Promise<Record<string, unknown> & { canceled?: boolean }>;
 	quit(): Promise<void>;
-	onHotkeyDown(cb: (mode: "structure" | "reply" | "agent") => void): () => void;
+	onHotkeyDown(cb: (session: VoiceSessionStart) => void): () => void;
 	onHotkeyUp(cb: (mode: "structure" | "reply" | "agent") => void): () => void;
 	onHotkeyCancel(cb: () => void): () => void;
 	onHomeNavigate(cb: (section: string) => void): () => void;

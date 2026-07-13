@@ -4,6 +4,7 @@ import {
 	OnboardingSecondaryBtn,
 	OnboardingShell,
 } from "../components/OnboardingShell";
+import { MARK_ASSET } from "../../brand/constants";
 
 export function SetupAccessibilityStep({ onNext, onBack }: { onNext: () => void; onBack?: () => void }) {
 	const [ax, setAx] = useState<Awaited<ReturnType<typeof window.fold.probeAccessibility>> | null>(null);
@@ -23,6 +24,8 @@ export function SetupAccessibilityStep({ onNext, onBack }: { onNext: () => void;
 		};
 	}, []);
 
+	const appLabel = ax?.appLabel === "Electron" ? "Electron（开发版知更）" : (ax?.appLabel ?? "知更");
+
 	return (
 		<OnboardingShell
 			step="accessibility"
@@ -41,15 +44,35 @@ export function SetupAccessibilityStep({ onNext, onBack }: { onNext: () => void;
 				</>
 			}
 			right={
-				<div className="fold-onboarding-visual-card">
-					<p className="text-[13px] text-[#1d1d1f]">系统设置 → 隐私与安全性 → 辅助功能</p>
-					<p className="mt-2 text-[12px] text-[#86868b]">打开后，右 ⌘ 转写与代回才能正常工作。</p>
+				<div className="fold-onboarding-visual-card fold-onboarding-ax-card">
+					<div className="fold-onboarding-ax-head">
+						<span className="fold-onboarding-ax-symbol" aria-hidden="true">⌘</span>
+						<div>
+							<strong>辅助功能</strong>
+							<p>允许知更控制键盘输入</p>
+						</div>
+					</div>
+					<div className="fold-onboarding-ax-app">
+						<img src={MARK_ASSET} alt="" />
+						<span>{appLabel}</span>
+						<span
+							className={`fold-onboarding-ax-toggle${ax?.available ? " is-on" : ""}`}
+							aria-label={ax?.available ? "已开启" : "待开启"}
+						>
+							<i />
+						</span>
+					</div>
+					<p className="fold-onboarding-ax-tip">
+						{ax?.available
+							? "已开启，可以使用右 ⌘ 转写与代回"
+							: "打开设置后，找到上面的应用并开启开关"}
+					</p>
 				</div>
 			}
 			footer={
 				<>
 					<OnboardingSecondaryBtn onClick={() => void window.fold.openAccessibilitySettings()}>
-						打开系统设置
+						打开辅助功能设置
 					</OnboardingSecondaryBtn>
 					<OnboardingPrimaryBtn onClick={onNext} disabled={!ax?.available}>
 						{ax?.available ? "是的，继续" : "我已开启"}

@@ -3,16 +3,53 @@ import { BrandIcon } from "../../settings/components/brand-icons";
 import type { OnboardingScenario } from "../onboarding-scenarios";
 import { getOnboardingScenario } from "../onboarding-scenarios";
 
+function ComposeInput({
+	body,
+	placeholder,
+	guide,
+}: {
+	body?: string;
+	placeholder: string;
+	guide?: string;
+}) {
+	const hasBody = Boolean(body?.trim());
+	return (
+		<>
+			{guide ? (
+				<div className="fold-onboarding-compose-anchor">
+					<span>1</span>
+					{guide}
+				</div>
+			) : null}
+			<div
+				className={`fold-onboarding-compose-input${hasBody ? "" : " is-empty"}${guide ? " is-guided" : ""}`}
+			>
+				<div className="fold-onboarding-compose-input-body">{hasBody ? body : placeholder}</div>
+				<div className="fold-onboarding-compose-toolbar" aria-hidden="true">
+					<span>＋</span>
+					<span>Aa</span>
+					<span>☺</span>
+					<button type="button" tabIndex={-1} disabled>
+						发送
+					</button>
+				</div>
+			</div>
+		</>
+	);
+}
+
 export function AppComposeMock({
 	scenario,
 	body,
 	incoming,
 	placeholder = "口述内容会出现在这里…",
+	composerGuide,
 }: {
 	scenario: OnboardingScenario;
 	body?: string;
 	incoming?: string;
 	placeholder?: string;
+	composerGuide?: string;
 }) {
 	const [appIcon, setAppIcon] = useState<string | null>(null);
 
@@ -47,7 +84,7 @@ export function AppComposeMock({
 						<span>主题</span> Re: Q3 评审纪要
 					</p>
 				</div>
-				<div className="fold-onboarding-compose-input">{body || placeholder}</div>
+				<ComposeInput body={body} placeholder={placeholder} guide={composerGuide} />
 			</div>
 		);
 	}
@@ -78,7 +115,7 @@ export function AppComposeMock({
 					<p>{incoming}</p>
 				</div>
 			) : null}
-			<div className="fold-onboarding-compose-input">{body || placeholder}</div>
+			<ComposeInput body={body} placeholder={placeholder} guide={composerGuide} />
 		</div>
 	);
 }

@@ -1,10 +1,10 @@
 import { pcm16AudioLevel } from "./audio-level.js";
-import type { VoiceAdapter, VoiceConfig } from "./types.js";
+import type { VoiceAdapter, VoiceConfig, VoiceResult } from "./types.js";
 
-const ASR_FINISH_TIMEOUT_MS = 1500;
+const ASR_FINISH_TIMEOUT_MS = 10_000;
 
 export interface AsrController extends VoiceAdapter {
-	done: Promise<{ fullText: string }>;
+	done: Promise<VoiceResult>;
 }
 
 export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
@@ -23,13 +23,14 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 	let aborted = false;
 	let resolved = false;
 	let lastFullText = "";
+	let directStructured = false;
 	let levelCb: ((level: number) => void) | null = null;
 	let onPartialCb: ((text: string) => void) | null = null;
 	let onErrorCb: ((err: Error) => void) | null = null;
 
-	let resolveDone!: (r: { fullText: string }) => void;
+	let resolveDone!: (r: VoiceResult) => void;
 	let rejectDone!: (e: Error) => void;
-	const done = new Promise<{ fullText: string }>((res, rej) => {
+	const done = new Promise<VoiceResult>((res, rej) => {
 		resolveDone = res;
 		rejectDone = rej;
 	});
@@ -58,11 +59,11 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 		}
 	};
 
-	const finalize = (r: { fullText: string }) => {
+	const finalize = (result: VoiceResult) => {
 		if (resolved) return;
 		resolved = true;
 		cleanup();
-		resolveDone(r);
+		resolveDone(result);
 	};
 
 	const fail = (e: Error) => {
@@ -96,6 +97,7 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 		aborted = false;
 		resolved = false;
 		lastFullText = "";
+		directStructured = false;
 
 		mediaStream = await navigator.mediaDevices.getUserMedia({
 			audio: {
@@ -122,13 +124,22 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 					format: "pcm",
 					languageHints: config.languageHints ?? ["zh", "en"],
 					model: config.model,
+					mode: config.mode,
+					app: config.app,
+					windowTitle: config.windowTitle,
 				}),
 			);
 		};
 
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== "string") return;
-			let msg: { type: string; text?: string; fullText?: string; message?: string };
+			let msg: {
+				type: string;
+				text?: string;
+				fullText?: string;
+				directStructured?: boolean;
+				message?: string;
+			};
 			try {
 				msg = JSON.parse(ev.data) as typeof msg;
 			} catch {
@@ -144,7 +155,8 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 					break;
 				case "done":
 					lastFullText = msg.fullText ?? lastFullText;
-					finalize({ fullText: lastFullText });
+					directStructured = !!msg.directStructured;
+					finalize({ text: lastFullText, directStructured });
 					break;
 				case "error":
 					fail(new Error(msg.message ?? "ASR error"));
@@ -154,7 +166,7 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 
 		ws.onerror = () => fail(new Error("ASR WebSocket error"));
 		ws.onclose = () => {
-			if (!resolved) finalize({ fullText: lastFullText });
+			if (!resolved) finalize({ text: lastFullText, directStructured });
 		};
 	};
 
@@ -169,7 +181,7 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 			} catch {
 				/* ignore */
 			}
-			finalize({ fullText: "" });
+			finalize({ text: "", directStructured: false });
 		},
 		async stop() {
 			if (ws?.readyState === WebSocket.OPEN) {
@@ -179,14 +191,25 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 					/* ignore */
 				}
 			}
-			const timeout = new Promise<{ fullText: string }>((_, rej) =>
-				setTimeout(() => rej(new Error("ASR finish timeout")), ASR_FINISH_TIMEOUT_MS),
-			);
+			let timeoutId: ReturnType<typeof setTimeout> | undefined;
+			const timeout = new Promise<VoiceResult>((_, reject) => {
+				timeoutId = setTimeout(
+					() => reject(new Error("ASR finish timeout")),
+					ASR_FINISH_TIMEOUT_MS,
+				);
+			});
 			try {
-				const r = await Promise.race([done, timeout]);
-				return r.fullText;
+				return await Promise.race([done, timeout]);
 			} catch {
-				return lastFullText;
+				try {
+					ws?.send(JSON.stringify({ type: "abort" }));
+				} catch {
+					/* socket already closed */
+				}
+				cleanup();
+				return { text: lastFullText, directStructured };
+			} finally {
+				if (timeoutId) clearTimeout(timeoutId);
 			}
 		},
 		onLevel(cb) {
@@ -231,11 +254,11 @@ export function createMockAsr(): AsrController {
 		},
 		async stop() {
 			clearTimers();
-			return sample;
+			return { text: sample, directStructured: false };
 		},
 		onLevel(cb) {
 			levelTimer = setInterval(() => cb(0), 80);
 		},
-		done: Promise.resolve({ fullText: sample }),
+		done: Promise.resolve({ text: sample, directStructured: false }),
 	};
 }

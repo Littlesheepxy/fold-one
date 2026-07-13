@@ -35,15 +35,15 @@ export function SummaryStep({ onFinish }: { onFinish: () => void }) {
 			step="summary"
 			left={
 				<>
-					<h1 className="fold-onboarding-title">说话，别打字</h1>
-					<p className="fold-onboarding-sub">点选快捷键，右侧键盘会标出对应按键。</p>
+					<h1 className="fold-onboarding-title">你的知更，准备好了</h1>
+					<p className="fold-onboarding-sub">三个快捷键，让知更随时帮你输入、代回和执行任务。</p>
 					<div className="fold-onboarding-shortcut-grid">
 						<button
 							type="button"
 							className={`fold-onboarding-shortcut-card main${selected === "structure" ? " is-selected" : ""}`}
 							onClick={() => setSelected("structure")}
 						>
-							<p>语音输入</p>
+							<p>知更输入</p>
 							<kbd className="fold-onboarding-kbd">右 ⌘</kbd>
 							<span className="text-[11px] text-[#86868b]">短按</span>
 						</button>
@@ -52,7 +52,7 @@ export function SummaryStep({ onFinish }: { onFinish: () => void }) {
 							className={`fold-onboarding-shortcut-card${selected === "reply" ? " is-selected" : ""}`}
 							onClick={() => setSelected("reply")}
 						>
-							<p>智能代回</p>
+							<p>知更代回</p>
 							<kbd className="fold-onboarding-kbd">右 ⌘</kbd>
 							<span className="text-[11px] text-[#86868b]">长按</span>
 						</button>
@@ -61,12 +61,12 @@ export function SummaryStep({ onFinish }: { onFinish: () => void }) {
 							className={`fold-onboarding-shortcut-card${selected === "agent" ? " is-selected" : ""}`}
 							onClick={() => setSelected("agent")}
 						>
-							<p>Agent 任务</p>
+							<p>知更执行</p>
 							<kbd className="fold-onboarding-kbd">⌥ Space</kbd>
 						</button>
 					</div>
 					<p className="fold-onboarding-sub mt-4">
-						知更一直在记你的复制和工作轨迹，主页会继续「注意到了」。
+						知更会从你的表达、复制和工作轨迹中持续理解你，并在主页告诉你「注意到了」什么。
 					</p>
 					{sogou ? (
 						<p className="fold-onboarding-hint">
@@ -82,7 +82,7 @@ export function SummaryStep({ onFinish }: { onFinish: () => void }) {
 					size="sm"
 				/>
 			}
-			footer={<OnboardingPrimaryBtn onClick={onFinish}>我们出发吧</OnboardingPrimaryBtn>}
+			footer={<OnboardingPrimaryBtn onClick={onFinish}>开始使用知更</OnboardingPrimaryBtn>}
 		/>
 	);
 }

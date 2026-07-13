@@ -906,8 +906,8 @@ body.fold-home-page #root {
   width: 236px;
   flex-shrink: 0;
   padding: 44px 12px 12px;
-  border-right: 0.5px solid rgb(0 0 0 / 0.08);
-  background: rgb(246 246 248 / 0.96);
+  border-right: 1px solid #dde1f5;
+  background: #f2f3fc;
   -webkit-app-region: no-drag;
 }
 
@@ -1302,6 +1302,7 @@ body.fold-sidebar-resizing {
   min-width: 0;
   overflow-y: auto;
   padding: 52px 44px 40px;
+  background: linear-gradient(160deg, #fff, #f3f7fb);
   -webkit-app-region: no-drag;
   position: relative;
 }
@@ -4136,6 +4137,95 @@ button.fold-connection-chip-main.needs-action:hover:not(:disabled) {
   box-shadow: 0 8px 32px rgb(0 0 0 / 0.06);
 }
 
+.fold-onboarding-ax-card {
+  padding: 18px;
+}
+
+.fold-onboarding-ax-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 0 2px 14px;
+}
+
+.fold-onboarding-ax-head strong {
+  color: #1d1d1f;
+  font-size: 14px;
+}
+
+.fold-onboarding-ax-head p {
+  margin-top: 2px;
+  color: #86868b;
+  font-size: 11px;
+}
+
+.fold-onboarding-ax-symbol {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  color: #fff;
+  background: #7889f5;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.fold-onboarding-ax-app {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 0.5px solid rgb(0 0 0 / 0.07);
+  border-radius: 12px;
+  background: #f7f7f9;
+  color: #1d1d1f;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.fold-onboarding-ax-app img {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+}
+
+.fold-onboarding-ax-toggle {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  margin-left: auto;
+  border-radius: 999px;
+  background: #d1d1d6;
+}
+
+.fold-onboarding-ax-toggle i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.18);
+  transition: transform 160ms ease;
+}
+
+.fold-onboarding-ax-toggle.is-on {
+  background: #34c759;
+}
+
+.fold-onboarding-ax-toggle.is-on i {
+  transform: translateX(14px);
+}
+
+.fold-onboarding-ax-tip {
+  margin: 12px 2px 0;
+  color: #86868b;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 .fold-onboarding-mic-visual {
   display: flex;
   align-items: center;
@@ -4346,8 +4436,10 @@ button.fold-connection-chip-main.needs-action:hover:not(:disabled) {
 
 .fold-onboarding-compose-input,
 .fold-onboarding-wechat-input {
-  min-height: 72px;
-  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  min-height: 96px;
+  padding: 12px 12px 8px;
   border-radius: 10px;
   border: 0.5px solid rgb(0 0 0 / 0.08);
   font-size: 14px;
@@ -4355,6 +4447,65 @@ button.fold-connection-chip-main.needs-action:hover:not(:disabled) {
   color: #1d1d1f;
   background: #fafafa;
   white-space: pre-wrap;
+}
+
+.fold-onboarding-compose-input.is-empty {
+  color: #a1a1a6;
+}
+
+.fold-onboarding-compose-input.is-guided {
+  border-color: rgb(51 112 255 / 0.5);
+  box-shadow: 0 0 0 3px rgb(51 112 255 / 0.08);
+}
+
+.fold-onboarding-compose-anchor {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 7px;
+  color: #3370ff;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.fold-onboarding-compose-anchor span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  color: #fff;
+  background: #3370ff;
+  font-size: 10px;
+}
+
+.fold-onboarding-compose-input-body {
+  flex: 1;
+  min-height: 44px;
+}
+
+.fold-onboarding-compose-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+  padding-top: 7px;
+  border-top: 0.5px solid rgb(0 0 0 / 0.07);
+  color: #86868b;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.fold-onboarding-compose-toolbar button {
+  margin-left: auto;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 6px;
+  color: #fff;
+  background: #3370ff;
+  font-size: 11px;
+  opacity: 0.72;
 }
 
 .fold-onboarding-compose--email .fold-onboarding-email-meta {

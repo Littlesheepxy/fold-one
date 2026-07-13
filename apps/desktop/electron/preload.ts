@@ -1,5 +1,12 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+type VoiceMode = "structure" | "reply" | "agent";
+type VoiceSessionStart = {
+	mode: VoiceMode;
+	app?: string | null;
+	windowTitle?: string | null;
+};
+
 export interface FoldStateEvent {
 	status: string;
 	transcript?: string;
@@ -57,8 +64,8 @@ contextBridge.exposeInMainWorld("fold", {
 	localAsrCancel: () =>
 		ipcRenderer.invoke("fold:local-asr-cancel") as Promise<{ ok: boolean }>,
 	runTask: (intent: string) => ipcRenderer.invoke("fold:run-task", intent) as Promise<void>,
-	structureVoice: (transcript: string) =>
-		ipcRenderer.invoke("fold:structure-voice", transcript) as Promise<void>,
+	structureVoice: (transcript: string, opts?: { directStructured?: boolean }) =>
+		ipcRenderer.invoke("fold:structure-voice", transcript, opts) as Promise<void>,
 	replyVoice: (transcript: string) =>
 		ipcRenderer.invoke("fold:reply-voice", transcript) as Promise<void>,
 	retryTask: () => ipcRenderer.invoke("fold:retry-task") as Promise<void>,
@@ -223,8 +230,13 @@ contextBridge.exposeInMainWorld("fold", {
 			Record<string, unknown> & { canceled?: boolean }
 		>,
 	quit: () => ipcRenderer.invoke("fold:quit") as Promise<void>,
-	onHotkeyDown(cb: (mode: "structure" | "reply" | "agent") => void) {
-		const handler = (_: unknown, mode?: "structure" | "reply" | "agent") => cb(mode ?? "structure");
+	onHotkeyDown(cb: (session: VoiceSessionStart) => void) {
+		const handler = (_: unknown, payload?: VoiceMode | VoiceSessionStart) =>
+			cb(
+				typeof payload === "string"
+					? { mode: payload }
+					: payload ?? { mode: "structure" },
+			);
 		ipcRenderer.on("fold:hotkey-down", handler);
 		return () => ipcRenderer.removeListener("fold:hotkey-down", handler);
 	},

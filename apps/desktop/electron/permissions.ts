@@ -1,4 +1,5 @@
 import { app, shell, systemPreferences } from "electron";
+import { release } from "node:os";
 import { resolve } from "node:path";
 
 export interface AccessibilityProbe {
@@ -36,9 +37,12 @@ export function probeAccessibility(prompt = false): AccessibilityProbe {
 }
 
 export async function openAccessibilitySettings(): Promise<void> {
-	await shell.openExternal(
-		"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
-	);
+	const darwinMajor = Number.parseInt(release().split(".")[0] ?? "0", 10);
+	const pane =
+		darwinMajor >= 25
+			? "com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility"
+			: "com.apple.preference.security?Privacy_Accessibility";
+	await shell.openExternal(`x-apple.systempreferences:${pane}`);
 }
 
 /** 未授权时弹系统对话框并打开设置页（不依赖正式打包） */

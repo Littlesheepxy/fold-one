@@ -20,7 +20,11 @@ export function useVoiceHandlers() {
 			if (config.asrWsUrl) wsBaseRef.current = config.asrWsUrl;
 		})();
 
-		const startRecording = async () => {
+		const startRecording = async (session: {
+			mode: "structure" | "reply" | "agent";
+			app?: string | null;
+			windowTitle?: string | null;
+		}) => {
 			if (asrRef.current) return;
 			try {
 				const runtime = await window.fold.getAsrRuntime();
@@ -46,6 +50,10 @@ export function useVoiceHandlers() {
 							? createAliyunAsr({
 									wsBaseUrl: wsBaseRef.current,
 									workletPath: "/asr-pcm-worklet.js",
+									model: "qwen3.5-omni-plus-realtime",
+									mode: session.mode,
+									app: session.app,
+									windowTitle: session.windowTitle,
 								})
 							: createMockAsr();
 				asrRef.current = asr;
@@ -79,12 +87,16 @@ export function useVoiceHandlers() {
 				return;
 			}
 			try {
-				const text = await asr.stop();
+				const result = await asr.stop();
 				asrRef.current = null;
-				if (text.trim()) {
-					if (mode === "agent") await window.fold.runTask(text);
-					else if (mode === "reply") await window.fold.replyVoice(text);
-					else await window.fold.structureVoice(text);
+				if (result.text.trim()) {
+					if (mode === "agent") await window.fold.runTask(result.text);
+					else if (mode === "reply") await window.fold.replyVoice(result.text);
+					else {
+						await window.fold.structureVoice(result.text, {
+							directStructured: result.directStructured,
+						});
+					}
 				} else {
 					await window.fold.dismiss();
 				}
@@ -95,10 +107,10 @@ export function useVoiceHandlers() {
 		};
 
 		const unsubs = [
-			window.fold.onHotkeyDown((mode) => {
-				voiceModeRef.current = mode;
+			window.fold.onHotkeyDown((session) => {
+				voiceModeRef.current = session.mode;
 				playFoldSound("voiceStart");
-				void startRecording();
+				void startRecording(session);
 			}),
 			window.fold.onHotkeyUp((mode) => {
 				playFoldSound("startup");

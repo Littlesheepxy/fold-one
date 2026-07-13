@@ -1,9 +1,14 @@
+export interface VoiceResult {
+	text: string;
+	directStructured: boolean;
+}
+
 export interface VoiceAdapter {
 	start(opts: {
 		onPartial: (text: string) => void;
 		onError?: (err: Error) => void;
 	}): Promise<void>;
-	stop(): Promise<string>;
+	stop(): Promise<VoiceResult>;
 	cancel(): void;
 	onLevel?(cb: (level: number) => void): void;
 }
@@ -13,6 +18,9 @@ export interface VoiceConfig {
 	workletPath?: string;
 	languageHints?: string[];
 	model?: string;
+	mode?: "structure" | "reply" | "agent";
+	app?: string | null;
+	windowTitle?: string | null;
 }
 
 export type AsrProvider = "mock" | "dashscope" | "local-whisper";

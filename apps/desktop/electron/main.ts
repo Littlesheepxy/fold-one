@@ -155,6 +155,7 @@ let onboardingStep: string | undefined;
 let pendingHomeSection: string | null = null;
 let isRecording = false;
 let voiceOutcome: "structure" | "reply" | "agent" = "structure";
+let voiceCanUseDirectStructure = false;
 /** 代回首轮：松开右 ⌘ 不结束，短按结束 */
 let replyLatched = false;
 /** 确认卡上按住修改：松开结束 */
@@ -358,6 +359,12 @@ function isOnboardingHotkeyTestStep(): boolean {
 function isOnboardingVoiceLiveStep(): boolean {
 	return Boolean(
 		onboardingWindow && !onboardingWindow.isDestroyed() && onboardingStep === "voice-live",
+	);
+}
+
+function isOnboardingReplyDemoStep(): boolean {
+	return Boolean(
+		onboardingWindow && !onboardingWindow.isDestroyed() && onboardingStep === "reply-demo",
 	);
 }
 
@@ -653,7 +660,10 @@ function showReplyPredictions() {
 	});
 }
 
-async function structureVoiceTranscript(transcript: string) {
+async function structureVoiceTranscript(
+	transcript: string,
+	opts: { directStructured?: boolean } = {},
+) {
 	const text = transcript.trim();
 	if (!text) {
 		emitIdleState();
@@ -683,12 +693,14 @@ async function structureVoiceTranscript(transcript: string) {
 			contextWindowTitle: onboardingVoiceWindowTitle,
 		});
 		try {
-			const structured = await structureSpeechText(text, {
-				app,
-				windowTitle: onboardingVoiceWindowTitle ?? "Onboarding",
-				allowCloud: smartAccess.allowed,
-				preferQuality: true,
-			});
+			const structured = opts.directStructured
+				? { headline: text, detail: "" }
+				: await structureSpeechText(text, {
+						app,
+						windowTitle: onboardingVoiceWindowTitle ?? "Onboarding",
+						allowCloud: smartAccess.allowed,
+						preferQuality: true,
+					});
 			const body = [structured.headline, structured.detail]
 				.map((part) => part.trim())
 				.filter(Boolean)
@@ -739,19 +751,23 @@ async function structureVoiceTranscript(transcript: string) {
 			return;
 		}
 
-		const [structured] = await Promise.all([
-			structureSpeechText(text, {
-				app: ctx.activeApp,
-				windowTitle: ctx.activeWindow,
-				allowCloud: useLocal ? false : smartAccess.allowed,
-				onCloudSuccess: smartAccess.usesTrial
-					? () => {
-							consumeSmartActionTrial();
-						}
-					: undefined,
-			}),
-			useLocal ? new Promise((r) => setTimeout(r, 240)) : Promise.resolve(),
-		]);
+		const structured = opts.directStructured
+			? { headline: text, detail: "" }
+			: (
+					await Promise.all([
+						structureSpeechText(text, {
+							app: ctx.activeApp,
+							windowTitle: ctx.activeWindow,
+							allowCloud: useLocal ? false : smartAccess.allowed,
+							onCloudSuccess: smartAccess.usesTrial
+								? () => {
+										consumeSmartActionTrial();
+									}
+								: undefined,
+						}),
+						useLocal ? new Promise((r) => setTimeout(r, 240)) : Promise.resolve(),
+					])
+				)[0];
 		const body = [structured.headline, structured.detail]
 			.map((part) => part.trim())
 			.filter(Boolean)
@@ -808,13 +824,22 @@ async function replyVoiceTranscript(transcript: string) {
 	}
 	lastReplyTranscript = text;
 
+	const onboardingReply = isOnboardingReplyDemoStep();
 	await contextEngine.refreshActiveApp();
 	const ctx = contextEngine.getLiveContext();
-	const contextAppName = voiceTargetApp ?? ctx.activeApp;
-	const contextAppPath = ctx.activeAppPath;
+	const contextAppName = onboardingReply
+		? onboardingVoiceApp ?? "飞书"
+		: voiceTargetApp ?? ctx.activeApp;
+	const contextAppPath = onboardingReply ? null : ctx.activeAppPath;
+	const contextWindowTitle = onboardingReply
+		? onboardingVoiceWindowTitle
+		: ctx.activeWindow;
 
 	createOverlayWindow();
-	const voiceTabPlacement = await positionOverlayForActiveContext(overlayWindow, contextAppName);
+	const voiceTabPlacement = onboardingReply
+		? await positionOverlayForAnchoredScreen(overlayWindow, null)
+		: await positionOverlayForActiveContext(overlayWindow, contextAppName);
+	if (onboardingReply) raiseOverlayForVoiceUi();
 	emitState({
 		status: "predict",
 		voiceMode: null,
@@ -830,11 +855,15 @@ async function replyVoiceTranscript(transcript: string) {
 		predictCursor: getCursorInOverlay(),
 		contextAppName,
 		contextAppPath,
-		contextWindowTitle: ctx.activeWindow,
+		contextWindowTitle,
 	});
 
 	try {
 		const card = await resolveReplyVoiceCard(ctx, text, contextAppName);
+		const sceneTitle =
+			onboardingReply
+				? contextWindowTitle ?? contextAppName ?? "智能代回"
+				: card.sceneTitle;
 		recordVoiceInteraction("reply", text, card.drafts[0]?.text);
 		emitState({
 			status: "predict",
@@ -843,15 +872,15 @@ async function replyVoiceTranscript(transcript: string) {
 			predictMode: "full",
 			predictPhase: "result",
 			predictSurface: "reply",
-			predictAnchor: card.sceneTitle,
+			predictAnchor: sceneTitle,
 			predictSelectedIntent: text,
 			predictDrafts: card.drafts,
 			predictDraftsLoading: false,
 			predictRefining: false,
 			predictCursor: getCursorInOverlay(),
-			contextAppName: card.appName ?? contextAppName,
-			contextAppPath: card.appPath ?? contextAppPath,
-			contextWindowTitle: card.sceneTitle,
+			contextAppName: onboardingReply ? contextAppName : card.appName ?? contextAppName,
+			contextAppPath: onboardingReply ? null : card.appPath ?? contextAppPath,
+			contextWindowTitle: sceneTitle,
 		});
 	} catch (err) {
 		emitState({
@@ -1267,6 +1296,16 @@ function registerIpc() {
 	});
 
 	ipcMain.handle("fold:predict-insert-draft", async (_e, text: string) => {
+		if (isOnboardingReplyDemoStep()) {
+			sendOnboardingVoiceEvent({ phase: "done", cleaned: text });
+			if (lastReplyTranscript.trim()) {
+				recordVoiceInteraction("reply", lastReplyTranscript, text);
+			}
+			lastReplyTranscript = "";
+			clearPredictTargetApp();
+			emitIdleState();
+			return { ok: true, pasted: true };
+		}
 		const targetApp = getPredictTargetApp() ?? contextEngine.getLiveContext().activeApp;
 		overlayWindow?.setIgnoreMouseEvents(true, { forward: true });
 		contextEngine.suppressClipboardCapture(5000);
@@ -1356,9 +1395,16 @@ function registerIpc() {
 		await executeTask(intent);
 	});
 
-	ipcMain.handle("fold:structure-voice", async (_e, transcript: string) => {
+	ipcMain.handle("fold:structure-voice", async (
+		_e,
+		transcript: string,
+		opts?: { directStructured?: boolean },
+	) => {
 		isRecording = false;
-		await structureVoiceTranscript(transcript);
+		const directStructured =
+			voiceCanUseDirectStructure && opts?.directStructured === true;
+		voiceCanUseDirectStructure = false;
+		await structureVoiceTranscript(transcript, { directStructured });
 	});
 
 	ipcMain.handle("fold:reply-voice", async (_e, transcript: string) => {
@@ -1462,15 +1508,21 @@ async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 	if (isRecording) return;
 	await contextEngine.refreshActiveApp();
 	voiceOutcome = outcome;
+	voiceCanUseDirectStructure =
+		outcome === "structure" && resolveAsrRuntime().provider === "dashscope";
 	const ctx = contextEngine.getLiveContext();
 	voiceTargetApp = ctx.activeApp ?? null;
 	isRecording = true;
 	createOverlayWindow();
 
-	if (outcome === "structure" && isOnboardingVoiceLiveStep()) {
+	const isOnboardingVoiceDemo =
+		(outcome === "structure" && isOnboardingVoiceLiveStep()) ||
+		(outcome === "reply" && isOnboardingReplyDemoStep());
+	if (isOnboardingVoiceDemo) {
+		voiceTargetApp = onboardingVoiceApp ?? (outcome === "reply" ? "飞书" : "微信");
 		const voiceTabPlacement = await positionOverlayForAnchoredScreen(
 			overlayWindow,
-			voiceTargetApp,
+			null,
 		);
 		raiseOverlayForVoiceUi();
 		emitState({
@@ -1478,19 +1530,23 @@ async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 			transcript: "",
 			result: null,
 			resultDetail: null,
-			voiceMode: "structure",
+			voiceMode: outcome,
 			voiceTabPlacement,
 			voiceHint: null,
 			predictRefining: false,
 			...clearPredictState(),
-			contextAppName: onboardingVoiceApp ?? "微信",
+			contextAppName: voiceTargetApp,
 			contextAppPath: null,
 			contextWindowTitle: onboardingVoiceWindowTitle,
 			contextPageUrl: null,
 			contextPageLabel: null,
 		});
-		sendOnboardingVoiceEvent({ phase: "listening" });
-		overlayWindow?.webContents.send("fold:hotkey-down", outcome);
+		if (outcome === "structure") sendOnboardingVoiceEvent({ phase: "listening" });
+		overlayWindow?.webContents.send("fold:hotkey-down", {
+			mode: outcome,
+			app: voiceTargetApp,
+			windowTitle: onboardingVoiceWindowTitle,
+		});
 		return;
 	}
 
@@ -1507,7 +1563,11 @@ async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 		...clearPredictState(),
 		...buildVoiceOverlayContext(ctx),
 	});
-	overlayWindow?.webContents.send("fold:hotkey-down", outcome);
+	overlayWindow?.webContents.send("fold:hotkey-down", {
+		mode: outcome,
+		app: ctx.activeApp,
+		windowTitle: ctx.activeWindow,
+	});
 }
 
 function startReplyLatchedRecording() {
@@ -1521,6 +1581,7 @@ function startReplyRefineRecording() {
 	replyLatched = false;
 	replyRefineHold = true;
 	voiceOutcome = "reply";
+	voiceCanUseDirectStructure = false;
 	isRecording = true;
 	createOverlayWindow();
 	const app = voiceTargetApp ?? contextEngine.getLiveContext().activeApp;
@@ -1534,7 +1595,12 @@ function startReplyRefineRecording() {
 			voiceTabPlacement,
 		});
 	});
-	overlayWindow?.webContents.send("fold:hotkey-down", "reply");
+	const ctx = contextEngine.getLiveContext();
+	overlayWindow?.webContents.send("fold:hotkey-down", {
+		mode: "reply",
+		app: voiceTargetApp ?? ctx.activeApp,
+		windowTitle: ctx.activeWindow,
+	});
 }
 
 function stopVoiceRecording() {
@@ -1557,6 +1623,7 @@ function isReplyPredictCard(): boolean {
 function cancelActiveSession() {
 	replyLatched = false;
 	replyRefineHold = false;
+	voiceCanUseDirectStructure = false;
 	if (isRecording) {
 		isRecording = false;
 		overlayWindow?.webContents.send("fold:hotkey-cancel");
