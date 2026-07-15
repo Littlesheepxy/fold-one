@@ -1,0 +1,5 @@
+# Compiled EventKit helper (built on first use via swiftc)
+fold-calendar
+_CodeSignature
+!main.swift
+!Info.plist

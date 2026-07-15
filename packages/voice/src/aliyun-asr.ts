@@ -127,6 +127,7 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 					mode: config.mode,
 					app: config.app,
 					windowTitle: config.windowTitle,
+					authToken: config.authToken,
 				}),
 			);
 		};

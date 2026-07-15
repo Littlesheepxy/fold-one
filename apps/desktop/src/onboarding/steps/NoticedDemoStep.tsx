@@ -3,6 +3,7 @@ import {
 	OnboardingPrimaryBtn,
 	OnboardingShell,
 } from "../components/OnboardingShell";
+import { NoticedCardMock } from "../components/NoticedCardMock";
 
 export function NoticedDemoStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
 	const [text, setText] = useState("");
@@ -22,9 +23,13 @@ export function NoticedDemoStep({ onNext, onBack }: { onNext: () => void; onBack
 		};
 	}, []);
 
+	const displayText =
+		text || "你正在查看飞书文档《Q3 预算评审》，可能要回复相关同事。";
+
 	return (
 		<OnboardingShell
 			step="noticed-demo"
+			backdrop="context"
 			onBack={onBack}
 			left={
 				<>
@@ -32,14 +37,15 @@ export function NoticedDemoStep({ onNext, onBack }: { onNext: () => void; onBack
 					<p className="fold-onboarding-sub">不用开口，知更会根据你的情境猜测下一步。</p>
 					<div className="fold-onboarding-aha-box">
 						{loading && !text ? <p className="text-[#86868b]">正在理解你的情境…</p> : null}
-						<p>{text || "你正在查看飞书文档《Q3 预算评审》，可能要回复相关同事。"}</p>
+						<p>{displayText}</p>
 					</div>
 				</>
 			}
 			right={
-				<div className="fold-onboarding-visual-card">
-					<p className="text-[12px] text-[#86868b]">回到真实工作时，打开主页会继续猜</p>
-				</div>
+				<NoticedCardMock
+					text={displayText}
+					suggestions={["起草回复", "整理纪要"]}
+				/>
 			}
 			footer={<OnboardingPrimaryBtn onClick={onNext}>继续</OnboardingPrimaryBtn>}
 		/>

@@ -4,9 +4,10 @@ export type Provider =
 	| "dashscope"
 	| "deepseek"
 	| "moonshot"
+	| "zhipu"
 	| "openrouter";
 
-export type ModelRole = "planner" | "repair" | "validator" | "fast";
+export type ModelRole = "planner" | "repair" | "validator" | "fast" | "fastVision";
 
 export interface ModelChoice {
 	provider: Provider;
@@ -44,6 +45,11 @@ export const PROVIDER_TABLE: Record<Provider, ProviderEnvConfig> = {
 		baseURL: "https://api.moonshot.cn/v1",
 		apiKeyEnv: "MOONSHOT_API_KEY",
 		displayName: "Moonshot",
+	},
+	zhipu: {
+		baseURL: "https://open.bigmodel.cn/api/paas/v4",
+		apiKeyEnv: "ZHIPU_API_KEY",
+		displayName: "Zhipu",
 	},
 	openrouter: {
 		baseURL: "https://openrouter.ai/api/v1",

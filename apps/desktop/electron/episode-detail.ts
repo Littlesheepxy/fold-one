@@ -48,6 +48,24 @@ export interface EpisodeDetailDTO {
 		error?: string;
 	}>;
 	validationChecks: Array<{ rule: string; passed: boolean; message?: string }>;
+	agentEvents: Array<{
+		taskId: string;
+		sequence: number;
+		timestamp: number;
+		source: string;
+		status: string;
+		message: string;
+		elapsedMs?: number;
+	}>;
+	artifacts: Array<{ type: string; value: string; label?: string }>;
+	memoryCandidates: Array<{
+		type: string;
+		key: string;
+		value: string;
+		confidence: number;
+		reason?: string;
+		requiresConfirmation: true;
+	}>;
 	contextEvents: Array<{
 		id: string;
 		type: string;
@@ -198,6 +216,9 @@ export function buildEpisodeDetail(id: string): EpisodeDetailDTO | null {
 		probeSummary: ep.probeSummary ?? null,
 		steps,
 		validationChecks: parseJson(ep.validationJson, []),
+		agentEvents: parseJson(ep.agentEventsJson, []),
+		artifacts: parseJson(ep.artifactsJson, []),
+		memoryCandidates: parseJson(ep.memoryCandidatesJson, []),
 		contextEvents: parseJson(ep.contextEventsJson, []).map((event, index) => ({
 			id: (event as { id?: string }).id ?? `${ep.id}-ctx-${index}`,
 			type: (event as { type?: string }).type ?? "unknown",

@@ -7,6 +7,13 @@ export interface TraySessionState {
 	predicting: boolean;
 }
 
+export interface TrayHotkeyLabels {
+	structure: string;
+	reply: string;
+	agent: string;
+	cancel: string;
+}
+
 export function createTray(opts: {
 	onVoiceStructure: () => void;
 	onReplyPredict: () => void;
@@ -15,7 +22,8 @@ export function createTray(opts: {
 	onOpenSettings: () => void;
 	onQuit: () => void;
 	getSessionState: () => TraySessionState;
-}): Tray {
+	getHotkeyLabels: () => TrayHotkeyLabels;
+}): { tray: Tray; refreshMenu: () => void } {
 	const tray = new Tray(createZhigengTrayImage());
 	tray.setToolTip(PRODUCT_NAME);
 
@@ -24,28 +32,29 @@ export function createTray(opts: {
 
 	const buildMenu = () => {
 		const { recording, predicting } = opts.getSessionState();
+		const labels = opts.getHotkeyLabels();
 		const busy = recording || predicting;
 
 		const items: Electron.MenuItemConstructorOptions[] = [
 			{ label: PRODUCT_NAME, enabled: false },
 			{ type: "separator" },
 			{
-				label: shortcut("语音转写", "右⌘ 短按"),
+				label: shortcut("语音转写", labels.structure),
 				click: opts.onVoiceStructure,
 			},
 			{
-				label: shortcut("智能代回", "右⌘ 按住"),
+				label: shortcut("智能代回", labels.reply),
 				click: opts.onReplyPredict,
 			},
 			{
-				label: shortcut("Agent 任务", "⌥ Space"),
+				label: shortcut("Agent 任务", labels.agent),
 				click: opts.onVoiceAgent,
 			},
 		];
 
 		if (busy) {
 			items.push({
-				label: shortcut("取消当前", "Esc"),
+				label: shortcut("取消当前", labels.cancel),
 				click: opts.onCancel,
 			});
 		}
@@ -65,6 +74,8 @@ export function createTray(opts: {
 		return Menu.buildFromTemplate(items);
 	};
 
+	const refreshMenu = () => tray.setContextMenu(buildMenu());
+
 	const popupMenu = (bounds?: Electron.Rectangle) => {
 		const menu = buildMenu();
 		if (bounds && process.platform === "darwin") {
@@ -74,14 +85,14 @@ export function createTray(opts: {
 		tray.popUpContextMenu(menu);
 	};
 
-	tray.setContextMenu(buildMenu());
+	refreshMenu();
 	tray.on("click", (_event, bounds) => popupMenu(bounds));
 	tray.on("right-click", (_event, bounds) => popupMenu(bounds));
 
-	const timer = setInterval(() => tray.setContextMenu(buildMenu()), 5_000);
-	tray.on("mouse-enter", () => tray.setContextMenu(buildMenu()));
+	const timer = setInterval(() => refreshMenu(), 5_000);
+	tray.on("mouse-enter", () => refreshMenu());
 
 	app.on("will-quit", () => clearInterval(timer));
 
-	return tray;
+	return { tray, refreshMenu };
 }

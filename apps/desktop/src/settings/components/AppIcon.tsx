@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { BRAND_ICONS, BrandIcon } from "./brand-icons.js";
 
 const iconRequests = new Map<string, Promise<string | null>>();
 
@@ -25,6 +26,8 @@ function useAppIcon(appPath?: string | null, appName?: string | null) {
 		}
 		void request.then((v) => {
 			if (!cancelled) setIcon(v);
+			// 失败的结果不长期占用去重缓存，避免一次瞬时失败让图标在整个窗口生命周期内消失
+			if (!v && iconRequests.get(key) === request) iconRequests.delete(key);
 		});
 		return () => {
 			cancelled = true;
@@ -32,6 +35,14 @@ function useAppIcon(appPath?: string | null, appName?: string | null) {
 	}, [appPath, appName]);
 
 	return icon;
+}
+
+function fallbackBrandIcon(appName?: string | null): string | null {
+	const name = appName ?? "";
+	if (/codex/i.test(name)) return BRAND_ICONS.codex;
+	if (/claude/i.test(name)) return BRAND_ICONS.claude;
+	if (/cursor/i.test(name)) return BRAND_ICONS.cursor;
+	return null;
 }
 
 export function AppIconImg({
@@ -46,6 +57,10 @@ export function AppIconImg({
 	const icon = useAppIcon(appPath, appName);
 	if (icon) {
 		return <img src={icon} alt="" style={{ width: size, height: size }} className="shrink-0" />;
+	}
+	const brandIcon = fallbackBrandIcon(appName);
+	if (brandIcon) {
+		return <BrandIcon src={brandIcon} size={size} />;
 	}
 	return (
 		<span

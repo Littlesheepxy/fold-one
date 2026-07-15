@@ -65,6 +65,32 @@ export interface FoldConfig {
 		profileImportedAt?: number;
 		profileImportSkippedAt?: number;
 	};
+	hotkeys?: {
+		trigger?: string;
+		agent?: string;
+		cancel?: string;
+	};
+}
+
+export type HotkeyAction = "trigger" | "agent" | "cancel";
+
+export interface HotkeySettingsSnapshot {
+	bindings: {
+		trigger: { id: string; label: string };
+		agent: { id: string; label: string; keys: string[] };
+		cancel: { id: string; label: string; keys: string[] };
+	};
+	options: {
+		trigger: Array<{ id: string; label: string }>;
+		agent: Array<{ id: string; label: string; keys: string[] }>;
+		cancel: Array<{ id: string; label: string; keys: string[] }>;
+	};
+	status: {
+		trigger: boolean;
+		agent: boolean;
+		cancel: boolean;
+		triggerUsesFallback: boolean;
+	};
 }
 
 export interface HomeEpisode {
@@ -104,6 +130,24 @@ export interface EpisodeDetail {
 		error?: string;
 	}>;
 	validationChecks: Array<{ rule: string; passed: boolean; message?: string }>;
+	agentEvents: Array<{
+		taskId: string;
+		sequence: number;
+		timestamp: number;
+		source: string;
+		status: string;
+		message: string;
+		elapsedMs?: number;
+	}>;
+	artifacts: Array<{ type: string; value: string; label?: string }>;
+	memoryCandidates: Array<{
+		type: string;
+		key: string;
+		value: string;
+		confidence: number;
+		reason?: string;
+		requiresConfirmation: true;
+	}>;
 	contextEvents: Array<{
 		id: string;
 		type: string;

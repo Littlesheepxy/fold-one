@@ -1,4 +1,5 @@
 import { runShellDetailed } from "../shell.js";
+import { LOCAL_TASK_RETURN_INSTRUCTIONS } from "../task-events.js";
 import type { AgentConnector, AgentResult, AgentTask } from "./types.js";
 
 function parseClaudeJson(stdout: string): { result?: string; session_id?: string; total_cost_usd?: number } {
@@ -25,8 +26,10 @@ export const claudeCodeConnector: AgentConnector = {
 	id: "claude-code",
 
 	async isAvailable() {
-		const result = await runShellDetailed("claude", ["--version"], 5000);
-		return result.exitCode === 0;
+		const version = await runShellDetailed("claude", ["--version"], 5000);
+		if (version.exitCode !== 0) return false;
+		const auth = await runShellDetailed("claude", ["auth", "status"], 5000);
+		return auth.exitCode === 0;
 	},
 
 	async execute(task: AgentTask): Promise<AgentResult> {
@@ -59,6 +62,9 @@ export const claudeCodeConnector: AgentConnector = {
 			exitCode: result.exitCode,
 			stderr: result.stderr.trim() || undefined,
 			raw: parsed,
+			events: [],
+			artifacts: [],
+			memoryCandidates: [],
 		};
 	},
 };
@@ -68,6 +74,6 @@ function buildPrompt(task: AgentTask): string {
 	if (task.contextSnapshot?.trim()) {
 		parts.push("", "Fold context:", task.contextSnapshot.trim());
 	}
-	parts.push("", "Reply with a concise summary of what you did and any artifacts changed.");
+	parts.push("", LOCAL_TASK_RETURN_INSTRUCTIONS);
 	return parts.join("\n");
 }

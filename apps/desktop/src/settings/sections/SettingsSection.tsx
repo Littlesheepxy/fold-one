@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Keyboard, Mic } from "lucide-react";
-import type { FoldConfig } from "../types.js";
+import type { FoldConfig, HotkeyAction, HotkeySettingsSnapshot } from "../types.js";
 import { BooleanField, ConnectionBadge, Field, StatusDot } from "../components/FormFields.js";
 import { InputHabitScannerPanel } from "./InputHabitScannerPanel.js";
 
@@ -26,28 +26,48 @@ function SettingsGroup({
 	);
 }
 
-function ShortcutRow({
+function HotkeyBindingRow({
 	title,
 	description,
-	keys,
+	value,
+	options,
+	active,
+	warning,
+	onChange,
 }: {
 	title: string;
 	description: string;
-	keys: string[];
+	value: string;
+	options: Array<{ id: string; label: string }>;
+	active: boolean;
+	warning?: string | null;
+	onChange: (presetId: string) => void;
 }) {
 	return (
 		<div className="fold-home-setting-row">
 			<div className="fold-home-setting-copy">
 				<span className="fold-home-setting-row-title">{title}</span>
 				<span className="fold-home-setting-row-desc">{description}</span>
+				{!active || warning ? (
+					<span className="mt-1 block text-[11px] leading-relaxed text-amber-700">
+						{warning ?? "被占用，快捷键未生效"}
+					</span>
+				) : null}
 			</div>
-			<div className="fold-home-kbd-group" aria-label={`快捷键：${keys.join(" ")}`}>
-				{keys.map((key) => (
-					<kbd key={key} className="fold-home-kbd">
-						{key}
-					</kbd>
-				))}
-			</div>
+			<label className="fold-home-field shrink-0">
+				<select
+					className="min-w-[120px]"
+					value={value}
+					onChange={(event) => onChange(event.target.value)}
+					aria-label={`${title}快捷键`}
+				>
+					{options.map((option) => (
+						<option key={option.id} value={option.id}>
+							{option.label}
+						</option>
+					))}
+				</select>
+			</label>
 		</div>
 	);
 }
@@ -71,8 +91,31 @@ export function SettingsSection({
 	const [downloading, setDownloading] = useState(false);
 	const [downloadError, setDownloadError] = useState<string | null>(null);
 	const [advancedOpen, setAdvancedOpen] = useState(false);
+	const [hotkeys, setHotkeys] = useState<HotkeySettingsSnapshot | null>(null);
+	const [hotkeyError, setHotkeyError] = useState<string | null>(null);
 
 	const planTier = config.planTier ?? "free";
+
+	const refreshHotkeys = () => {
+		void window.fold.getHotkeySettings().then(setHotkeys);
+	};
+
+	const handleHotkeyChange = async (action: HotkeyAction, presetId: string) => {
+		setHotkeyError(null);
+		const result = await window.fold.setHotkeyBinding(action, presetId);
+		if (!result.ok) {
+			const message =
+				result.reason === "occupied"
+					? "该快捷键已被其他应用占用"
+					: result.reason === "duplicate-accelerator" || result.reason === "conflict"
+						? "该快捷键与当前其他动作冲突"
+						: "无法更新快捷键";
+			setHotkeyError(message);
+			refreshHotkeys();
+			return;
+		}
+		setHotkeys(result.settings);
+	};
 
 	const refreshVoiceSetup = () => {
 		void window.fold.getVoiceSetup().then(setVoiceSetup);
@@ -80,6 +123,7 @@ export function SettingsSection({
 
 	useEffect(() => {
 		refreshVoiceSetup();
+		refreshHotkeys();
 	}, [planTier, saved]);
 
 	const handleDownloadVoicePack = async () => {
@@ -112,34 +156,52 @@ export function SettingsSection({
 
 			<SettingsGroup icon={<Keyboard size={18} strokeWidth={1.75} />} title="键盘快捷键">
 				<div className="fold-home-settings-panel">
-					<ShortcutRow
-						title="转写"
-						description="杂乱的想法 → 清晰的文本"
-						keys={["右 ⌘", "短按"]}
-					/>
-					<div className="fold-home-settings-panel fold-home-settings-panel--nested">
-						<BooleanField
-							label="转写后自动插入输入框"
-							checked={config.structureAutoInsert !== false}
-							onChange={(v) => void onPersistBoolean("structureAutoInsert", v)}
-							hint="关闭后先在 知更 草稿窗里查看、修改，再手动插入或复制"
-						/>
-					</div>
-					<ShortcutRow
-						title="代回"
-						description="聊天上下文 → 拟好的回复"
-						keys={["右 ⌘", "按住"]}
-					/>
-					<ShortcutRow
-						title="Agent"
-						description="说出任务 → 自动执行"
-						keys={["⌥", "Space"]}
-					/>
-					<ShortcutRow
-						title="取消"
-						description="取消当前语音或任务。"
-						keys={["Esc"]}
-					/>
+					{hotkeyError ? (
+						<p className="text-[11px] leading-relaxed text-amber-700">{hotkeyError}</p>
+					) : null}
+					{hotkeys ? (
+						<>
+							<HotkeyBindingRow
+								title="转写 / 代回触发键"
+								description="短按转写，按住代回；两个动作共用同一触发键"
+								value={hotkeys.bindings.trigger.id}
+								options={hotkeys.options.trigger}
+								active={hotkeys.status.trigger}
+								warning={
+									hotkeys.status.triggerUsesFallback
+										? "未授权辅助功能，当前回退为 F19 / F18"
+										: null
+								}
+								onChange={(presetId) => void handleHotkeyChange("trigger", presetId)}
+							/>
+							<div className="fold-home-settings-panel fold-home-settings-panel--nested">
+								<BooleanField
+									label="转写后自动插入输入框"
+									checked={config.structureAutoInsert !== false}
+									onChange={(v) => void onPersistBoolean("structureAutoInsert", v)}
+									hint="关闭后先在 知更 草稿窗里查看、修改，再手动插入或复制"
+								/>
+							</div>
+							<HotkeyBindingRow
+								title="Agent"
+								description="说出任务 → 自动执行"
+								value={hotkeys.bindings.agent.id}
+								options={hotkeys.options.agent}
+								active={hotkeys.status.agent}
+								onChange={(presetId) => void handleHotkeyChange("agent", presetId)}
+							/>
+							<HotkeyBindingRow
+								title="取消"
+								description="取消当前语音或任务"
+								value={hotkeys.bindings.cancel.id}
+								options={hotkeys.options.cancel}
+								active={hotkeys.status.cancel}
+								onChange={(presetId) => void handleHotkeyChange("cancel", presetId)}
+							/>
+						</>
+					) : (
+						<p className="text-[11px] text-[#86868b]">加载快捷键设置…</p>
+					)}
 				</div>
 			</SettingsGroup>
 

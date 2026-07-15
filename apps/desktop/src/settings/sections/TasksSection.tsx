@@ -10,6 +10,9 @@ import {
 	Globe,
 	MessageCircleReply,
 	Mic2,
+	Bot,
+	Brain,
+	Paperclip,
 	XCircle,
 } from "lucide-react";
 import { AppIconImg } from "../components/AppIcon.js";
@@ -167,6 +170,58 @@ function EpisodeDetailView({
 							<p className="text-[13px] text-[#86868b]">无步骤记录</p>
 						)}
 					</Card>
+
+					{detail.agentEvents.length > 0 && (
+						<Collapse title={`Agent 进展（${detail.agentEvents.length}）`} defaultOpen>
+							<ul className="max-h-64 space-y-2.5 overflow-y-auto pr-1">
+								{detail.agentEvents.map((event) => (
+									<li key={`${event.taskId}-${event.sequence}`} className="flex items-start gap-2.5">
+										<Bot className="mt-0.5 h-4 w-4 shrink-0 text-[#5856d6]" strokeWidth={1.75} />
+										<div className="min-w-0 flex-1">
+											<p className="text-[13px] text-[#1d1d1f]">{event.message}</p>
+											<p className="mt-0.5 text-[11px] text-[#86868b]">
+												{event.source} · {event.status}
+												{typeof event.elapsedMs === "number" ? ` · ${formatDuration(event.elapsedMs)}` : ""}
+											</p>
+										</div>
+									</li>
+								))}
+							</ul>
+						</Collapse>
+					)}
+
+					{detail.artifacts.length > 0 && (
+						<Collapse title={`交付物（${detail.artifacts.length}）`}>
+							<ul className="space-y-2.5">
+								{detail.artifacts.map((artifact, index) => (
+									<li key={`${artifact.type}-${artifact.value}-${index}`} className="flex items-start gap-2.5">
+										<Paperclip className="mt-0.5 h-4 w-4 shrink-0 text-[#86868b]" strokeWidth={1.75} />
+										<div className="min-w-0">
+											<p className="text-[13px] text-[#1d1d1f]">{artifact.label ?? artifact.type}</p>
+											<p className="break-all text-[11px] text-[#86868b]">{artifact.value}</p>
+										</div>
+									</li>
+								))}
+							</ul>
+						</Collapse>
+					)}
+
+					{detail.memoryCandidates.length > 0 && (
+						<Collapse title={`记忆建议（${detail.memoryCandidates.length}，待确认）`}>
+							<ul className="space-y-3">
+								{detail.memoryCandidates.map((candidate, index) => (
+									<li key={`${candidate.key}-${index}`} className="flex items-start gap-2.5">
+										<Brain className="mt-0.5 h-4 w-4 shrink-0 text-[#af52de]" strokeWidth={1.75} />
+										<div className="min-w-0">
+											<p className="text-[13px] font-medium text-[#1d1d1f]">{candidate.key}</p>
+											<p className="mt-0.5 text-[12px] text-[#3a3a3c]">{candidate.value}</p>
+											{candidate.reason && <p className="mt-0.5 text-[11px] text-[#86868b]">{candidate.reason}</p>}
+										</div>
+									</li>
+								))}
+							</ul>
+						</Collapse>
+					)}
 
 					{detail.resultDetail && detail.resultDetail !== detail.summary && (
 						<Collapse title="结果详情">

@@ -42,9 +42,25 @@ export {
 } from "./types.js";
 export {
 	defaultFastModel,
+	defaultFastVisionModel,
 	hasApiKeyForProvider,
 	hasFastModelApiKey,
+	hasFastVisionApiKey,
 	hasPlannerApiKey,
 	resolveModelChoice,
 } from "./model-choice.js";
 export { generateFastText } from "./fast-text.js";
+export {
+	generateFastVision,
+	describeFastVisionChoice,
+	type FastVisionImage,
+	type FastVisionOptions,
+} from "./fast-vision.js";
+export {
+	gatewayGenerateText,
+	gatewayStreamText,
+	type FundingSource,
+	type GatewayFeature,
+	type LlmCallContext,
+	type UsageUnits,
+} from "./gateway.js";

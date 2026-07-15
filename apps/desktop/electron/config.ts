@@ -12,6 +12,7 @@ import {
 	type PlanTier,
 } from "@fold/runtime";
 import { resolveDataDir } from "./data-dir.js";
+import { loadAccountSecret } from "./secure-store.js";
 
 export type AsrProvider = "auto" | "local-funasr" | "local-whisper" | "dashscope";
 
@@ -34,6 +35,15 @@ export interface FoldConfig {
 	mailProvider?: string;
 	nangoSecretKey?: string;
 	hubApiKey?: string;
+	accountUserId?: string;
+	accountEmail?: string;
+	accountName?: string;
+	accountSyncedAt?: number;
+	voiceSecondsRemaining?: number;
+	smartActionsRemaining?: number;
+	voiceSecondsLimit?: number;
+	smartActionsLimit?: number;
+	periodEnd?: string;
 	playwrightMcpExtensionToken?: string;
 	asrWsUrl?: string;
 	chromeCdpUrl?: string;
@@ -58,6 +68,11 @@ export interface FoldConfig {
 		step?: string;
 		profileImportedAt?: number;
 		profileImportSkippedAt?: number;
+	};
+	hotkeys?: {
+		trigger?: string;
+		agent?: string;
+		cancel?: string;
 	};
 }
 
@@ -150,6 +165,8 @@ export function applyConfigToEnv(config: FoldConfig = loadConfig()): void {
 	if (config.mailProvider) process.env.FOLD_MAIL_PROVIDER = config.mailProvider;
 	if (config.nangoSecretKey) process.env.FOLD_NANGO_SECRET_KEY = config.nangoSecretKey;
 	if (config.hubApiKey) process.env.FOLD_HUB_API_KEY = config.hubApiKey;
+	const accountSecret = loadAccountSecret();
+	if (accountSecret) process.env.FOLD_HUB_API_KEY = accountSecret;
 	if (config.playwrightMcpExtensionToken) {
 		process.env.PLAYWRIGHT_MCP_EXTENSION_TOKEN = config.playwrightMcpExtensionToken;
 	}

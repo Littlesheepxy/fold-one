@@ -1,9 +1,15 @@
+import { randomUUID } from "node:crypto";
 import { claudeCodeConnector } from "./claude-code.js";
 import { codexConnector } from "./codex.js";
 import { cursorAgentConnector } from "./cursor-agent.js";
 import { buildSubagentHandoff } from "./handoff.js";
 import { runShellDetailed } from "../shell.js";
 import type { AgentConnector, AgentId, AgentResult, AgentTask } from "./types.js";
+import {
+	createLocalTaskEmitter,
+	parseLocalTaskReturn,
+	type LocalTaskEvent,
+} from "../task-events.js";
 
 const CONNECTORS: AgentConnector[] = [claudeCodeConnector, codexConnector, cursorAgentConnector];
 
@@ -37,12 +43,32 @@ function formatAgentProbeError(stderr: string, stdout: string): string {
 export async function probeAllAgents(): Promise<AgentProbeStatus[]> {
 	return Promise.all(
 		CONNECTORS.map(async (connector) => {
-			const result = await runShellDetailed(AGENT_CLI[connector.id], ["--version"], 5000);
+			const version = await runShellDetailed(AGENT_CLI[connector.id], ["--version"], 5000);
+			if (version.exitCode !== 0) {
+				return {
+					id: connector.id,
+					label: AGENT_LABELS[connector.id],
+					available: false,
+					error: formatAgentProbeError(version.stderr, version.stdout),
+				};
+			}
+			const authArgs =
+				connector.id === "claude-code"
+					? ["auth", "status"]
+					: connector.id === "codex"
+						? ["login", "status"]
+						: ["status"];
+			const auth = await runShellDetailed(AGENT_CLI[connector.id], authArgs, 5000);
+			const authText = `${auth.stdout}\n${auth.stderr}`;
+			const explicitlyLoggedOut =
+				connector.id === "cursor" &&
+				/not logged in|authentication required|login required/i.test(authText);
+			const available = auth.exitCode === 0 && !explicitlyLoggedOut;
 			return {
 				id: connector.id,
 				label: AGENT_LABELS[connector.id],
-				available: result.exitCode === 0,
-				error: result.exitCode === 0 ? undefined : formatAgentProbeError(result.stderr, result.stdout),
+				available,
+				error: available ? undefined : "CLI 已安装但未登录",
 			};
 		}),
 	);
@@ -81,10 +107,48 @@ async function resolveConnector(agent?: AgentId | "auto"): Promise<AgentConnecto
 
 export async function executeAgent(task: AgentTask, failedSteps: string[] = []): Promise<AgentResult> {
 	assertAgentSubagentsEnabled();
+	const taskId = task.taskId ?? randomUUID();
+	const events: LocalTaskEvent[] = [];
 	const connector = await resolveConnector(task.agent);
-	const result = await connector.execute(task);
+	const emit = createLocalTaskEmitter({
+		taskId,
+		source: connector.id,
+		onEvent: task.onEvent,
+		events,
+	});
+	emit("queued", "任务已交给本地 Agent");
+	emit("starting", `${AGENT_LABELS[connector.id]} 正在启动`);
+	const startedAt = Date.now();
+	const heartbeat = setInterval(() => {
+		const seconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+		emit("working", `${AGENT_LABELS[connector.id]} 仍在执行`, { elapsedSeconds: seconds });
+	}, 15_000);
+	heartbeat.unref?.();
+	let result: AgentResult;
+	try {
+		result = await connector.execute({ ...task, taskId, onEvent: undefined });
+	} catch (error) {
+		emit("failed", (error as Error).message || `${AGENT_LABELS[connector.id]} 执行失败`);
+		throw error;
+	} finally {
+		clearInterval(heartbeat);
+	}
+	const returned = parseLocalTaskReturn(result.summary);
+	result = {
+		...result,
+		summary: returned.summary || result.summary,
+		events,
+		artifacts: returned.artifacts,
+		memoryCandidates: returned.memoryCandidates,
+	};
+	emit(
+		result.ok ? "succeeded" : "failed",
+		result.ok ? `${AGENT_LABELS[connector.id]} 已完成任务` : `${AGENT_LABELS[connector.id]} 执行失败`,
+		{ exitCode: result.exitCode },
+	);
 	return {
 		...result,
+		events,
 		handoff: buildSubagentHandoff(task, result, failedSteps),
 	};
 }

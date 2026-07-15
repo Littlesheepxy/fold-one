@@ -2,7 +2,7 @@ import { createWriteStream, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { resolveEntitlements } from "@fold/runtime";
+import { remainingTrialSmartActions, resolveEntitlements } from "@fold/runtime";
 import { loadConfig, saveConfig, applyConfigToEnv } from "./config.js";
 import {
 	getDefaultLocalModelPath,
@@ -26,20 +26,30 @@ export interface VoiceSetupStatus {
 	trialRemaining?: number;
 }
 
+export function shouldUseSmartVoice(
+	provider: string | undefined,
+	hasCloudEntitlement: boolean,
+	hasSmartTrial: boolean,
+): boolean {
+	const localSelected = provider === "local-whisper" || provider === "local-funasr";
+	return !localSelected && (hasCloudEntitlement || hasSmartTrial);
+}
+
 export function getVoiceSetupStatus(): VoiceSetupStatus {
 	const config = loadConfig();
 	const tier = resolveEntitlements(config.planTier);
-	const modelPath = resolveLocalModelPath(config.localWhisperModelPath);
 	const hasLocal = hasLocalWhisperModel(config.localWhisperModelPath);
-	const trialRemaining = config.trialSmartActionsRemaining;
+	const trialRemaining = remainingTrialSmartActions(config.trialSmartActionsRemaining);
 
-	if (tier.cloudAsr) {
+	if (shouldUseSmartVoice(config.asrProvider, tier.cloudAsr, trialRemaining > 0)) {
 		return {
 			planTier: tier.tier,
 			mode: "cloud",
 			ready: true,
-			title: "云端语音识别",
-			detail: "会员版已自动启用云端识别，识别更准，并支持专有名词热词。",
+			title: "知更智能转写",
+			detail: tier.cloudAsr
+				? "Pro 已包含场景理解、改口整理与专有名词增强。"
+				: `可免费体验 ${trialRemaining} 次场景理解、改口整理与智能代回。`,
 			trialRemaining,
 		};
 	}
@@ -59,8 +69,8 @@ export function getVoiceSetupStatus(): VoiceSetupStatus {
 		planTier: tier.tier,
 		mode: "download-needed",
 		ready: false,
-		title: "需要下载语音包",
-		detail: `免费版使用本地语音识别。下载一次即可离线使用，约 ${LOCAL_VOICE_MODEL_SIZE_MB} MB。`,
+		title: "需要下载离线语音包",
+		detail: `下载一次即可离线使用基础转写，约 ${LOCAL_VOICE_MODEL_SIZE_MB} MB。`,
 		downloadSizeMb: LOCAL_VOICE_MODEL_SIZE_MB,
 		trialRemaining,
 	};

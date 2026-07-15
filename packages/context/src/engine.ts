@@ -75,11 +75,11 @@ export class ContextEngine {
 		const downloads = this.opts.downloadsDir ?? join(homedir(), "Downloads");
 		const extras = (this.opts.watchDirs ?? [])
 			.filter(Boolean)
-			.map((path) => ({ path, depth: 5 as const }));
+			.map((path) => ({ path, depth: 2 as const }));
 
 		return mergeWatchRoots(
 			defaultWatchRoots(),
-			[{ path: downloads, depth: 2 }],
+			[{ path: downloads, depth: 0 }],
 			watchRootsFromEnv(),
 			extras,
 		);

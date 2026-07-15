@@ -3,7 +3,7 @@ import { runAppleScript } from "@fold/connectors";
 
 const SELF_APP_NAMES = new Set(["electron", "fold", "fold-runtime", "知更", "zhigeng"]);
 /** 目标窗口底部程序栏/输入区预留高度 */
-const PROGRAM_BAR_HEIGHT = 52;
+const PROGRAM_BAR_HEIGHT = 24;
 /** 语音条底边距程序栏顶部的间距 */
 const VOICE_TAB_ABOVE_BAR = 10;
 
@@ -156,7 +156,7 @@ export interface VoiceTabPlacement {
 	top: number;
 }
 
-const VOICE_TAB_HEIGHT = 34;
+const VOICE_TAB_HEIGHT = 38;
 const WIDGET_ORB_SIZE = 44;
 
 export function getOverlaySpanBounds(): Rectangle {
@@ -281,21 +281,21 @@ export function positionOverlayForIdle(window: BrowserWindow | null): OverlayWor
 	return { x: 0, y: 0, width: workArea.width, height: workArea.height };
 }
 
-/** Span all displays and anchor the voice tab above the target window's bottom bar. */
+/** Cover only the target display and anchor the voice tab above the target window's bottom bar. */
 export async function positionOverlayForActiveContext(
 	window: BrowserWindow | null,
 	targetApp?: string | null,
 ): Promise<VoiceTabPlacement | null> {
 	if (!window || window.isDestroyed()) return null;
 
-	const span = getOverlaySpanBounds();
 	const { rect, display } = await resolveTargetWindowRect(targetApp);
-	const placement = computeVoiceTabPlacement(rect, span, display);
-	applyOverlayBounds(window, span);
+	const overlayBounds = display.workArea;
+	const placement = computeVoiceTabPlacement(rect, overlayBounds, display);
+	applyOverlayBounds(window, overlayBounds);
 
 	const bounds = window.getBounds();
 	console.log(
-		`[fold:overlay-display] targetApp=${targetApp ?? "—"} display=${display.id} workArea=${display.workArea.x},${display.workArea.y} ${display.workArea.width}x${display.workArea.height} window=${rect.x},${rect.y} ${rect.width}x${rect.height} placement=${placement.left},${placement.top} span=${bounds.x},${bounds.y} ${bounds.width}x${bounds.height}`,
+		`[fold:overlay-display] targetApp=${targetApp ?? "—"} display=${display.id} workArea=${display.workArea.x},${display.workArea.y} ${display.workArea.width}x${display.workArea.height} window=${rect.x},${rect.y} ${rect.width}x${rect.height} placement=${placement.left},${placement.top} overlay=${bounds.x},${bounds.y} ${bounds.width}x${bounds.height}`,
 	);
 	return placement;
 }

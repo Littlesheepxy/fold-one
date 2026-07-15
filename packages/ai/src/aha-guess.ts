@@ -1,6 +1,5 @@
-import { generateText, streamText } from "ai";
 import { hasPlannerApiKey, resolveModelChoice } from "./model-choice.js";
-import { toLanguageModel } from "./providers.js";
+import { gatewayGenerateText, gatewayStreamText } from "./gateway.js";
 
 export interface AhaGuessPage {
 	title: string;
@@ -257,8 +256,11 @@ export async function generateAhaGuess(
 	}
 
 	try {
-		const model = toLanguageModel(resolveModelChoice("planner"));
-		const { text } = await generateText({ model, prompt: buildAhaGuessPrompt(input) });
+		const { text } = await gatewayGenerateText(
+			resolveModelChoice("planner"),
+			{ prompt: buildAhaGuessPrompt(input) },
+			{ feature: "noticed" },
+		);
 		const reply = finalizeAhaReply(text, input);
 		opts?.onCloudSuccess?.();
 		return reply;
@@ -279,14 +281,13 @@ export async function streamAhaGuess(
 	}
 
 	try {
-		const model = toLanguageModel(resolveModelChoice("planner"));
-		const { textStream } = streamText({ model, prompt: buildAhaGuessPrompt(input) });
-		let full = "";
-		for await (const chunk of textStream) {
-			if (opts.isCancelled?.()) break;
-			full += chunk;
-			opts.onChunk(chunk);
-		}
+		const { text: full } = await gatewayStreamText(
+			resolveModelChoice("planner"),
+			{ prompt: buildAhaGuessPrompt(input) },
+			{ feature: "noticed" },
+			opts.onChunk,
+			opts.isCancelled,
+		);
 		if (opts.isCancelled?.()) return full;
 		const reply = finalizeAhaReply(full, input);
 		opts?.onCloudSuccess?.();

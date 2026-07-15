@@ -93,6 +93,8 @@ export function buildProfileBrief(profile: UserProfileData | null): string {
 	if (profile.communicationStyle) lines.push(`沟通风格：${profile.communicationStyle}`);
 	if (profile.preferredTools?.length) lines.push(`常用工具：${profile.preferredTools.join("、")}`);
 	if (profile.workPatterns?.length) lines.push(`工作习惯：${profile.workPatterns.slice(0, 3).join("；")}`);
+	if (profile.consolidatedHabits?.length)
+		lines.push(`自动观察到的表达习惯：${profile.consolidatedHabits.slice(-3).join("；")}`);
 	if (profile.constraints?.length) lines.push(`约束：${profile.constraints.slice(0, 3).join("；")}`);
 	const keywords = extractProfileKeywords(profile, 12);
 	if (keywords.length) lines.push(`常用专名：${keywords.join("、")}`);

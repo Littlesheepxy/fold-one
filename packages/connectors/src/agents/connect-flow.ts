@@ -1,20 +1,18 @@
 import { randomUUID } from "node:crypto";
 import {
 	activateWorkBuddyPairing,
-	prepareWorkBuddyPairing,
 	stopPairingLoop,
 	tryPersistWorkBuddyBridge,
 } from "../workbuddy/bridge.js";
 import { probeWorkBuddyGateway } from "../workbuddy/index.js";
+import { isWorkBuddyAppInstalled, openWorkBuddyApp } from "../workbuddy/app.js";
 import { runShellDetailed } from "../shell.js";
 import { openInTerminal } from "../terminal.js";
 import type { AgentId } from "./types.js";
 import type { ConnectFlowKind, ConnectFlowPollResult, ConnectFlowStart } from "../office/auth-flow.js";
-import {
-	openClaudeLoginInTerminal,
-	openCodexInstallInTerminal,
-	openCursorSetupInTerminal,
-} from "./install-actions.js";
+import { isCodexAppInstalled, openCodexApp } from "./codex-app.js";
+import { openCursorAgentInstall, startCursorBrowserLogin } from "./cursor-app.js";
+import { openClaudeLoginInTerminal } from "./install-actions.js";
 
 export type AgentConnectTarget =
 	| "agent-codex"
@@ -35,25 +33,25 @@ const AGENT_META: Record<
 	"agent-codex": {
 		title: "Codex",
 		installMessage:
-			"已在终端打开安装向导。按提示完成 npm 全局安装与 codex login，Fold 会自动检测连接状态。",
-		loginMessage: "已在终端打开 codex login。完成登录后 Fold 会自动检测。",
+			"安装并登录 Codex 后，知更就能直接调用它完成复杂任务。",
+		loginMessage: "打开 Codex 完成登录，知更会自动检测并连接。",
 	},
 	"agent-claude-code": {
 		title: "Claude Code",
 		installMessage:
-			"请先在终端安装 Claude Code CLI（claude），安装完成后点击「打开授权」或在终端运行 claude login。",
-		loginMessage: "已在终端打开 claude login。完成登录后 Fold 会自动检测。",
+			"Claude Code 尚未安装。点击下方按钮打开终端，完成安装和登录后，知更会自动检测。",
+		loginMessage: "Claude Code 已安装，但尚未登录。点击下方按钮打开终端完成登录。",
 	},
 	"agent-cursor": {
 		title: "Cursor Agent",
 		installMessage:
-			"已打开 Cursor 安装页并在终端准备 CLI。安装完成后在终端运行 agent login，Fold 会自动检测。",
-		loginMessage: "已在终端打开 agent login。完成登录后 Fold 会自动检测。",
+			"安装 Cursor Agent 后，知更就能直接调用它完成复杂任务。",
+		loginMessage: "在浏览器完成 Cursor 登录，知更会自动检测并连接。",
 	},
 	workbuddy: {
 		title: "Work Buddy",
-		installMessage: "按下方步骤完成配对，Fold 会自动检测连接状态。",
-		loginMessage: "按下方步骤完成配对，Fold 会自动检测连接状态。",
+		installMessage: "安装并登录 Work Buddy 后，知更就能直接调用其中的能力。",
+		loginMessage: "知更会打开 Work Buddy 并自动连接；如尚未登录，请在客户端完成登录。",
 	},
 };
 
@@ -82,20 +80,32 @@ async function probeAgentCli(binary: string): Promise<boolean> {
 
 async function isAgentAuthed(target: Exclude<AgentConnectTarget, "workbuddy">): Promise<boolean> {
 	const { binary } = AGENT_CLI[target];
-	return probeAgentCli(binary);
+	if (!(await probeAgentCli(binary))) return false;
+	const args =
+		target === "agent-claude-code"
+			? ["auth", "status"]
+			: target === "agent-codex"
+				? ["login", "status"]
+				: ["status"];
+	const result = await runShellDetailed(binary, args, 5000);
+	const text = `${result.stdout}\n${result.stderr}`;
+	return result.exitCode === 0 && !/not logged in|authentication required|login required/i.test(text);
 }
 
 function launchAgentSetup(target: Exclude<AgentConnectTarget, "workbuddy">, kind: ConnectFlowKind): void {
 	if (target === "agent-codex") {
-		openCodexInstallInTerminal();
+		if (isCodexAppInstalled()) openCodexApp();
+		else if (kind === "login") openInTerminal("codex login");
+		else openCodexApp();
 		return;
 	}
 	if (target === "agent-claude-code") {
 		if (kind === "login") openClaudeLoginInTerminal();
-		else openInTerminal("npm i -g @anthropic-ai/claude-code && claude --version && claude login");
+		else openInTerminal("npm i -g @anthropic-ai/claude-code && claude --version && claude auth login");
 		return;
 	}
-	openCursorSetupInTerminal(kind);
+	if (kind === "login") startCursorBrowserLogin();
+	else openCursorAgentInstall();
 }
 
 export async function startAgentConnectFlow(
@@ -106,10 +116,10 @@ export async function startAgentConnectFlow(
 	const sessionId = randomUUID();
 
 	if (target === "workbuddy") {
-		const pairing = prepareWorkBuddyPairing();
+		const installed = isWorkBuddyAppInstalled();
 		sessions.set(sessionId, {
 			target,
-			kind,
+			kind: installed ? "login" : "install",
 			startedAt: Date.now(),
 			isAuthed: async () => {
 				tryPersistWorkBuddyBridge();
@@ -119,19 +129,18 @@ export async function startAgentConnectFlow(
 		return {
 			sessionId,
 			target,
-			kind,
+			kind: installed ? "login" : "install",
 			title: `连接 ${meta.title}`,
-			message: meta.loginMessage,
-			copyText: pairing.copyText,
-			copyThenOpen: true,
+			message: installed ? meta.loginMessage : meta.installMessage,
+			requiresAction: true,
+			actionLabel: installed ? "打开并连接" : "获取 Work Buddy",
 		};
 	}
 
 	const { binary } = AGENT_CLI[target];
 	const installed = await probeAgentCli(binary);
 	const effectiveKind = installed ? "login" : "install";
-	launchAgentSetup(target, effectiveKind);
-
+	const codexClientInstalled = target === "agent-codex" && isCodexAppInstalled();
 	sessions.set(sessionId, {
 		target,
 		kind: effectiveKind,
@@ -143,8 +152,20 @@ export async function startAgentConnectFlow(
 		sessionId,
 		target,
 		kind: effectiveKind,
-		title: installed ? `登录 ${meta.title}` : `安装 ${meta.title}`,
+		title: installed ? `连接 ${meta.title}` : `获取 ${meta.title}`,
 		message: installed ? meta.loginMessage : meta.installMessage,
+		requiresAction: true,
+		actionLabel: codexClientInstalled
+			? "打开 Codex"
+			: installed
+				? target === "agent-cursor"
+					? "在浏览器登录"
+					: "继续登录"
+				: target === "agent-codex"
+					? "获取 Codex"
+					: target === "agent-cursor"
+						? "获取 Cursor Agent"
+						: "开始安装",
 	};
 }
 
@@ -167,7 +188,7 @@ export async function pollAgentConnectFlow(
 			sessions.delete(sessionId);
 			return {
 				status: "error",
-				error: probe.error ?? "连接超时。请复制配对命令到 WorkBuddy 发送后重试",
+				error: probe.error ?? "连接超时，请确认 Work Buddy 已登录并保持一个对话打开",
 			};
 		}
 		return {
@@ -194,8 +215,13 @@ export function cancelAgentConnectFlow(sessionId: string): void {
 	sessions.delete(sessionId);
 }
 
-export function activateWorkBuddyConnectFlow(sessionId: string): { opened: boolean; url?: string } {
+export function activateAgentConnectFlow(sessionId: string): { opened: boolean; url?: string } {
 	const session = sessions.get(sessionId);
-	if (!session || session.target !== "workbuddy") return { opened: false };
-	return activateWorkBuddyPairing(sessionId);
+	if (!session) return { opened: false };
+	if (session.target === "workbuddy") {
+		if (!isWorkBuddyAppInstalled()) return openWorkBuddyApp();
+		return activateWorkBuddyPairing(sessionId);
+	}
+	launchAgentSetup(session.target, session.kind);
+	return { opened: true };
 }

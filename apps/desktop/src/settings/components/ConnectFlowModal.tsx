@@ -27,6 +27,8 @@ export function ConnectFlowModal({
 	const [error, setError] = useState<string | null>(null);
 	const [copyText, setCopyText] = useState<string | null>(null);
 	const [copyThenOpen, setCopyThenOpen] = useState(false);
+	const [requiresAction, setRequiresAction] = useState(false);
+	const [actionLabel, setActionLabel] = useState("继续连接");
 	const [copyBusy, setCopyBusy] = useState(false);
 	const sessionIdRef = useRef<string | null>(null);
 	const openedBrowserRef = useRef(false);
@@ -76,6 +78,8 @@ export function ConnectFlowModal({
 		setUserCode(null);
 		setCopyText(null);
 		setCopyThenOpen(false);
+		setRequiresAction(false);
+		setActionLabel("继续连接");
 		setCopyBusy(false);
 		stopPolling();
 
@@ -90,15 +94,18 @@ export function ConnectFlowModal({
 				setUserCode(start.userCode ?? null);
 				setCopyText(start.copyText ?? null);
 				const needsCopyFirst = start.copyThenOpen ?? false;
+				const needsAction = start.requiresAction ?? false;
 				setCopyThenOpen(needsCopyFirst);
-				setPhase(needsCopyFirst ? "ready" : "waiting");
+				setRequiresAction(needsAction);
+				setActionLabel(start.actionLabel ?? "继续连接");
+				setPhase(needsCopyFirst || needsAction ? "ready" : "waiting");
 
 				if (start.opensBrowserAutomatically && start.authUrl && !openedBrowserRef.current) {
 					openedBrowserRef.current = true;
 					await window.fold.openExternal(start.authUrl);
 				}
 
-				if (!needsCopyFirst) startPolling();
+				if (!needsCopyFirst && !needsAction) startPolling();
 			} catch (err) {
 				if (cancelled) return;
 				setPhase("error");
@@ -124,17 +131,23 @@ export function ConnectFlowModal({
 		await window.fold.openExternal(authUrl);
 	};
 
-	const handleCopyAndOpenWorkBuddy = async () => {
+	const handleActivateConnect = async () => {
 		const sid = sessionIdRef.current;
-		if (!copyText || !sid || copyBusy) return;
+		if (!sid || copyBusy) return;
 		setCopyBusy(true);
 		try {
-			await navigator.clipboard.writeText(copyText);
-			const result = await window.fold.activateWorkBuddyConnect(sid);
+			if (copyText) await navigator.clipboard.writeText(copyText);
+			const result = await window.fold.activateConnectFlow(sid);
 			if (!result.opened && result.url) {
 				await window.fold.openExternal(result.url);
 			}
-			setMessage("已复制。请在 WorkBuddy 新建对话粘贴发送，知更 会自动检测连接。");
+			setMessage(
+				target?.connectionId === "workbuddy"
+					? "Work Buddy 已打开。保持一个对话打开，知更会自动完成连接。"
+					: target?.connectionId === "agent-codex"
+						? "Codex 已打开。完成登录后，知更会自动连接。"
+						: "已开始连接。完成登录后，知更会自动检测。",
+			);
 			setPhase("waiting");
 			startPolling();
 		} catch (err) {
@@ -147,7 +160,8 @@ export function ConnectFlowModal({
 
 	if (!target) return null;
 
-	const showWorkBuddySteps = copyThenOpen && (phase === "ready" || phase === "waiting");
+	const showWorkBuddySteps =
+		target.connectionId === "workbuddy" && (phase === "ready" || phase === "waiting");
 
 	return (
 		<div className="fold-connect-overlay" onClick={handleClose}>
@@ -181,9 +195,9 @@ export function ConnectFlowModal({
 				{showWorkBuddySteps && (
 					<div className="fold-connect-steps">
 						<ol>
-							<li>点击下方按钮，复制配对命令并打开 WorkBuddy</li>
-							<li>在 WorkBuddy 新建对话，粘贴发送</li>
-							<li>知更 将自动完成连接</li>
+							<li>知更打开 Work Buddy</li>
+							<li>如有需要，在客户端完成登录</li>
+							<li>保持任意对话打开，连接会自动完成</li>
 						</ol>
 						{copyText && (
 							<p className="fold-connect-command" title={copyText}>
@@ -202,14 +216,14 @@ export function ConnectFlowModal({
 				)}
 
 				<div className="fold-connect-actions">
-					{phase === "ready" && copyThenOpen && (
+					{phase === "ready" && (copyThenOpen || requiresAction) && (
 						<button
 							type="button"
 							className="fold-connect-btn fold-connect-btn-primary"
 							disabled={copyBusy}
-							onClick={() => void handleCopyAndOpenWorkBuddy()}
+							onClick={() => void handleActivateConnect()}
 						>
-							{copyBusy ? "正在打开…" : "复制并打开 WorkBuddy"}
+							{copyBusy ? "正在打开…" : actionLabel}
 						</button>
 					)}
 					{phase === "waiting" && authUrl && (

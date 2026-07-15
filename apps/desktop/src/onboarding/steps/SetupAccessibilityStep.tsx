@@ -46,7 +46,12 @@ export function SetupAccessibilityStep({ onNext, onBack }: { onNext: () => void;
 			right={
 				<div className="fold-onboarding-visual-card fold-onboarding-ax-card">
 					<div className="fold-onboarding-ax-head">
-						<span className="fold-onboarding-ax-symbol" aria-hidden="true">⌘</span>
+						<img
+							className="fold-onboarding-ax-icon"
+							src="/accessibility-icon.png"
+							alt=""
+							aria-hidden="true"
+						/>
 						<div>
 							<strong>辅助功能</strong>
 							<p>允许知更控制键盘输入</p>

@@ -1,5 +1,7 @@
 import {
+	formatCalendarBrief,
 	listChromeTabsViaAppleScript,
+	listUpcomingCalendarEvents,
 	readFrontWindowAccessibilityText,
 	readProcessAccessibilityText,
 } from "@fold/connectors";
@@ -77,11 +79,13 @@ export async function enrichContext(
 		return front;
 	}
 
-	const [chromeTabsRaw, ax] = await Promise.all([
+	const [chromeTabsRaw, ax, calendarEvents] = await Promise.all([
 		includeAllChromeTabs
 			? listChromeTabsViaAppleScript().catch(() => [])
 			: Promise.resolve([]),
 		readAccessibility(),
+		// 日历是「未来」信号：代回/预测/Aha/Agent 都按需拉一次（失败则空）
+		listUpcomingCalendarEvents({ withinHours: 12, limit: 5 }).catch(() => []),
 	]);
 
 	const chromeTabs =
@@ -95,6 +99,7 @@ export async function enrichContext(
 		accessibilityApp: ax?.app,
 		accessibilityWindowTitle: ax?.windowTitle,
 		entities,
+		calendarEvents,
 	};
 
 	const briefScope = scope === "agent" ? "agent" : scope === "aha" ? "aha" : "reply";
@@ -104,10 +109,14 @@ export async function enrichContext(
 		visitedChromeTabCount: chromeTabs.length,
 	});
 
+	const baseBrief = formatContextBrief(ctx, briefScope);
+	const calendarBrief = formatCalendarBrief(calendarEvents);
+	const brief = calendarBrief ? `${baseBrief}\n\n${calendarBrief}` : baseBrief;
+
 	return {
 		enrichment,
 		summary: formatContextSummary(ctx),
-		brief: formatContextBrief(ctx, briefScope),
+		brief,
 		screenSnippet,
 		confidence,
 	};

@@ -76,6 +76,13 @@ export interface InformationObjectInput {
 	accessibilityApp?: string;
 	accessibilityWindowTitle?: string;
 	entities?: string[];
+	/** 未来若干小时内的日历事件（EventKit） */
+	calendarEvents?: Array<{
+		title: string;
+		startAt: number;
+		endAt: number;
+		calendar?: string;
+	}>;
 }
 
 const BROWSER_APP_RE = /chrome|arc|brave|edge|safari|firefox/i;

@@ -12,6 +12,8 @@ export interface UserProfileData {
 	updatedAt?: number;
 	/** 三层协作上下文档案全文（Markdown） */
 	migrationArchive?: string;
+	/** 日整固自动归纳的表达习惯，见 consolidate.ts writeDigest 的 profile.consolidatedHabit */
+	consolidatedHabits?: string[];
 }
 
 const PROFILE_PREFIX = "profile.";
@@ -142,6 +144,7 @@ export function loadProfileMemories(dataDir?: string): UserProfileData | null {
 		communicationStyle: map.get("communicationStyle") || undefined,
 		constraints: parseList("constraints"),
 		migrationArchive: map.get("migrationArchive") || undefined,
+		consolidatedHabits: parseList("consolidatedHabit"),
 		updatedAt: Number(map.get("updatedAt")) || undefined,
 	};
 }

@@ -6,12 +6,15 @@
   "scripts": {
     "dev": "node scripts/clean-electron-artifacts.mjs && vite",
     "build": "node scripts/clean-electron-artifacts.mjs && vite build",
-    "rebuild:native": "electron-rebuild -f -w better-sqlite3 && node scripts/prepare-whisper-addon.mjs",
+		"rebuild:native": "electron-rebuild -f -w better-sqlite3,@fold/macos-input && node scripts/prepare-whisper-addon.mjs",
     "build:icons": "bash scripts/build-zhigeng-assets.sh",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit"
+		"typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
+		"test:golden-flow": "tsx electron/golden-flow.self-check.ts",
+		"test:privacy": "tsx src/settings/lib/privacy.self-check.ts"
   },
-  "dependencies": {
-    "@fold/connectors": "workspace:*",
+	"dependencies": {
+		"@fold/macos-input": "file:native/macos-input",
+		"@fold/connectors": "workspace:*",
     "@fold/context": "workspace:*",
     "@fold/memory": "workspace:*",
     "@fold/runtime": "workspace:*",

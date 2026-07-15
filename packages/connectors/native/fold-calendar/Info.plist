@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>com.fold.calendar-cli</string>
+	<key>CFBundleName</key>
+	<string>fold-calendar</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>知更需要读取近期日程，以便在预测与代回时知道你接下来要开什么会。</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>知更需要读取近期日程，以便在预测与代回时知道你接下来要开什么会。</string>
+</dict>
+</plist>

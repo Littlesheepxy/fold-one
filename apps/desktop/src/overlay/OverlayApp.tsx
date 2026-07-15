@@ -1,5 +1,6 @@
 import { animate, motion, AnimatePresence, useMotionValue } from "framer-motion";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
 import { useOverlayStore } from "./useOverlayStore";
 import { useVoiceHandlers } from "./useVoice";
 import { useProcessingFill, PROCESSING_FILL_COMPLETE } from "./useProcessingFill";
@@ -295,6 +296,8 @@ export function OverlayApp() {
 		currentApp,
 		result,
 		resultDetail,
+		verificationChecks,
+		undoAvailable,
 		error,
 		askTitle,
 		askMessage,
@@ -518,10 +521,10 @@ export function OverlayApp() {
 				: voiceHint
 					? 360
 				: contextPageUrl
-					? 196
+					? 218
 					: contextAppName
-					? 148
-					: 124
+					? 176
+					: 152
 		: collapsed
 		? (dockedSide ? DOCKED_WIDTH : ORB_SIZE)
 		: status === "error"
@@ -541,6 +544,19 @@ export function OverlayApp() {
 				: status === "listening"
 					? 320
 					: 390;
+	const safeVoiceTabPlacement =
+		voiceTabPlacement && typeof window !== "undefined"
+			? {
+					left: Math.min(
+						window.innerWidth - shellWidth / 2 - 12,
+						Math.max(shellWidth / 2 + 12, voiceTabPlacement.left),
+					),
+					top: Math.min(
+						window.innerHeight - 50,
+						Math.max(12, voiceTabPlacement.top),
+					),
+				}
+			: voiceTabPlacement;
 	const expandedLeft = expandedX(anchorPosition.x, shellWidth, anchorPosition.snapSide ?? null, displayBounds);
 
 	useEffect(() => {
@@ -620,10 +636,10 @@ export function OverlayApp() {
 				}}
 				style={
 					voiceTabAnchorScene
-						? voiceTabPlacement
+						? safeVoiceTabPlacement
 							? {
-									left: voiceTabPlacement.left - shellWidth / 2,
-									top: voiceTabPlacement.top,
+									left: safeVoiceTabPlacement.left - shellWidth / 2,
+									top: safeVoiceTabPlacement.top,
 									right: "auto",
 									bottom: "auto",
 									x: 0,
@@ -752,11 +768,11 @@ export function OverlayApp() {
 											<div className="fold-input-tab-row">
 												{contextAppName || contextPageUrl ? (
 													<span className="fold-input-app-icon" aria-hidden="true">
-														<ContextAppIcon
+								<ContextAppIcon
 															appName={contextAppName}
 															appPath={contextAppPath}
 															pageUrl={contextPageUrl}
-															size={18}
+									size={20}
 														/>
 													</span>
 												) : null}
@@ -766,8 +782,20 @@ export function OverlayApp() {
 												>
 													{voiceSurface}
 												</span>
-												<span className="fold-input-separator" />
-												<VoiceWave level={voiceLevel} />
+							<span className="fold-input-separator" />
+							<VoiceWave level={voiceLevel} />
+							<button
+								type="button"
+								className="fold-input-close"
+								onClick={(event) => {
+									event.stopPropagation();
+									void window.fold.toggleVoice();
+								}}
+								aria-label="结束并转写"
+								title="结束并转写"
+							>
+								<X size={14} strokeWidth={2.2} />
+							</button>
 											</div>
 											{voiceHint ? (
 												<p className="fold-input-voice-hint">{voiceHint}</p>
@@ -810,18 +838,34 @@ export function OverlayApp() {
 								)}
 
 								{status === "done" && !inputScene && (
-									<button
-										type="button"
-										className="min-w-0 flex-1 text-left"
-										onClick={(e) => {
-											e.stopPropagation();
-											setDetailsOpen((v) => !v);
-										}}
-									>
-										<p className="text-sm font-medium truncate" title={compactSummary(result)}>
-											{compactSummary(result)}
-										</p>
-									</button>
+									<div className="flex min-w-0 flex-1 items-center gap-2">
+										<button
+											type="button"
+											className="min-w-0 flex-1 text-left"
+											onClick={(e) => {
+												e.stopPropagation();
+												setDetailsOpen((v) => !v);
+											}}
+										>
+											<p className="text-sm font-medium truncate" title={compactSummary(result)}>
+												{compactSummary(result)}
+											</p>
+										</button>
+										{undoAvailable ? (
+											<button
+												type="button"
+												className="rounded-full bg-white/15 px-2.5 py-1 text-xs text-white/90 hover:bg-white/25"
+												onClick={(e) => {
+													e.stopPropagation();
+													void window.fold.undoLastInsert().then((response) => {
+														if (!response.ok) setState({ status: "error", error: response.error ?? "撤销失败" });
+													});
+												}}
+											>
+												撤销
+											</button>
+										) : null}
+									</div>
 								)}
 
 								{status === "error" && (
@@ -892,6 +936,18 @@ export function OverlayApp() {
 								<p className="mb-2 text-xs text-white/45">工具执行</p>
 								<StepList steps={steps ?? []} />
 							</div>
+							{verificationChecks && verificationChecks.length > 0 ? (
+								<div className="mt-3 border-t border-white/10 pt-3">
+									<p className="mb-2 text-xs text-white/45">完成校验</p>
+									<ul className="space-y-1.5 text-xs">
+										{verificationChecks.map((check) => (
+											<li key={check.rule} className={check.passed ? "text-emerald-300" : "text-amber-300"}>
+												{check.passed ? "✓" : "!"} {check.message || check.rule}
+											</li>
+										))}
+									</ul>
+								</div>
+							) : null}
 						</motion.div>
 					)}
 				</AnimatePresence>
@@ -958,6 +1014,16 @@ export function OverlayApp() {
 					selectedIntent={predictSelectedIntent}
 					onPickIntent={(intent) => void window.fold.predictPickIntent(intent)}
 					onInsertDraft={(text) => void window.fold.predictInsertDraft(text)}
+					onReject={() => {
+						void window.fold.predictFeedback({
+							kind: "reject",
+							surface: predictSurface,
+							intent: predictSelectedIntent ?? predictSuggestions?.[0]?.intent,
+							draft: predictDrafts?.[0]?.text,
+							anchor: predictAnchor,
+						});
+						void window.fold.dismiss({ skipFeedback: true });
+					}}
 					onDismiss={() => void window.fold.dismiss()}
 				/>
 			)}

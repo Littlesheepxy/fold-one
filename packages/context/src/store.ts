@@ -166,7 +166,8 @@ export class ContextStore {
 		this.ctx.events = this.ctx.events.filter((e) => e.timestamp >= cutoff);
 		this.ctx.recentFiles = this.ctx.recentFiles.filter((f) => f.timestamp >= cutoff);
 		this.ctx.recentUrls = this.ctx.recentUrls.filter((u) => u.timestamp >= cutoff);
-		this.ctx.recentClipboards = this.ctx.recentClipboards.filter((c) => c.timestamp >= cutoff);
+		// 复制记录不按时间清理，只按条数上限；事件在本地 DB 永存，重启后由 hydrate 回放
+		// ponytail: 回放窗口是最近 400 条事件，跨度过长时更早的复制记录不会恢复；要更久可改为按类型查 DB
 		if (this.ctx.clipboard && this.ctx.clipboard.timestamp < cutoff) {
 			this.ctx.clipboard = null;
 		}

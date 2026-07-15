@@ -259,9 +259,11 @@ function ClipboardRecallBanner({
 
 function ZhigengNoticedPanel({
 	active,
+	targets,
 	onNavigate,
 }: {
 	active: boolean;
+	targets: ContextTarget[];
 	onNavigate: (section: "work") => void;
 }) {
 	const [state, setState] = useState<"loading" | "streaming" | "ready">("loading");
@@ -272,6 +274,10 @@ function ZhigengNoticedPanel({
 	const runIdRef = useRef<number | null>(null);
 	const startedRef = useRef(false);
 	const wasActiveRef = useRef(false);
+	const lastRunAtRef = useRef(0);
+	const evidence = targets
+		.slice(0, 3)
+		.map((target) => target.kind === "app" ? target.appName : target.label);
 
 	useEffect(() => {
 		if (typeof window.fold === "undefined") {
@@ -309,6 +315,7 @@ function ZhigengNoticedPanel({
 		setConfidenceLevel(undefined);
 		setState("loading");
 		startedRef.current = true;
+		lastRunAtRef.current = Date.now();
 		const started = await window.fold.startAhaGuess();
 		if (!started.ok || started.runId == null) {
 			setReply("暂时没看清楚，稍后再试。");
@@ -327,8 +334,9 @@ function ZhigengNoticedPanel({
 		const entering = !wasActiveRef.current;
 		wasActiveRef.current = true;
 		if (!entering) return;
+		// 2 分钟内回到主页复用上次结果，避免每次切页都重跑「注意到了」；手动「刷新」不受限。
+		if (startedRef.current && Date.now() - lastRunAtRef.current < 120_000) return;
 		setDismissed(false);
-		startedRef.current = false;
 		void startGuess();
 	}, [active]);
 
@@ -406,11 +414,18 @@ function ZhigengNoticedPanel({
 				</div>
 			) : null}
 
+			{state === "ready" && evidence.length > 0 ? (
+				<div className="fold-aha-evidence" aria-label="判断依据">
+					<strong>判断依据</strong>
+					<span>{evidence.join("·")}</span>
+				</div>
+			) : null}
+
 			{state === "ready" ? (
 				<div className="fold-aha-foot">
 					<button type="button" className="fold-aha-btn is-ghost" onClick={() => void startGuess()}>
 						<RefreshCw size={13} strokeWidth={2} />
-						刷新
+						猜得不对，重新判断
 					</button>
 					<button type="button" className="fold-aha-btn" onClick={() => onNavigate("work")}>
 						查看轨迹
@@ -475,7 +490,7 @@ export function OverviewSection({
 
 			<ClipboardRecallBanner onNavigateWork={() => onNavigate("work")} />
 
-			<ZhigengNoticedPanel active={active} onNavigate={(section) => onNavigate(section)} />
+			<ZhigengNoticedPanel active={active} targets={contextTargets} onNavigate={(section) => onNavigate(section)} />
 
 			<section className="fold-home-metrics-compact" aria-label="本周概览">
 				<div className="fold-home-metric-pill">

@@ -1,26 +1,33 @@
 import { captureScreenshot } from "@fold/connectors";
 import { createEmptyContext, type LiveContext } from "@fold/context";
+import { formatEntityBrief } from "@fold/memory";
 import {
 	buildPredictions,
+	buildProfileBrief,
 	enrichContext,
 	extractEntityTokens,
+	formatRecentRejectBrief,
 	generateAhaGuess,
 	generatePredictDrafts,
 	getPredictions,
+	hasFastVisionApiKey,
 	inferPredictSurface,
 	needsScreenCalibration,
 	predictContextSnippet,
+	recordPredictFeedback,
 	refreshPredictCache,
 	retrieveSimilarTraces,
 	streamAhaGuess,
 	type EnrichedContext,
 	type PredictEnrichment,
+	type PredictFeedbackKind,
 	type PredictResult,
 } from "@fold/runtime";
 import {
 	consumeSmartActionTrial,
 	resolveSmartActionAccess,
 } from "./config.js";
+import { getStoredProfile } from "./profile-import.js";
 
 async function generateTieredPredictDrafts(
 	input: Parameters<typeof generatePredictDrafts>[0],
@@ -37,15 +44,45 @@ async function generateTieredPredictDrafts(
 	});
 }
 
+/** 用户画像（角色/领域/沟通风格/工作习惯），来自 profile-import 的 onboarding 导入结果 */
+function currentProfileBrief(): string | undefined {
+	const profile = buildProfileBrief(getStoredProfile());
+	const rejects = formatRecentRejectBrief();
+	const parts = [profile, rejects].filter((p) => p.trim());
+	return parts.length ? parts.join("\n") : undefined;
+}
+
+/** 日整固沉淀的人/项目长期记忆，命中当前屏幕文本的优先排前，否则按最近活跃兜底 */
+function briefWithEntities(brief: string, matchText?: string): string {
+	const entityBrief = formatEntityBrief(undefined, { matchText });
+	return entityBrief ? `${brief}\n\n${entityBrief}` : brief;
+}
+
+export function recordPredictCardFeedback(input: {
+	kind: PredictFeedbackKind;
+	surface?: string | null;
+	intent?: string | null;
+	draft?: string | null;
+	anchor?: string | null;
+}): void {
+	recordPredictFeedback(input);
+}
+
 function draftInputFromEnriched(
 	enriched: EnrichedContext,
-	extra?: { intent?: string; surface?: Parameters<typeof generatePredictDrafts>[0]["surface"]; anchor?: string },
+	extra?: {
+		intent?: string;
+		surface?: Parameters<typeof generatePredictDrafts>[0]["surface"];
+		anchor?: string;
+		screenshotPath?: string;
+	},
 ) {
 	return {
 		contextSnippet: enriched.screenSnippet || undefined,
 		contextSummary: enriched.summary,
-		contextBrief: enriched.brief,
+		contextBrief: briefWithEntities(enriched.brief, enriched.screenSnippet),
 		confidenceLevel: enriched.confidence.level,
+		profileBrief: currentProfileBrief(),
 		...extra,
 	};
 }
@@ -95,11 +132,31 @@ export async function gatherPredictEnrichment(ctx?: LiveContext): Promise<Predic
 	return enrichment;
 }
 
-async function screenTextViaOcr(): Promise<string | undefined> {
+async function captureFrontmostScreenshotPath(
+	appName?: string | null,
+): Promise<string | undefined> {
+	if (!resolveSmartActionAccess().allowed) return undefined;
+	try {
+		// Prefer the locked chat app window (Feishu may be on another display;
+		// "frontmost" after overlay raises often hits Electron / primary WeChat).
+		if (appName?.trim()) {
+			const byApp = await captureScreenshot({ target: "app", appName });
+			if (byApp.windowId != null) return byApp.path;
+		}
+		const shot = await captureScreenshot({ target: "frontmost" });
+		return shot.path;
+	} catch {
+		return undefined;
+	}
+}
+
+async function screenTextViaOcr(appName?: string | null): Promise<string | undefined> {
 	if (!resolveSmartActionAccess().allowed) return undefined;
 	if (!process.env.ZHIPU_API_KEY?.trim()) return undefined;
 	try {
-		const shot = await captureScreenshot({ target: "frontmost" });
+		const shot = appName?.trim()
+			? await captureScreenshot({ target: "app", appName })
+			: await captureScreenshot({ target: "frontmost" });
 		const { extractPdfWithZhipuOcr } = await import("@fold/skills");
 		const ocr = await extractPdfWithZhipuOcr(shot.path);
 		const text = ocr.rawText?.trim();
@@ -109,14 +166,26 @@ async function screenTextViaOcr(): Promise<string | undefined> {
 	}
 }
 
-async function enrichWithOptionalOcr(
+/** 代回：优先用录音开始时已截好的图；否则按目标 App 截窗，避免 Overlay 抢焦点后截错屏。 */
+async function enrichForReply(
 	ctx: LiveContext,
-	scope: Parameters<typeof enrichContext>[1],
 	targetApp?: string | null,
-): Promise<EnrichedContext> {
-	const base = await enrichContext(ctx, scope, { targetApp });
-	const screenText = await screenTextViaOcr();
-	if (!screenText) return base;
+	precapturedScreenshotPath?: string | null,
+): Promise<{ enriched: EnrichedContext; screenshotPath?: string }> {
+	const preferVision = hasFastVisionApiKey();
+	const base = await enrichContext(ctx, "reply", { targetApp });
+
+	let screenshotPath = precapturedScreenshotPath?.trim() || undefined;
+	if (!screenshotPath) {
+		screenshotPath = await captureFrontmostScreenshotPath(targetApp);
+	}
+
+	if (preferVision && screenshotPath) {
+		return { enriched: base, screenshotPath };
+	}
+
+	const screenText = await screenTextViaOcr(targetApp);
+	if (!screenText) return { enriched: base, screenshotPath };
 
 	const enrichment: PredictEnrichment = {
 		...base.enrichment,
@@ -129,9 +198,12 @@ async function enrichWithOptionalOcr(
 		],
 	};
 	return {
-		...base,
-		enrichment,
-		screenSnippet: predictContextSnippet(enrichment),
+		enriched: {
+			...base,
+			enrichment,
+			screenSnippet: predictContextSnippet(enrichment),
+		},
+		screenshotPath,
 	};
 }
 
@@ -184,8 +256,13 @@ export async function resolvePredictions(ctx: LiveContext, dataDir?: string): Pr
 export async function resolveReplyPredictions(
 	ctx: LiveContext,
 	targetApp?: string | null,
+	precapturedScreenshotPath?: string | null,
 ): Promise<PredictResult> {
-	const enriched = await enrichWithOptionalOcr(ctx, "reply", targetApp);
+	const { enriched, screenshotPath } = await enrichForReply(
+		ctx,
+		targetApp,
+		precapturedScreenshotPath,
+	);
 	const { enrichment } = enriched;
 	lastPredictTargetApp = enrichment.accessibilityApp ?? targetApp ?? ctx.activeApp ?? null;
 	const intent = "帮我回复当前对话";
@@ -201,7 +278,7 @@ export async function resolveReplyPredictions(
 		intent,
 		surface: "reply",
 		anchor,
-		...draftInputFromEnriched(enriched),
+		...draftInputFromEnriched(enriched, { screenshotPath }),
 	});
 	return {
 		mode: "full",
@@ -292,6 +369,7 @@ export async function resolveReplyVoiceCard(
 	ctx: LiveContext,
 	intent: string,
 	targetApp?: string | null,
+	precapturedScreenshotPath?: string | null,
 ): Promise<{
 	drafts: NonNullable<PredictResult["drafts"]>;
 	anchor: string;
@@ -300,7 +378,11 @@ export async function resolveReplyVoiceCard(
 	appName: string | null;
 	appPath: string | null;
 }> {
-	const enriched = await enrichWithOptionalOcr(ctx, "reply", targetApp);
+	const { enriched, screenshotPath } = await enrichForReply(
+		ctx,
+		targetApp,
+		precapturedScreenshotPath,
+	);
 	const { enrichment } = enriched;
 	const appName = enrichment.accessibilityApp ?? targetApp ?? ctx.activeApp ?? null;
 	const windowTitle = enrichment.accessibilityWindowTitle ?? ctx.activeWindow ?? null;
@@ -315,7 +397,7 @@ export async function resolveReplyVoiceCard(
 		intent,
 		surface: "reply",
 		anchor,
-		...draftInputFromEnriched(enriched),
+		...draftInputFromEnriched(enriched, { screenshotPath }),
 	});
 	return {
 		drafts,
@@ -413,7 +495,7 @@ async function buildAhaGuessPayload(ctx: LiveContext, dataDir?: string) {
 		appTrail,
 		chromeTabs,
 		contextSnippet: enriched.screenSnippet || undefined,
-		contextBrief: enriched.brief,
+		contextBrief: briefWithEntities(enriched.brief, enriched.screenSnippet),
 		confidenceLevel: enriched.confidence.level,
 		confidenceScore: enriched.confidence.score,
 		topSuggestion: top

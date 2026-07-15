@@ -36,7 +36,7 @@ export function ProfileImportModal({ onClose, onSaved }: { onClose: () => void; 
 						<div>
 							<p className="text-[12px] leading-relaxed text-[#86868b]">
 								Fold 会生成「三层协作上下文」迁移 prompt，并附上本地任务摘要。AI 应返回完整档案，并在文末附带
-								知更 Profile Appendix（JSON）供 Fold 写回简要画像。仅 ChatGPT / Claude 支持全自动填发，其他平台请复制后手动粘贴。
+								知更 Profile Appendix（JSON）供 Fold 写回简要画像。
 							</p>
 						</div>
 
@@ -70,34 +70,19 @@ export function ProfileImportModal({ onClose, onSaved }: { onClose: () => void; 
 									{imp.selected.hasOpenTab
 										? `将使用已开标签：${imp.selected.tabTitle ?? imp.selected.tabUrl}`
 										: `将打开 ${imp.selected.defaultUrl}`}
-									{imp.selected.automationSupported ? " · 支持全自动" : " · 请手动粘贴 prompt"}
 								</p>
 							)}
 						</div>
 
 						<div className="flex flex-wrap gap-2">
-							<button type="button" className="fold-profile-action-btn secondary" onClick={() => void imp.copyPrompt()}>
-								复制 prompt
+							<button
+								type="button"
+								className="fold-profile-action-btn primary"
+								disabled={!imp.selected}
+								onClick={() => void imp.copyPromptAndOpen()}
+							>
+								复制 Prompt 并打开 {imp.selected?.label ?? "AI 助手"}
 							</button>
-							{imp.selected?.automationSupported && (
-								<button
-									type="button"
-									className="fold-profile-action-btn primary"
-									disabled={imp.running || !imp.selectedId}
-									onClick={() => void imp.runImport()}
-								>
-									{imp.running ? "等待 AI 回复…" : "自动填入并发送"}
-								</button>
-							)}
-							{imp.selected && !imp.selected.hasOpenTab && (
-								<button
-									type="button"
-									className="fold-profile-action-btn secondary"
-									onClick={() => void window.fold.openExternal(imp.selected!.defaultUrl)}
-								>
-									在浏览器打开
-								</button>
-							)}
 						</div>
 
 						<label className="block space-y-1.5">

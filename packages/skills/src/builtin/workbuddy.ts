@@ -13,5 +13,7 @@ export async function workbuddyRun(args: Record<string, unknown>, ctx: SkillCont
 			args.params && typeof args.params === "object"
 				? (args.params as Record<string, unknown>)
 				: undefined,
+		onEvent: (taskEvent) =>
+			ctx.emit({ type: "progress", message: taskEvent.message, taskEvent }),
 	});
 }

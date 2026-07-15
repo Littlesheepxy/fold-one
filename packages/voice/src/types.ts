@@ -21,6 +21,8 @@ export interface VoiceConfig {
 	mode?: "structure" | "reply" | "agent";
 	app?: string | null;
 	windowTitle?: string | null;
+	/** Fold Hub tm_ API key for asr-proxy entitlement checks. */
+	authToken?: string;
 }
 
 export type AsrProvider = "mock" | "dashscope" | "local-whisper";

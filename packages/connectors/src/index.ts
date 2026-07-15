@@ -167,9 +167,15 @@ export {
 } from "./office/auth-flow.js";
 export {
 	captureScreenshot,
+	formatCalendarBrief,
+	listUpcomingCalendarEvents,
+	probeCalendarAccess,
 	probeScreenCapture,
 	readFrontWindowAccessibilityText,
 	readProcessAccessibilityText,
+	runCalendarBriefSelfCheck,
+	type CalendarAccessProbe,
+	type CalendarEventBrief,
 	type FrontWindowAccessibility,
 	type ScreenshotResult,
 	type ScreenshotTarget,

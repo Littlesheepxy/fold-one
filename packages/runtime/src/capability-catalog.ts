@@ -205,17 +205,17 @@ function resolveCapabilityStatus(
 	switch (def.id) {
 		case "im.feishu": {
 			const row = officeChannel(probes, "feishu");
-			if (row?.authed) return { status: "ready", provider: "lark-cli", detail: "CLI 已登录" };
+			if (row?.authed) return { status: "ready", provider: "lark-cli", detail: "已连接" };
 			if (row?.installed)
 				return {
 					status: "needs_connect",
-					detail: row.error ?? "已安装，需登录",
+					detail: "登录飞书即可使用",
 					connectTarget: def.connectTarget,
 					connectKind: "login",
 				};
 			return {
 				status: "needs_connect",
-				detail: row?.error ?? "未安装",
+				detail: "连接飞书即可使用",
 				connectTarget: def.connectTarget,
 				connectKind: "install",
 			};
@@ -271,13 +271,24 @@ function resolveCapabilityStatus(
 				probes,
 				"gmail.cli",
 			);
+			const nango = probeValue<{
+				connections?: Array<{ providerConfigKey: string }>;
+			}>(probes, "nango.available");
+			const browser = probeValue<{
+				connected?: boolean;
+				mailUrl?: string | null;
+			}>(probes, "browser.cdp");
 			if (gmail?.available)
-				return { status: "ready", provider: gmail.backend ?? "gmail-cli", detail: "终端已授权" };
+				return { status: "ready", provider: gmail.backend ?? "gmail-cli", detail: "已连接" };
+			if (nango?.connections?.some((connection) => connection.providerConfigKey === "google-mail"))
+				return { status: "ready", provider: "gmail-nango", detail: "已连接" };
+			if (browser?.connected && /mail\.google\.com/i.test(browser.mailUrl ?? ""))
+				return { status: "ready", provider: "gmail-web", detail: "浏览器已连接" };
 			return {
 				status: "needs_connect",
-				detail: gmail?.error ?? "未安装或未登录",
+				detail: "登录 Gmail 即可使用",
 				connectTarget: def.connectTarget,
-				connectKind: gmail?.backend ? "login" : "install",
+				connectKind: "login",
 			};
 		}
 		case "browser.read": {
@@ -463,6 +474,7 @@ export function buildCapabilitySnapshot(
 				preferred === agent.id ||
 				(preferred === "auto" && agent.available && agentStatuses.find((a) => a.available)?.id === agent.id),
 			error: agent.error,
+			detail: agent.available ? `已连接 · ${EXECUTOR_CAPS[agent.id].slice(0, 2).join("、")}` : undefined,
 			connectTarget:
 				agent.id === "codex"
 					? "agent-codex"

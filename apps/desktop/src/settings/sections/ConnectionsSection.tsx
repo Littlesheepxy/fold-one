@@ -6,6 +6,9 @@ import { ConnectionIcon, CONNECTION_CHIP_ICON_SIZE } from "../components/Connect
 import { CodexRemoteControlPanel } from "../components/CodexRemoteControlPanel.js";
 import { IosSwitch, StatusDot } from "../components/FormFields.js";
 
+/** iOS Codex 客户端就绪后改为 true */
+const CODEX_REMOTE_CONTROL_UI_ENABLED = false;
+
 const MODE_OPTIONS: Array<{
 	id: ExecutionMode;
 	label: string;
@@ -203,7 +206,7 @@ export function ConnectionsSection({
 				</p>
 			</div>
 
-			<CodexRemoteControlPanel />
+			{CODEX_REMOTE_CONTROL_UI_ENABLED ? <CodexRemoteControlPanel /> : null}
 
 			<section className="fold-execution-mode-grid" aria-label="执行模式">
 				{MODE_OPTIONS.map((opt) => (

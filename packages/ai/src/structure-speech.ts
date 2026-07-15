@@ -163,7 +163,11 @@ export async function structureSpeechText(
 ${cleaned}`;
 
 	try {
-		const out = await generateFastText(prompt, { maxOutputTokens: 400, temperature: 0.2 });
+		const out = await generateFastText(prompt, {
+			maxOutputTokens: 400,
+			temperature: 0.2,
+			feature: "voice_structure",
+		});
 		const parsed = parseStructureJson(out, cleaned);
 		if (!parsed) return heuristicStructure(text);
 		context.onCloudSuccess?.();

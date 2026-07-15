@@ -7,7 +7,8 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:task-events": "tsx src/task-events.self-check.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

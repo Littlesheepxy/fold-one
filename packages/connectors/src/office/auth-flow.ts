@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createNangoConnectLink, probeNango } from "../nango/index.js";
+import { probeBrowserCdp } from "../browser/cdp.js";
 import { probeGmailCli } from "../mail/index.js";
 import { extractJsonPayload } from "../cli/binary.js";
 import { probeBinary } from "../cli/binary.js";
@@ -12,7 +13,7 @@ import {
 	isAgentConnectTarget,
 	pollAgentConnectFlow,
 	startAgentConnectFlow,
-	activateWorkBuddyConnectFlow,
+	activateAgentConnectFlow,
 	type AgentConnectTarget,
 } from "../agents/connect-flow.js";
 
@@ -32,6 +33,9 @@ export interface ConnectFlowStart {
 	copyText?: string;
 	/** 先复制配对内容，用户确认后再跳转外部应用（WorkBuddy） */
 	copyThenOpen?: boolean;
+	/** Wait for an explicit user click before opening Terminal or another app. */
+	requiresAction?: boolean;
+	actionLabel?: string;
 }
 
 export interface ConnectFlowPollResult {
@@ -104,6 +108,7 @@ async function startFeishuLogin(session: AuthSession): Promise<ConnectFlowStart>
 		throw new Error(payload?.error?.message ?? "无法启动飞书授权");
 	}
 	session.authUrl = payload.verification_url;
+	session.opensBrowserAutomatically = true;
 	session.child = spawnDetached("lark-cli", [
 		"auth",
 		"login",
@@ -116,8 +121,9 @@ async function startFeishuLogin(session: AuthSession): Promise<ConnectFlowStart>
 		target: "feishu",
 		kind: "login",
 		title: "连接飞书",
-		message: "在浏览器完成授权后，Fold 会自动检测连接状态。",
+		message: "已打开飞书授权页。完成授权后，知更会自动连接。",
 		authUrl: payload.verification_url,
+		opensBrowserAutomatically: true,
 	};
 }
 
@@ -188,15 +194,41 @@ async function startDingtalkLogin(session: AuthSession): Promise<ConnectFlowStar
 }
 
 async function startGmailLogin(session: AuthSession): Promise<ConnectFlowStart> {
-	session.child = spawnDetached("gog", ["auth", "add"]);
+	const nango = await probeNango();
+	if (nango.configured) {
+		const link = await createNangoConnectLink(["google-mail"]);
+		session.authUrl = link;
+		session.opensBrowserAutomatically = true;
+		session.isAuthed = async () => {
+			const probe = await probeNango();
+			return probe.connections.some((connection) => connection.providerConfigKey === "google-mail");
+		};
+		return {
+			sessionId: "",
+			target: "gmail",
+			kind: "login",
+			title: "连接 Gmail",
+			message: "在浏览器选择 Google 账号并完成授权，知更会自动连接。",
+			authUrl: link,
+			opensBrowserAutomatically: true,
+		};
+	}
+
+	const gmailUrl = "https://mail.google.com/mail/u/0/#inbox";
+	session.authUrl = gmailUrl;
 	session.opensBrowserAutomatically = true;
-	session.isAuthed = async () => (await probeGmailCli()).available;
+	session.isAuthed = async () => {
+		if ((await probeGmailCli()).available) return true;
+		const browser = await probeBrowserCdp();
+		return Boolean(browser.connected && /mail\.google\.com/i.test(browser.mailUrl ?? ""));
+	};
 	return {
 		sessionId: "",
 		target: "gmail",
 		kind: "login",
-		title: "连接 Google",
-		message: "已在浏览器打开 Google 授权页，完成后会自动回到 Fold。",
+		title: "连接 Gmail",
+		message: "已打开 Gmail。登录后保持收件箱页面打开，知更会自动连接。",
+		authUrl: gmailUrl,
 		opensBrowserAutomatically: true,
 	};
 }
@@ -272,7 +304,7 @@ async function startInstall(session: AuthSession, target: ConnectTarget): Promis
 		target,
 		kind: "install",
 		title: `安装 ${meta.title}`,
-		message: "正在后台安装 CLI，请稍候…",
+		message: "正在准备连接组件，请稍候…",
 	};
 }
 
@@ -305,6 +337,8 @@ export async function startConnectFlow(
 	if (isAgentConnectTarget(target)) {
 		return startAgentConnectFlow(target, kind);
 	}
+	// Gmail always has a browser-first path; ordinary users never need a CLI install step.
+	if (target === "gmail") kind = "login";
 
 	if (kind === "login" && isOfficeChannelId(target)) {
 		const channels = await probeOfficeChannels();
@@ -393,4 +427,4 @@ export function resolveConnectTarget(connectionId: string): ConnectTarget | null
 	return null;
 }
 
-export { activateWorkBuddyConnectFlow };
+export { activateAgentConnectFlow };

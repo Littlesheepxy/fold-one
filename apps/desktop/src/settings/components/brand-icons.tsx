@@ -17,6 +17,7 @@ export const BRAND_ICONS = {
 	dingtalk: localIcon("dingtalk"),
 	wecom: localIcon("wecom", "png"),
 	wechat: localIcon("wechat"),
+	alipay: localIcon("alipay"),
 	slack: localIcon("slack", "png"),
 	workbuddy: localIcon("workbuddy", "png"),
 	openai: lobeIcon("openai"),

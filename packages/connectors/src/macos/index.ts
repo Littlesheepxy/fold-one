@@ -10,3 +10,11 @@ export {
 	readProcessAccessibilityText,
 	type FrontWindowAccessibility,
 } from "./accessibility.js";
+export {
+	formatCalendarBrief,
+	listUpcomingCalendarEvents,
+	probeCalendarAccess,
+	runCalendarBriefSelfCheck,
+	type CalendarAccessProbe,
+	type CalendarEventBrief,
+} from "./calendar.js";

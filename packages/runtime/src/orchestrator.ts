@@ -6,7 +6,12 @@ import {
 } from "@fold/ai";
 import type { LiveContext } from "@fold/context";
 import { formatContextSummary } from "@fold/context";
-import { isAgentSubagentsEnabled } from "@fold/connectors";
+import {
+	isAgentSubagentsEnabled,
+	type LocalTaskArtifact,
+	type LocalTaskEvent,
+	type MemoryCandidate,
+} from "@fold/connectors";
 import { saveEpisode } from "@fold/memory";
 import { buildSkillCatalog, labelForStep } from "@fold/skills";
 import { ensureExecutionPrerequisites } from "./auth-gate.js";
@@ -24,6 +29,26 @@ import { needsVisualRead } from "./capability-resolver.js";
 import { validatePlan, type ValidationResult } from "./validator.js";
 
 export type { OrchestratorDeps } from "./types.js";
+
+function collectLocalTaskEvidence(steps: Array<{ output?: unknown }>): {
+	agentEvents: LocalTaskEvent[];
+	artifacts: LocalTaskArtifact[];
+	memoryCandidates: MemoryCandidate[];
+} {
+	const agentEvents: LocalTaskEvent[] = [];
+	const artifacts: LocalTaskArtifact[] = [];
+	const memoryCandidates: MemoryCandidate[] = [];
+	for (const step of steps) {
+		if (!step.output || typeof step.output !== "object") continue;
+		const output = step.output as Record<string, unknown>;
+		if (Array.isArray(output.events)) agentEvents.push(...(output.events as LocalTaskEvent[]));
+		if (Array.isArray(output.artifacts)) artifacts.push(...(output.artifacts as LocalTaskArtifact[]));
+		if (Array.isArray(output.memoryCandidates)) {
+			memoryCandidates.push(...(output.memoryCandidates as MemoryCandidate[]));
+		}
+	}
+	return { agentEvents, artifacts, memoryCandidates };
+}
 
 export async function runTask(
 	intent: string,
@@ -155,6 +180,7 @@ export async function runTask(
 
 	const userVisibleResult = buildUserVisibleSummary(intent, steps, validation.ok);
 	const resultDetail = buildResultDetail(intent, steps);
+	const localTaskEvidence = collectLocalTaskEvidence(steps);
 
 	const episode = saveEpisode(
 		{
@@ -176,6 +202,9 @@ export async function runTask(
 			contextEvents: context.events,
 			thinkingText,
 			resultDetail,
+			agentEvents: localTaskEvidence.agentEvents,
+			artifacts: localTaskEvidence.artifacts,
+			memoryCandidates: localTaskEvidence.memoryCandidates,
 		},
 		deps.dataDir,
 	);
@@ -187,6 +216,7 @@ export async function runTask(
 			thinkingText,
 			result: userVisibleResult,
 			resultDetail,
+			verificationChecks: validation.checks,
 			steps: plan.steps.map((s) => ({
 				id: s.id,
 				label: labelForStep(s.skill, {
@@ -206,6 +236,7 @@ export async function runTask(
 		error: abortReason ? `${abortReason} · ${failedCheckMessage}` : failedCheckMessage,
 		result: userVisibleResult,
 		resultDetail,
+		verificationChecks: validation.checks,
 		thinkingText,
 		steps: plan.steps.map((s) => ({
 			id: s.id,

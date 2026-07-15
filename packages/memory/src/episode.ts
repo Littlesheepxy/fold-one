@@ -43,6 +43,9 @@ export interface Episode {
 	contextEventsJson?: string;
 	thinkingText?: string;
 	resultDetail?: string;
+	agentEventsJson?: string;
+	artifactsJson?: string;
+	memoryCandidatesJson?: string;
 	durationMs: number;
 }
 
@@ -70,6 +73,9 @@ type EpisodeRow = {
 	context_events_json: string | null;
 	thinking_text: string | null;
 	result_detail: string | null;
+	agent_events_json: string | null;
+	artifacts_json: string | null;
+	memory_candidates_json: string | null;
 	duration_ms: number | null;
 };
 
@@ -89,13 +95,17 @@ function mapEpisodeRow(row: EpisodeRow): Episode {
 		contextEventsJson: row.context_events_json ?? undefined,
 		thinkingText: row.thinking_text ?? undefined,
 		resultDetail: row.result_detail ?? undefined,
+		agentEventsJson: row.agent_events_json ?? undefined,
+		artifactsJson: row.artifacts_json ?? undefined,
+		memoryCandidatesJson: row.memory_candidates_json ?? undefined,
 		durationMs: row.duration_ms ?? 0,
 	};
 }
 
 const EPISODE_SELECT = `
 	SELECT id, timestamp, intent, goal, status, summary, summary_json, plan_json, steps_json,
-		probe_summary, validation_json, context_events_json, thinking_text, result_detail, duration_ms
+		probe_summary, validation_json, context_events_json, thinking_text, result_detail,
+		agent_events_json, artifacts_json, memory_candidates_json, duration_ms
 	FROM episodes`;
 
 export interface MemoryRecord {
@@ -172,6 +182,9 @@ export function getDb(dataDir?: string): Database.Database {
 	ensureColumn(db, "episodes", "context_events_json", "TEXT");
 	ensureColumn(db, "episodes", "thinking_text", "TEXT");
 	ensureColumn(db, "episodes", "result_detail", "TEXT");
+	ensureColumn(db, "episodes", "agent_events_json", "TEXT");
+	ensureColumn(db, "episodes", "artifacts_json", "TEXT");
+	ensureColumn(db, "episodes", "memory_candidates_json", "TEXT");
 	return db;
 }
 
@@ -359,6 +372,10 @@ export function saveEpisode(
 		contextEvents?: Array<{ type?: string; source?: string; data?: Record<string, unknown> }>;
 		thinkingText?: string;
 		resultDetail?: string;
+		agentEvents?: unknown[];
+		artifacts?: unknown[];
+		/** Stored for review only; saveEpisode never promotes these into active memories. */
+		memoryCandidates?: unknown[];
 	},
 	dataDir?: string,
 ): Episode {
@@ -373,14 +390,18 @@ export function saveEpisode(
 	const stepsJson = asJson(input.steps);
 	const validationJson = asJson(input.validationChecks ?? []);
 	const contextEventsJson = asJson(input.contextEvents ?? []);
+	const agentEventsJson = asJson(input.agentEvents ?? []);
+	const artifactsJson = asJson(input.artifacts ?? []);
+	const memoryCandidatesJson = asJson(input.memoryCandidates ?? []);
 
 	conn
 		.prepare(
 			`INSERT INTO episodes (
 				id, timestamp, intent, goal, status, summary, summary_json, plan_json, steps_json,
-				probe_summary, validation_json, context_events_json, thinking_text, result_detail, duration_ms
+				probe_summary, validation_json, context_events_json, thinking_text, result_detail,
+				agent_events_json, artifacts_json, memory_candidates_json, duration_ms
 			)
-     		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		)
 		.run(
 			id,
@@ -397,6 +418,9 @@ export function saveEpisode(
 			contextEventsJson,
 			input.thinkingText ?? null,
 			input.resultDetail ?? null,
+			agentEventsJson,
+			artifactsJson,
+			memoryCandidatesJson,
 			durationMs,
 		);
 
@@ -415,6 +439,9 @@ export function saveEpisode(
 		contextEventsJson,
 		thinkingText: input.thinkingText,
 		resultDetail: input.resultDetail,
+		agentEventsJson,
+		artifactsJson,
+		memoryCandidatesJson,
 		durationMs,
 	};
 }

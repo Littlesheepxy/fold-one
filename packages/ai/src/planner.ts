@@ -1,7 +1,6 @@
-import { generateText } from "ai";
 import { z } from "zod";
 import { buildPlannerPrompt, buildReplannerPrompt, type ReplannerPromptInput } from "./prompt.js";
-import { toLanguageModel } from "./providers.js";
+import { gatewayGenerateText } from "./gateway.js";
 import { resolveModelChoice } from "./model-choice.js";
 
 export const ActionStepSchema = z.object({
@@ -30,12 +29,11 @@ export async function generateActionPlan(input: {
 	relevantEpisodes?: string;
 }): Promise<ActionPlan> {
 	const choice = resolveModelChoice("planner");
-	const model = toLanguageModel(choice);
-
-	const { text } = await generateText({
-		model,
-		prompt: buildPlannerPrompt(input),
-	});
+	const { text } = await gatewayGenerateText(
+		choice,
+		{ prompt: buildPlannerPrompt(input) },
+		{ feature: "planner" },
+	);
 
 	return normalizeActionPlan(input.intent, parseActionPlan(text));
 }
@@ -43,12 +41,11 @@ export async function generateActionPlan(input: {
 /** LLM Replanner：把失败上下文回喂 planner，生成换路线的恢复计划。 */
 export async function generateRecoveryPlan(input: ReplannerPromptInput): Promise<ActionPlan> {
 	const choice = resolveModelChoice("planner");
-	const model = toLanguageModel(choice);
-
-	const { text } = await generateText({
-		model,
-		prompt: buildReplannerPrompt(input),
-	});
+	const { text } = await gatewayGenerateText(
+		choice,
+		{ prompt: buildReplannerPrompt(input) },
+		{ feature: "repair" },
+	);
 
 	return parseActionPlan(text);
 }

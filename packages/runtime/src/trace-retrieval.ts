@@ -1,6 +1,6 @@
 import type { ActionPlan } from "@fold/ai";
 import type { LiveContext } from "@fold/context";
-import { listRecentEpisodes, type Episode } from "@fold/memory";
+import { formatEntityBrief, listRecentEpisodes, type Episode } from "@fold/memory";
 import {
 	buildSituationFingerprint,
 	episodeSituationFingerprint,
@@ -94,7 +94,8 @@ export function formatPlannerMemory(
 	dataDir?: string,
 ): string {
 	const traces = formatTracesForPlanner(retrieveSimilarTraces(ctx, dataDir, 3));
-	const blocks = [intentEpisodes, traces].filter((b) => b.trim());
+	const entities = formatEntityBrief(dataDir, { matchText: intent });
+	const blocks = [intentEpisodes, traces, entities].filter((b) => b.trim());
 	return blocks.join("\n\n");
 }
 

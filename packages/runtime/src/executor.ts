@@ -158,6 +158,7 @@ export async function runPlan(
 								emit({
 									status: "working",
 									progressMessage: e.message,
+									localTaskEvent: e.taskEvent,
 									steps: stepViews(plan, results, step.id),
 								});
 							}

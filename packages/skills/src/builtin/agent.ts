@@ -28,6 +28,8 @@ export async function agentExecute(args: Record<string, unknown>, ctx: SkillCont
 			maxTurns: typeof args.maxTurns === "number" ? args.maxTurns : 10,
 			timeoutMs: typeof args.timeoutMs === "number" ? args.timeoutMs : 180_000,
 			allowEdits,
+			onEvent: (taskEvent) =>
+				ctx.emit({ type: "progress", message: taskEvent.message, taskEvent }),
 		},
 		failedSteps,
 	);

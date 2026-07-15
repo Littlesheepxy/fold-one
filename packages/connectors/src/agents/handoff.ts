@@ -1,4 +1,5 @@
 import type { AgentId, AgentResult, AgentTask } from "./types.js";
+import type { LocalTaskArtifact, LocalTaskEvent, MemoryCandidate } from "../task-events.js";
 
 /** Compacted handoff from subagent → Fold main orchestrator (not full chat log). */
 export interface SubagentHandoff {
@@ -13,6 +14,9 @@ export interface SubagentHandoff {
 	agentId: AgentId;
 	exitCode: number;
 	ok: boolean;
+	events: LocalTaskEvent[];
+	artifacts: LocalTaskArtifact[];
+	memoryCandidates: MemoryCandidate[];
 }
 
 export function buildSubagentHandoff(
@@ -43,5 +47,8 @@ export function buildSubagentHandoff(
 		agentId: result.agentId,
 		exitCode: result.exitCode,
 		ok: result.ok,
+		events: result.events,
+		artifacts: result.artifacts,
+		memoryCandidates: result.memoryCandidates,
 	};
 }

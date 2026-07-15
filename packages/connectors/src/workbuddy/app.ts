@@ -13,20 +13,24 @@ function candidateAppPaths(): string[] {
 	];
 }
 
-function discoverWorkBuddyAppPath(): string | null {
+export function discoverWorkBuddyAppPath(): string | null {
 	for (const path of candidateAppPaths()) {
 		if (existsSync(path)) return path;
 	}
 	if (process.platform !== "darwin") return null;
 	try {
 		const found = execSync(
-			"mdfind \"kMDItemCFBundleIdentifier == 'com.tencent.workbuddy'\" | head -1",
+			"mdfind \"kMDItemCFBundleIdentifier == 'com.workbuddy.workbuddy' || kMDItemCFBundleIdentifier == 'com.tencent.workbuddy'\" | head -1",
 			{ encoding: "utf8", maxBuffer: 4096 },
 		).trim();
 		return found && existsSync(found) ? found : null;
 	} catch {
 		return null;
 	}
+}
+
+export function isWorkBuddyAppInstalled(): boolean {
+	return Boolean(discoverWorkBuddyAppPath());
 }
 
 /** Open WorkBuddy desktop app, or download page if not installed. */

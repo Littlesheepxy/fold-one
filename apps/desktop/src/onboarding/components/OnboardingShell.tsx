@@ -5,25 +5,65 @@ function btnClass(...parts: (string | false | undefined)[]) {
 	return parts.filter(Boolean).join(" ");
 }
 
+export type OnboardingBackdrop = "memory" | "context";
+
+const MEMORY_GHOST_LINES = [
+	"明早十点发群里",
+	"辛苦帮忙看下这版",
+	"我们九点半开始对一下",
+	"Q3 预算评审纪要",
+	"周五前发你完整版",
+	"抄送晓明",
+];
+
+function OnboardingBackdropLayer({ variant }: { variant: OnboardingBackdrop }) {
+	if (variant === "memory") {
+		return (
+			<div className="fold-onboarding-backdrop fold-onboarding-backdrop--memory" aria-hidden="true">
+				{MEMORY_GHOST_LINES.map((line, i) => (
+					<span key={line} className={`fold-onboarding-backdrop-line is-${i + 1}`}>
+						{line}
+					</span>
+				))}
+			</div>
+		);
+	}
+	return (
+		<div className="fold-onboarding-backdrop fold-onboarding-backdrop--context" aria-hidden="true">
+			<div className="fold-onboarding-backdrop-window is-1">
+				<span />
+				<p>飞书 · Q3 预算评审</p>
+			</div>
+			<div className="fold-onboarding-backdrop-window is-2">
+				<span />
+				<p>Cursor · onboarding.tsx</p>
+			</div>
+		</div>
+	);
+}
+
 export function OnboardingShell({
 	step,
 	onBack,
 	left,
 	right,
 	footer,
+	backdrop,
 }: {
 	step: OnboardingStepId;
 	onBack?: () => void;
 	left: ReactNode;
 	right?: ReactNode;
 	footer?: ReactNode;
+	backdrop?: OnboardingBackdrop;
 }) {
 	const act = actForStep(step);
 	const acts: OnboardingAct[] = ["setup", "inherit", "experience", "depart"];
 
 	return (
 		<div className="fold-onboarding-root">
-			<div className="fold-onboarding-window">
+			<div className={`fold-onboarding-window${backdrop ? " has-backdrop" : ""}`}>
+				{backdrop ? <OnboardingBackdropLayer variant={backdrop} /> : null}
 				<nav className="fold-onboarding-stepper" aria-label="引导进度">
 					{acts.map((id, i) => (
 						<span key={id} className="fold-onboarding-stepper-item">

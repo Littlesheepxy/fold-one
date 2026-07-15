@@ -6,9 +6,9 @@ import { ProfileSection } from "./sections/ProfileSection.js";
 import { WorkTrailSection } from "./sections/WorkTrailSection.js";
 import { TasksSection } from "./sections/TasksSection.js";
 import { ConnectionsSection } from "./sections/ConnectionsSection.js";
-import { AccountSection } from "./sections/AccountSection.js";
 import { SettingsSection } from "./sections/SettingsSection.js";
 import { AccountSidebar } from "./components/AccountSidebar.js";
+import type { AccountSettingsTab } from "./components/AccountSettingsModal.js";
 import { SidebarShortcuts } from "./components/SidebarShortcuts.js";
 import { MARK_ASSET, PRODUCT_NAME } from "../brand/constants.js";
 
@@ -94,6 +94,13 @@ function loadSidebarWidth(): number {
 export function SettingsApp() {
 	const browserPreview = import.meta.env.DEV && typeof window.fold === "undefined";
 	const [section, setSection] = useState<HomeSection>("overview");
+	const [accountOpen, setAccountOpen] = useState(false);
+	const [accountTab, setAccountTab] = useState<AccountSettingsTab>("general");
+
+	const openAccountSettings = (tab: AccountSettingsTab = "general") => {
+		setAccountTab(tab);
+		setAccountOpen(true);
+	};
 	const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
 	const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
 	const dragState = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -145,10 +152,14 @@ export function SettingsApp() {
 				s === "work" ||
 				s === "tasks" ||
 				s === "connections" ||
-				s === "account" ||
 				s === "settings"
 			) {
+				setAccountOpen(false);
 				setSection(s);
+				return;
+			}
+			if (s === "account") {
+				openAccountSettings("general");
 			}
 		});
 	}, [browserPreview]);
@@ -166,7 +177,7 @@ export function SettingsApp() {
 
 	useEffect(() => {
 		if (browserPreview) return;
-		if (section !== "settings" && section !== "account") {
+		if (section !== "settings") {
 			void refreshSnapshot();
 		}
 	}, [browserPreview, section]);
@@ -197,6 +208,11 @@ export function SettingsApp() {
 
 	const navigateTo = (next: HomeSection, taskId?: string) => {
 		if (taskId) setFocusTaskId(taskId);
+		if (next === "account") {
+			openAccountSettings("general");
+			return;
+		}
+		setAccountOpen(false);
 		setSection(next);
 	};
 
@@ -220,7 +236,14 @@ export function SettingsApp() {
 				<div className="fold-home-brand">
 					<img className="fold-home-brand-mark" src={MARK_ASSET} alt="" />
 					<p className="fold-home-brand-name">{PRODUCT_NAME}</p>
-					<span className={`fold-home-plan-badge is-${planTier}`}>{PLAN_BADGE[planTier]}</span>
+					<button
+						type="button"
+						className={`fold-home-plan-badge is-${planTier}`}
+						onClick={() => openAccountSettings("subscription")}
+						aria-label={planTier === "free" ? "升级套餐" : "管理套餐"}
+					>
+						{PLAN_BADGE[planTier]}
+					</button>
 				</div>
 
 				<nav className="fold-home-nav">
@@ -230,7 +253,10 @@ export function SettingsApp() {
 							<button
 								key={item.id}
 								type="button"
-								onClick={() => setSection(item.id)}
+								onClick={() => {
+									setAccountOpen(false);
+									setSection(item.id);
+								}}
 								className={`fold-home-nav-item${active ? " active" : ""}`}
 							>
 								<NavIcon
@@ -247,8 +273,14 @@ export function SettingsApp() {
 
 				<AccountSidebar
 					config={config}
-					active={section === "account"}
-					onOpenAccount={() => setSection("account")}
+					open={accountOpen}
+					settingsTab={accountTab}
+					onOpenSettings={openAccountSettings}
+					onClose={() => setAccountOpen(false)}
+					onConfigReload={async () => {
+						const next = await window.fold.getConfig();
+						setConfig(next);
+					}}
 				/>
 
 				<div
@@ -302,9 +334,6 @@ export function SettingsApp() {
 								setConfig(next);
 							}}
 						/>
-					)}
-					{section === "account" && (
-						<AccountSection config={config} onUpdate={update} />
 					)}
 					{section === "settings" && (
 						<SettingsSection

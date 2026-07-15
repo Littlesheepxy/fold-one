@@ -10,6 +10,7 @@ import type {
 } from "../types.js";
 import { formatTime } from "../components/FormFields.js";
 import { ProfileImportModal } from "./ProfileImportModal.js";
+import { dedupeFollowUpIntents } from "../lib/follow-up.js";
 
 type Habit = { label: string; count: number; example?: string };
 
@@ -115,7 +116,7 @@ function taskStats(episodes: EpisodeSummary[]) {
 function statusLabel(status: string) {
 	const s = status.toLowerCase();
 	if (s === "success") return "成功";
-	if (s === "partial") return "部分完成";
+	if (s === "partial") return "需要继续";
 	return status;
 }
 
@@ -172,14 +173,13 @@ export function ProfileSection({
 		...(storedProfile?.preferredTools ?? []),
 		...(storedProfile?.workPatterns ?? []),
 	].slice(0, 6);
-	const followUps = episodes
+	const followUps = dedupeFollowUpIntents(episodes
 		.filter((episode) => {
 			// 已完成的任务不需要跟进；空口令（如「代回：.」）没有可跟进的内容
 			if (episode.status.toLowerCase() === "success") return false;
 			if (episode.intent.replace(/^(代回|转写)：/, "").replace(/[\s.。，,、…]+/g, "").length < 2) return false;
 			return FOLLOW_UP_PATTERN.test(`${episode.intent} ${episode.summary}`);
-		})
-		.slice(0, 3);
+		}));
 
 	const peopleEntities = memoryEntities.filter(isPersonEntity);
 	const projectEntities = memoryEntities.filter(isProjectEntity);

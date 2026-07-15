@@ -1,4 +1,5 @@
 import { runShellDetailed } from "../shell.js";
+import { LOCAL_TASK_RETURN_INSTRUCTIONS } from "../task-events.js";
 import type { AgentConnector, AgentResult, AgentTask } from "./types.js";
 
 function parseAgentJson(stdout: string): { result?: string } {
@@ -17,13 +18,17 @@ export const cursorAgentConnector: AgentConnector = {
 	id: "cursor",
 
 	async isAvailable() {
-		const result = await runShellDetailed("agent", ["--version"], 5000);
-		return result.exitCode === 0;
+		const version = await runShellDetailed("agent", ["--version"], 5000);
+		if (version.exitCode !== 0) return false;
+		const auth = await runShellDetailed("agent", ["status"], 5000);
+		const authText = `${auth.stdout}\n${auth.stderr}`;
+		return auth.exitCode === 0 && !/not logged in|authentication required|login required/i.test(authText);
 	},
 
 	async execute(task: AgentTask): Promise<AgentResult> {
 		const args = ["-p", "--output-format", "json", buildPrompt(task)];
 		if (task.allowEdits) args.splice(1, 0, "--force");
+		else args.splice(1, 0, "--mode", "ask");
 
 		const result = await runShellDetailed("agent", args, task.timeoutMs ?? 180_000, task.cwd, {
 			closeStdin: true,
@@ -38,6 +43,9 @@ export const cursorAgentConnector: AgentConnector = {
 			exitCode: result.exitCode,
 			stderr: result.stderr.trim() || undefined,
 			raw: parsed,
+			events: [],
+			artifacts: [],
+			memoryCandidates: [],
 		};
 	},
 };
@@ -47,6 +55,6 @@ function buildPrompt(task: AgentTask): string {
 	if (task.contextSnapshot?.trim()) {
 		parts.push("", "Fold context:", task.contextSnapshot.trim());
 	}
-	parts.push("", "Reply with a concise summary of what you did.");
+	parts.push("", LOCAL_TASK_RETURN_INSTRUCTIONS);
 	return parts.join("\n");
 }

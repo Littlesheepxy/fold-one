@@ -39,7 +39,7 @@ export {
 	type StreamAhaGuessOptions,
 	type StructuredSpeech,
 } from "@fold/ai";
-export { hasPlannerApiKey } from "@fold/ai";
+export { hasPlannerApiKey, hasFastVisionApiKey } from "@fold/ai";
 export { inferPredictSurface, surfaceActionLabel, type PredictSurface } from "./predict-surface.js";
 export { predictContextSnippet } from "./predict-fallback.js";
 export {
@@ -78,6 +78,14 @@ export {
 	type MinedRoutine,
 } from "./routine-mining.js";
 export { recallHabitsFromUsage, startHabitRecallLoop } from "./habit-recall.js";
+export {
+	formatRecentRejectBrief,
+	promoteFeedbackConstraints,
+	recordPredictFeedback,
+	runFeedbackRecallSelfCheck,
+	type PredictFeedbackInput,
+	type PredictFeedbackKind,
+} from "./feedback-recall.js";
 export {
 	buildResultDetail,
 	buildUserVisibleSummary,

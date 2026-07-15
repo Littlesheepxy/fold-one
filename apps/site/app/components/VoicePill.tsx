@@ -1,61 +1,108 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { Command, Mic } from "lucide-react";
+import { Check, X } from "lucide-react";
 
-const VOICE_BARS = [18, 30, 42, 56, 72, 88, 62, 46, 34, 24, 40, 54, 32] as const;
+/** 对齐桌面端 VoiceWave：9 根细条 + 分层振幅轮廓 */
+const BAR_COUNT = 9;
+const BAR_PROFILE = [0.34, 0.5, 0.72, 0.9, 1, 0.9, 0.72, 0.5, 0.34];
+const BAR_PHASE = [0.3, 2.1, 4.4, 1.2, 3.5, 5.2, 2.8, 0.8, 4.9];
+const IDLE_H = 3;
+const MAX_H = 18;
+
+export type VoicePillState = "hidden" | "listening" | "processing" | "done";
 
 /**
- * 落地页用的知更语音胶囊：对应产品里长按 ⌘ 时的波形条。
- * active=true 时条跳动（正在听）；false 时保持短条空闲态，但仍可见。
+ * 落地页语音胶囊，对齐产品 fold-input-tab 的三态：
+ * listening（图标 + 转写 + 波形 + 关闭）→ processing（加载）→ done（绿色对勾）。
  */
 export function VoicePill({
-	active = true,
-	visible = true,
-	label = "长按 ⌘ 口述",
+	state,
+	appLogo = "/brand/icons/feishu.svg",
+	label = "转写",
 }: {
-	active?: boolean;
-	visible?: boolean;
+	state: VoicePillState;
+	appLogo?: string;
 	label?: string;
 }) {
 	const reduce = Boolean(useReducedMotion());
+	const listening = state === "listening";
+	const [heights, setHeights] = useState(() => Array.from({ length: BAR_COUNT }, () => IDLE_H));
+	const [barOpacity, setBarOpacity] = useState(0.48);
+	const levelRef = useRef(0);
+
+	useEffect(() => {
+		if (reduce || !listening) {
+			setHeights(Array.from({ length: BAR_COUNT }, () => IDLE_H));
+			setBarOpacity(0.48);
+			return;
+		}
+
+		let raf = 0;
+		let start = 0;
+		const tick = (now: number) => {
+			if (!start) start = now;
+			const t = now - start;
+			// 模拟说话音量包络：起伏 + 偶尔停顿，让波形像真的在听人说话
+			const talk = 0.5 + 0.5 * Math.sin(t * 0.0042);
+			const pause = Math.sin(t * 0.0009) > -0.55 ? 1 : 0.12;
+			const envelope = (0.3 + 0.65 * talk) * pause;
+			levelRef.current += (envelope - levelRef.current) * 0.12;
+			const energy = Math.pow(Math.max(0, levelRef.current), 0.72);
+
+			setHeights(
+				BAR_PROFILE.map((profile, i) => {
+					const pulse = 0.72 + 0.28 * Math.sin(now * (0.0075 + (i % 3) * 0.0014) + BAR_PHASE[i]!);
+					return Math.round(IDLE_H + energy * MAX_H * profile * pulse);
+				}),
+			);
+			setBarOpacity(0.62 + energy * 0.38);
+			raf = requestAnimationFrame(tick);
+		};
+
+		raf = requestAnimationFrame(tick);
+		return () => cancelAnimationFrame(raf);
+	}, [listening, reduce]);
 
 	return (
 		<motion.div
-			className={`zg-voice-pill${active ? " is-active" : ""}`}
-			aria-hidden={!visible}
-			initial={{ opacity: 0, y: 12 }}
+			layout
+			className={`zg-voice-pill zg-voice-pill--${state}`}
+			aria-hidden={state === "hidden"}
+			initial={{ opacity: 0, y: 8 }}
 			animate={
-				visible
-					? { opacity: 1, y: reduce || !active ? 0 : [0, -6, 0] }
-					: { opacity: 0, y: 12 }
+				state === "hidden"
+					? { opacity: 0, y: 8 }
+					: { opacity: 1, y: listening && !reduce ? [0, -4, 0] : 0 }
 			}
 			transition={
-				visible && active && !reduce
-					? { opacity: { duration: 0.35 }, y: { duration: 2.8, repeat: Infinity, ease: "easeInOut" } }
-					: { duration: 0.35 }
+				listening && !reduce
+					? { layout: { duration: 0.28 }, opacity: { duration: 0.3 }, y: { duration: 2.6, repeat: Infinity, ease: "easeInOut" } }
+					: { layout: { duration: 0.28 }, duration: 0.3 }
 			}
 		>
-			<Mic size={16} />
-			<div className="zg-bars">
-				{VOICE_BARS.map((height, index) => (
-					<motion.span
-						key={`${height}-${index}`}
-						style={{ height: active ? height : Math.max(8, Math.round(height * 0.28)) }}
-						animate={reduce || !active ? {} : { scaleY: [0.4, 1, 0.55] }}
-						transition={{
-							duration: 0.85,
-							repeat: Infinity,
-							repeatType: "mirror",
-							delay: index * 0.04,
-						}}
-					/>
-				))}
-			</div>
-			<span className="zg-voice-pill-label">
-				<Command size={14} />
-				{label}
-			</span>
+			{listening && (
+				<>
+					<img className="zg-voice-pill-app" src={appLogo} alt="" width={18} height={18} />
+					<span className="zg-voice-pill-mode">{label}</span>
+					<span className="zg-voice-pill-sep" aria-hidden="true" />
+					<div className="zg-bars" aria-hidden="true">
+						{heights.map((height, i) => (
+							<span key={i} style={{ height, opacity: barOpacity }} />
+						))}
+					</div>
+					<span className="zg-voice-pill-close" aria-hidden="true">
+						<X size={13} strokeWidth={2.2} />
+					</span>
+				</>
+			)}
+			{state === "processing" && <span className="zg-voice-pill-spinner" aria-hidden="true" />}
+			{state === "done" && (
+				<span className="zg-voice-pill-check" aria-hidden="true">
+					<Check size={13} strokeWidth={2.6} />
+				</span>
+			)}
 		</motion.div>
 	);
 }

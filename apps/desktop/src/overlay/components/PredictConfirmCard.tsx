@@ -20,6 +20,7 @@ interface Props {
 	selectedIntent?: string | null;
 	onPickIntent: (intent: string) => void;
 	onInsertDraft: (text: string) => void;
+	onReject?: () => void;
 	onDismiss: () => void;
 }
 
@@ -56,6 +57,7 @@ export function PredictConfirmCard({
 	selectedIntent,
 	onPickIntent,
 	onInsertDraft,
+	onReject,
 	onDismiss,
 }: Props) {
 	const initial = clampPosition(x + 14, y + 14, 340, 320);
@@ -132,9 +134,21 @@ export function PredictConfirmCard({
 			) : null}
 
 			{isLoading && (
-				<p className="py-3 text-[12px] text-white/55">
-					{draftsLoading ? "正在生成回复…" : "正在读取情境…"}
-				</p>
+				<div className="fold-predict-loading" aria-live="polite">
+					<div className="fold-predict-loading-trail" aria-hidden="true">
+						<span />
+						<span />
+						<span />
+					</div>
+					<p className="fold-predict-loading-title">
+						{draftsLoading ? "正在看对话、拟回复" : "正在读取情境"}
+					</p>
+					<p className="fold-predict-loading-hint">
+						{draftsLoading
+							? "对照方最新一句，不会复述你已发过的话"
+							: "锁定当前窗口与聊天现场"}
+					</p>
+				</div>
 			)}
 
 			{!isLoading && !refining && phase === "silent" && (
@@ -189,10 +203,31 @@ export function PredictConfirmCard({
 				{isReply ? (
 					<p className="fold-predict-card-hint">
 						<strong>点草案</strong>插入；继续<strong>按住右 ⌘</strong>说出修改要求
+						{onReject ? (
+							<>
+								{" · "}
+								<button
+									type="button"
+									className="fold-predict-card-reject"
+									onClick={onReject}
+								>
+									都不合适
+								</button>
+							</>
+						) : null}
 					</p>
 				) : (
 					<>
 						<span className="text-[10px] text-white/30">⌥Space Agent · 按住右 ⌘ 代回 · Esc 取消</span>
+						{onReject && phase === "result" ? (
+							<button
+								type="button"
+								className="fold-predict-card-reject"
+								onClick={onReject}
+							>
+								都不合适
+							</button>
+						) : null}
 					</>
 				)}
 			</div>

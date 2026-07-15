@@ -78,6 +78,30 @@ contextBridge.exposeInMainWorld("fold", {
 	askResponse: (optionId: string) =>
 		ipcRenderer.invoke("fold:ask-response", optionId) as Promise<void>,
 	getConfig: () => ipcRenderer.invoke("fold:get-config") as Promise<Record<string, unknown>>,
+	getHotkeySettings: () =>
+		ipcRenderer.invoke("fold:get-hotkey-settings") as Promise<{
+			bindings: {
+				trigger: { id: string; label: string };
+				agent: { id: string; label: string; keys: string[] };
+				cancel: { id: string; label: string; keys: string[] };
+			};
+			options: {
+				trigger: Array<{ id: string; label: string }>;
+				agent: Array<{ id: string; label: string; keys: string[] }>;
+				cancel: Array<{ id: string; label: string; keys: string[] }>;
+			};
+			status: {
+				trigger: boolean;
+				agent: boolean;
+				cancel: boolean;
+				triggerUsesFallback: boolean;
+			};
+		}>,
+	setHotkeyBinding: (action: "trigger" | "agent" | "cancel", presetId: string) =>
+		ipcRenderer.invoke("fold:set-hotkey-binding", action, presetId) as Promise<
+			| { ok: true; settings: Record<string, unknown> }
+			| { ok: false; reason: "occupied" | "conflict" | "duplicate-accelerator" | "invalid" }
+		>,
 	getHomeSnapshot: () => ipcRenderer.invoke("fold:get-home-snapshot") as Promise<Record<string, unknown>>,
 	getPredictPreview: () => ipcRenderer.invoke("fold:get-predict-preview") as Promise<Record<string, unknown>>,
 	startAhaGuess: () =>
@@ -153,6 +177,13 @@ contextBridge.exposeInMainWorld("fold", {
 			pasted: boolean;
 			error?: string;
 		}>,
+	predictFeedback: (payload: {
+		kind: "dismiss" | "reject" | "accept";
+		surface?: string | null;
+		intent?: string | null;
+		draft?: string | null;
+		anchor?: string | null;
+	}) => ipcRenderer.invoke("fold:predict-feedback", payload) as Promise<{ ok: boolean }>,
 	structureInsertDraft: (text: string, targetAppName?: string | null) =>
 		ipcRenderer.invoke("fold:structure-insert-draft", text, targetAppName) as Promise<{
 			ok: boolean;
@@ -341,7 +372,8 @@ contextBridge.exposeInMainWorld("fold", {
 			height: number;
 		}>,
 	getOverlayState: () => ipcRenderer.invoke("fold:get-overlay-state") as Promise<Record<string, unknown>>,
-	dismiss: () => ipcRenderer.invoke("fold:dismiss") as Promise<void>,
+	dismiss: (opts?: { skipFeedback?: boolean }) =>
+		ipcRenderer.invoke("fold:dismiss", opts) as Promise<void>,
 	toggleVoice: () => ipcRenderer.invoke("fold:toggle-voice") as Promise<void>,
 	voiceError: (message: string) => ipcRenderer.invoke("fold:voice-error", message) as Promise<void>,
 	openSettings: (section?: string) =>

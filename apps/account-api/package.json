@@ -1,0 +1,22 @@
+{
+  "name": "@fold/account-api",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "self-check": "tsx src/self-check.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.9.4",
+    "nanoid": "^5.1.5",
+    "stripe": "^18.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "tsx": "^4.20.6",
+    "typescript": "5.9.2"
+  }
+}

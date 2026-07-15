@@ -2,7 +2,7 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, powerSaveBlocker, scree
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ContextEngine, isClipboardRecallIntent, resolveClipboardRecall, type ContextEvent } from "@fold/context";
-import { createNangoConnectLink, openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal, openOfficeSetupInTerminal, openWorkBuddyApp, activateAgentConnectFlow, cancelConnectFlow, pollConnectFlow, resolveConnectTarget, startConnectFlow } from "@fold/connectors";
+import { captureScreenshot, createNangoConnectLink, openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal, openOfficeSetupInTerminal, openWorkBuddyApp, activateAgentConnectFlow, cancelConnectFlow, pollConnectFlow, resolveConnectTarget, startConnectFlow } from "@fold/connectors";
 import { saveContextEvent, listContextEvents, saveVoiceInteraction, listMemoryEntities } from "@fold/memory";
 import {
 	hasPlannerApiKey,
@@ -20,6 +20,7 @@ import {
 	clearPredictTargetApp,
 	getPredictTargetApp,
 	getPredictPreviewForHome,
+	recordPredictCardFeedback,
 	resolveAhaGuess,
 	streamAhaGuessForHome,
 	refreshPredictCacheEnriched,
@@ -82,7 +83,20 @@ import {
 	listProfileImportOptions,
 	saveProfileFromResponse,
 } from "./profile-import.js";
-import { startHoldHotkey } from "./hotkey.js";
+import {
+	getActiveHotkeyBindings,
+	getHotkeyStatus,
+	hotkeyIdsForSave,
+	reloadHotkeysFromConfig,
+	startHoldHotkey,
+} from "./hotkey.js";
+import {
+	AGENT_PRESETS,
+	CANCEL_PRESETS,
+	presetOptionsForRenderer,
+	TRIGGER_PRESETS,
+	type HotkeyAction,
+} from "./hotkey-presets.js";
 import { createTray } from "./tray.js";
 import { migrateLegacyDataDir } from "./data-dir.js";
 import {
@@ -198,9 +212,12 @@ let replyLatched = false;
 /** 确认卡上按住修改：松开结束 */
 let replyRefineHold = false;
 let voiceTargetApp: string | null = null;
+/** 代回：Overlay 升起前截下的聊天窗，避免松手时截到主屏微信/知更自己 */
+let voiceReplyScreenshotPath: string | null = null;
 let lastIntent = "";
 let lastReplyTranscript = "";
 let stopHotkey: (() => void) | null = null;
+let refreshTrayMenu: (() => void) | null = null;
 let stopHabitRecall: (() => void) | null = null;
 let activeTaskPowerBlockerId: number | null = null;
 let activeTaskPowerAssertionCount = 0;
@@ -683,7 +700,15 @@ function showReplyPredictions() {
 	createOverlayWindow();
 	const ctx = contextEngine.getLiveContext();
 	const targetApp = ctx.activeApp;
-	void contextEngine.refreshActiveApp().then(async () => {
+	void (async () => {
+		let precapture: string | null = null;
+		try {
+			const shot = await captureScreenshot({ target: "frontmost" });
+			precapture = shot.path;
+		} catch {
+			// enrichForReply 会按 app 名再试
+		}
+		await contextEngine.refreshActiveApp();
 		const fresh = contextEngine.getLiveContext();
 		const app = fresh.activeApp ?? targetApp;
 		const voiceTabPlacement = await positionOverlayForActiveContext(overlayWindow, app);
@@ -700,7 +725,7 @@ function showReplyPredictions() {
 			contextAppName: app,
 			contextAppPath: fresh.activeAppPath,
 		});
-		const result = await resolveReplyPredictions(fresh, app);
+		const result = await resolveReplyPredictions(fresh, app, precapture);
 		const placement = await positionOverlayForActiveContext(overlayWindow, app);
 		emitState({
 			status: "predict",
@@ -717,7 +742,7 @@ function showReplyPredictions() {
 			contextAppPath: fresh.activeAppPath,
 			contextWindowTitle: result.anchor,
 		});
-	});
+	})();
 }
 
 async function structureVoiceTranscript(
@@ -951,7 +976,12 @@ async function replyVoiceTranscript(transcript: string) {
 	});
 
 	try {
-		const card = await resolveReplyVoiceCard(ctx, text, contextAppName);
+		const card = await resolveReplyVoiceCard(
+			ctx,
+			text,
+			contextAppName,
+			voiceReplyScreenshotPath,
+		);
 		const sceneTitle =
 			onboardingReply
 				? contextWindowTitle ?? contextAppName ?? "智能代回"
@@ -1037,7 +1067,36 @@ const IPC_HANDLE_CHANNELS = [
 	"fold:account-checkout",
 	"fold:account-cancel-plan",
 	"fold:account-delete",
+	"fold:get-hotkey-settings",
+	"fold:set-hotkey-binding",
 ] as const;
+
+function buildHotkeySettingsSnapshot() {
+	const bindings = getActiveHotkeyBindings();
+	return {
+		bindings: {
+			trigger: { id: bindings.trigger.id, label: bindings.trigger.label },
+			agent: {
+				id: bindings.agent.id,
+				label: bindings.agent.label,
+				keys: bindings.agent.keys,
+			},
+			cancel: {
+				id: bindings.cancel.id,
+				label: bindings.cancel.label,
+				keys: bindings.cancel.keys,
+			},
+		},
+		options: presetOptionsForRenderer(),
+		status: getHotkeyStatus(),
+	};
+}
+
+function isValidHotkeyPreset(action: HotkeyAction, presetId: string): boolean {
+	if (action === "trigger") return TRIGGER_PRESETS.some((preset) => preset.id === presetId);
+	if (action === "agent") return AGENT_PRESETS.some((preset) => preset.id === presetId);
+	return CANCEL_PRESETS.some((preset) => preset.id === presetId);
+}
 
 function resolveAsrRuntime() {
 	const config = loadConfig();
@@ -1100,6 +1159,29 @@ function registerIpc() {
 	);
 	ipcMain.handle("fold:account-cancel-plan", () => cancelPlan());
 	ipcMain.handle("fold:account-delete", () => deleteAccount());
+
+	ipcMain.handle("fold:get-hotkey-settings", () => buildHotkeySettingsSnapshot());
+
+	ipcMain.handle(
+		"fold:set-hotkey-binding",
+		(_e, action: HotkeyAction, presetId: string) => {
+			if (!isValidHotkeyPreset(action, presetId)) {
+				return { ok: false as const, reason: "invalid" as const };
+			}
+			const config = loadConfig();
+			const nextHotkeys = { ...config.hotkeys, [action]: presetId };
+			const result = reloadHotkeysFromConfig(nextHotkeys);
+			if (!result.ok) {
+				return { ok: false as const, reason: result.reason };
+			}
+			saveConfig({ ...config, hotkeys: hotkeyIdsForSave() });
+			refreshTrayMenu?.();
+			return {
+				ok: true as const,
+				settings: buildHotkeySettingsSnapshot(),
+			};
+		},
+	);
 
 	ipcMain.handle("fold:get-mock-asr", () => resolveAsrRuntime().provider === "mock");
 
@@ -1448,6 +1530,13 @@ function registerIpc() {
 			emitIdleState();
 			return { ok: true, pasted: true };
 		}
+		recordPredictCardFeedback({
+			kind: "accept",
+			surface: lastOverlayState.predictSurface ?? null,
+			intent: lastOverlayState.predictSelectedIntent ?? lastOverlayState.predictSuggestions?.[0]?.intent ?? null,
+			draft: text,
+			anchor: lastOverlayState.predictAnchor ?? null,
+		});
 		const targetApp = getPredictTargetApp() ?? contextEngine.getLiveContext().activeApp;
 		const refreshedTarget = captureTextInsertionTarget();
 		overlayWindow?.setIgnoreMouseEvents(true, { forward: true });
@@ -1642,7 +1731,46 @@ function registerIpc() {
 
 	ipcMain.handle("fold:get-overlay-state", () => lastOverlayState);
 
-	ipcMain.handle("fold:dismiss", () => {
+	ipcMain.handle(
+		"fold:predict-feedback",
+		(
+			_e,
+			payload: {
+				kind: "dismiss" | "reject" | "accept";
+				surface?: string | null;
+				intent?: string | null;
+				draft?: string | null;
+				anchor?: string | null;
+			},
+		) => {
+			recordPredictCardFeedback({
+				kind: payload?.kind ?? "dismiss",
+				surface: payload?.surface ?? lastOverlayState.predictSurface ?? null,
+				intent:
+					payload?.intent ??
+					lastOverlayState.predictSelectedIntent ??
+					lastOverlayState.predictSuggestions?.[0]?.intent ??
+					null,
+				draft: payload?.draft ?? null,
+				anchor: payload?.anchor ?? lastOverlayState.predictAnchor ?? null,
+			});
+			return { ok: true };
+		},
+	);
+
+	ipcMain.handle("fold:dismiss", (_e, opts?: { skipFeedback?: boolean }) => {
+		if (!opts?.skipFeedback && lastOverlayState.status === "predict") {
+			recordPredictCardFeedback({
+				kind: "dismiss",
+				surface: lastOverlayState.predictSurface ?? null,
+				intent:
+					lastOverlayState.predictSelectedIntent ??
+					lastOverlayState.predictSuggestions?.[0]?.intent ??
+					null,
+				draft: lastOverlayState.predictDrafts?.[0]?.text ?? null,
+				anchor: lastOverlayState.predictAnchor ?? null,
+			});
+		}
 		isRecording = false;
 		if (pendingUserAction) {
 			pendingUserAction.reject(new Error("用户取消了授权"));
@@ -1700,6 +1828,24 @@ async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 	const ctx = contextEngine.getLiveContext();
 	voiceTargetApp = insertionTarget?.appName ?? ctx.activeApp ?? null;
 	isRecording = true;
+
+	// 代回必须在 raise overlay 之前截聊天窗：松手时 frontmost 常是 Electron，
+	// 全屏回退又会落到主屏上一次微信会话。
+	voiceReplyScreenshotPath = null;
+	if (outcome === "reply") {
+		try {
+			const shot = await captureScreenshot({
+				target: "frontmost",
+			});
+			voiceReplyScreenshotPath = shot.path;
+			console.log(
+				`[fold:reply] precapture screenshot=${shot.path} frontmostApp=${voiceTargetApp ?? "?"}`,
+			);
+		} catch (err) {
+			console.warn("[fold:reply] precapture screenshot failed", err);
+		}
+	}
+
 	createOverlayWindow();
 
 	const isOnboardingVoiceDemo =
@@ -1825,7 +1971,8 @@ function cancelActiveSession() {
 }
 
 function registerHotkeys() {
-	stopHotkey = startHoldHotkey({
+	stopHotkey = startHoldHotkey(
+		{
 		onAgentToggle: () => {
 			if (isOnboardingHotkeyTestStep()) return;
 			toggleVoiceRecording("agent");
@@ -1867,7 +2014,9 @@ function registerHotkeys() {
 				onboardingWindow.webContents.send("fold:onboarding-hotkey-event", event);
 			}
 		},
-	});
+		},
+		loadConfig().hotkeys ?? {},
+	);
 }
 
 app.whenReady().then(() => {
@@ -1884,7 +2033,7 @@ app.whenReady().then(() => {
 	registerHotkeys();
 	void refreshPredictCacheEnriched(contextEngine.getLiveContext());
 
-	createTray({
+	const trayApi = createTray({
 		onVoiceStructure: () => toggleVoiceRecording("structure"),
 		onReplyPredict: () => showReplyPredictions(),
 		onVoiceAgent: () => toggleVoiceRecording("agent"),
@@ -1895,7 +2044,17 @@ app.whenReady().then(() => {
 			recording: isRecording,
 			predicting: lastOverlayState.status === "predict",
 		}),
+		getHotkeyLabels: () => {
+			const bindings = getActiveHotkeyBindings();
+			return {
+				structure: bindings.trigger.trayShort,
+				reply: bindings.trigger.trayHold,
+				agent: bindings.agent.trayLabel,
+				cancel: bindings.cancel.trayLabel,
+			};
+		},
 	});
+	refreshTrayMenu = trayApi.refreshMenu;
 
 	if (!isOnboardingComplete()) {
 		openOnboardingWindow();

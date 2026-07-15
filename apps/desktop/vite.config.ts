@@ -19,6 +19,7 @@ const foldAliases = {
 
 const electronExternals = (id: string) =>
 	id === "electron" ||
+	id === "@fold/macos-input" ||
 	id === "better-sqlite3" ||
 	id === "uiohook-napi" ||
 	id === "@kutalia/whisper-node-addon" ||

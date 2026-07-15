@@ -12,6 +12,8 @@ import type {
 	MemoryEntityRecord,
 	PersonMemoryValue,
 	ProjectMemoryValue,
+	HotkeyAction,
+	HotkeySettingsSnapshot,
 } from "./settings/types.js";
 
 interface ProfileImportOption {
@@ -62,6 +64,14 @@ interface FoldApi {
 	undoLastInsert(): Promise<{ ok: boolean; error?: string }>;
 	askResponse(optionId: string): Promise<void>;
 	getConfig(): Promise<FoldConfig>;
+	getHotkeySettings(): Promise<HotkeySettingsSnapshot>;
+	setHotkeyBinding(
+		action: HotkeyAction,
+		presetId: string,
+	): Promise<
+		| { ok: true; settings: HotkeySettingsSnapshot }
+		| { ok: false; reason: "occupied" | "conflict" | "duplicate-accelerator" | "invalid" }
+	>;
 	getHomeSnapshot(): Promise<HomeSnapshot>;
 	getPredictPreview(): Promise<HomePredictPreview>;
 	startAhaGuess(): Promise<{ ok: boolean; runId?: number }>;
@@ -129,6 +139,13 @@ interface FoldApi {
 	getEpisode(id: string): Promise<EpisodeDetail | null>;
 	predictPickIntent(intent: string): Promise<{ ok: boolean }>;
 	predictInsertDraft(text: string): Promise<{ ok: boolean; pasted: boolean; error?: string }>;
+	predictFeedback(payload: {
+		kind: "dismiss" | "reject" | "accept";
+		surface?: string | null;
+		intent?: string | null;
+		draft?: string | null;
+		anchor?: string | null;
+	}): Promise<{ ok: boolean }>;
 	structureInsertDraft(text: string, targetAppName?: string | null): Promise<{
 		ok: boolean;
 		pasted: boolean;
@@ -252,7 +269,7 @@ interface FoldApi {
 		height: number;
 	}>;
 	getOverlayState(): Promise<FoldStateEvent>;
-	dismiss(): Promise<void>;
+	dismiss(opts?: { skipFeedback?: boolean }): Promise<void>;
 	toggleVoice(): Promise<void>;
 	voiceError(message: string): Promise<void>;
 	openSettings(section?: string): Promise<void>;

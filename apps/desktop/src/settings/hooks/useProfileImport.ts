@@ -57,11 +57,9 @@ export const FALLBACK_PLATFORMS: ProfileImportOption[] = [
 
 export function useProfileImport() {
 	const [options, setOptions] = useState<ProfileImportOption[]>([]);
-	const [prompt, setPrompt] = useState("");
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [responseText, setResponseText] = useState("");
 	const [loading, setLoading] = useState(true);
-	const [running, setRunning] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [info, setInfo] = useState<string | null>(null);
@@ -69,12 +67,11 @@ export function useProfileImport() {
 	useEffect(() => {
 		let mounted = true;
 		setLoading(true);
-		void Promise.all([window.fold.profileImportOptions(), window.fold.profileBuildPrompt()])
-			.then(([opts, p]) => {
+		void window.fold.profileImportOptions()
+			.then((opts) => {
 				if (!mounted) return;
 				const platforms = opts.length > 0 ? opts : FALLBACK_PLATFORMS;
 				setOptions(platforms);
-				setPrompt(p);
 				const preferred =
 					platforms.find((o) => o.hasOpenTab && o.automationSupported) ??
 					platforms.find((o) => o.hasOpenTab) ??
@@ -96,32 +93,16 @@ export function useProfileImport() {
 
 	const selected = options.find((o) => o.id === selectedId) ?? null;
 
-	async function copyPrompt() {
+	useEffect(() => {
 		setError(null);
-		const { prompt: copied } = await window.fold.profileCopyPrompt();
-		setPrompt(copied);
-		setInfo("已复制 prompt 到剪贴板");
-	}
+	}, [selectedId]);
 
-	async function runImport() {
-		if (!selectedId) return;
-		setRunning(true);
+	async function copyPromptAndOpen() {
+		if (!selected) return;
 		setError(null);
-		setInfo(null);
-		try {
-			const result = await window.fold.profileRunImport(selectedId, selected?.tabUrl);
-			if (result.response) {
-				setResponseText(result.response);
-				setInfo("已收到 AI 回复，请确认后保存");
-			} else if (!result.ok) {
-				setError(result.error ?? "自动化失败");
-				if (result.prompt) setPrompt(result.prompt);
-			}
-		} catch (err) {
-			setError((err as Error).message);
-		} finally {
-			setRunning(false);
-		}
+		await window.fold.profileCopyPrompt();
+		await window.fold.openExternal(selected.defaultUrl);
+		setInfo(`Prompt 已复制，正在打开 ${selected.label}。发送后把完整回复粘贴到下方。`);
 	}
 
 	async function saveResponse() {
@@ -148,20 +129,17 @@ export function useProfileImport() {
 
 	return {
 		options,
-		prompt,
 		selectedId,
 		setSelectedId,
 		selected,
 		responseText,
 		setResponseText,
 		loading,
-		running,
 		saving,
 		error,
 		info,
 		setError,
-		copyPrompt,
-		runImport,
+		copyPromptAndOpen,
 		saveResponse,
 	};
 }

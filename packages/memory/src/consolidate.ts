@@ -609,6 +609,65 @@ export function listMemoryEntities(dataDir?: string): MemoryEntityRecord[] {
 	return [...people, ...projects].sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+export interface EntityBriefOptions {
+	/** 当前屏幕/情境文本，命中的人/项目名会被优先排到前面 */
+	matchText?: string;
+	personLimit?: number;
+	projectLimit?: number;
+}
+
+/** 纯函数核心：按「是否命中当前情境」排序，其次按最近活跃时间；供自检和真实查询共用。 */
+export function formatEntityBriefFromRecords(
+	records: MemoryEntityRecord[],
+	opts: EntityBriefOptions = {},
+): string {
+	const { matchText, personLimit = 3, projectLimit = 2 } = opts;
+	const needle = matchText?.trim();
+
+	function rank<T extends { updatedAt: number; value: { name: string } }>(list: T[]): T[] {
+		return [...list].sort((a, b) => {
+			const aHit = needle && needle.includes(a.value.name) ? 1 : 0;
+			const bHit = needle && needle.includes(b.value.name) ? 1 : 0;
+			if (aHit !== bHit) return bHit - aHit;
+			return b.updatedAt - a.updatedAt;
+		});
+	}
+
+	const people = rank(
+		records.filter((r): r is MemoryEntityRecord & { type: "entity.person" } => r.type === "entity.person"),
+	).slice(0, personLimit);
+	const projects = rank(
+		records.filter((r): r is MemoryEntityRecord & { type: "entity.project" } => r.type === "entity.project"),
+	).slice(0, projectLimit);
+
+	const lines: string[] = [];
+	if (people.length) {
+		lines.push("长期记忆·相关人物：");
+		for (const p of people) {
+			const bits = [p.value.role, p.value.commitment].filter(Boolean).join("；");
+			lines.push(`  - ${p.value.name}${bits ? `（${bits}）` : ""}`);
+		}
+	}
+	if (projects.length) {
+		lines.push("长期记忆·相关项目：");
+		for (const proj of projects) {
+			const bits = [
+				proj.value.status ? `状态：${proj.value.status}` : null,
+				proj.value.nextStep ? `下一步：${proj.value.nextStep}` : null,
+			]
+				.filter(Boolean)
+				.join("；");
+			lines.push(`  - ${proj.value.name}${bits ? `（${bits}）` : ""}`);
+		}
+	}
+	return lines.join("\n");
+}
+
+/** 供预测/代回/Aha/Planner 注入：把日整固沉淀的人/项目记忆拼成简报。 */
+export function formatEntityBrief(dataDir?: string, opts: EntityBriefOptions = {}): string {
+	return formatEntityBriefFromRecords(listMemoryEntities(dataDir), opts);
+}
+
 /** ponytail: 最小自检，tsx packages/memory/src/consolidate-self-check.ts */
 export function runConsolidateSelfCheck(): void {
 	const events: ContextEventRow[] = [
@@ -645,4 +704,38 @@ export function runConsolidateSelfCheck(): void {
 	const digest = heuristicDistill(agg);
 	console.assert(digest.people.some((p) => p.name === "Jason"), "digest people");
 	console.assert(slugEntityKey("知更 iOS") === "知更-ios", "slug");
+
+	const records: MemoryEntityRecord[] = [
+		{
+			id: "m1",
+			type: "entity.person",
+			key: "jason",
+			value: { name: "Jason", role: "FA", episodeIds: [], lastSeenDate: "2026-07-10" },
+			confidence: 0.8,
+			updatedAt: 1,
+		},
+		{
+			id: "m2",
+			type: "entity.person",
+			key: "amy",
+			value: { name: "Amy", commitment: "周五前发报价", episodeIds: [], lastSeenDate: "2026-07-14" },
+			confidence: 0.8,
+			updatedAt: 100,
+		},
+		{
+			id: "m3",
+			type: "entity.project",
+			key: "knowbird-ios",
+			value: { name: "知更 iOS", status: "开发中", nextStep: "接入语音", episodeIds: [], lastActiveDate: "2026-07-14" },
+			confidence: 0.8,
+			updatedAt: 50,
+		},
+	];
+	// 无匹配时按 updatedAt 兜底：Amy(100) 应排在 Jason(1) 前面
+	const fallback = formatEntityBriefFromRecords(records, { personLimit: 1 });
+	console.assert(fallback.includes("Amy") && !fallback.includes("Jason"), "entity brief fallback order");
+	// 命中当前情境文本时应优先排到最前，覆盖 updatedAt 顺序
+	const matched = formatEntityBriefFromRecords(records, { matchText: "刚才跟 Jason 聊了报价", personLimit: 1 });
+	console.assert(matched.includes("Jason") && !matched.includes("Amy"), "entity brief match priority");
+	console.assert(formatEntityBriefFromRecords(records, { projectLimit: 1 }).includes("知更 iOS"), "entity brief project");
 }

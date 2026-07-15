@@ -18,5 +18,5 @@ export function openCursorSetupInTerminal(kind: "login" | "install" = "install")
 
 /** Run claude login in Terminal when CLI exists but session may be missing. */
 export function openClaudeLoginInTerminal(): void {
-	openInTerminal("claude login");
+	openInTerminal("claude auth login");
 }

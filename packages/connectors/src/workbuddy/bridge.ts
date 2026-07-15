@@ -53,6 +53,7 @@ for _ in $(seq 1 90); do
       if [[ -n "$TOKEN" ]]; then
         mkdir -p "$FOLD_DIR"
         python3 -c "import json,time; json.dump({'token':'$TOKEN','gatewayUrl':'$HOST','updatedAt':int(time.time()*1000)}, open('$BRIDGE','w'))"
+        chmod 600 "$BRIDGE"
         echo ok
         exit 0
       fi
@@ -106,7 +107,7 @@ export function writeWorkBuddyBridge(token: string, gatewayUrl: string): void {
 		gatewayUrl,
 		updatedAt: Date.now(),
 	};
-	writeFileSync(bridgePath(), JSON.stringify(payload, null, 2), "utf8");
+	writeFileSync(bridgePath(), JSON.stringify(payload, null, 2), { encoding: "utf8", mode: 0o600 });
 }
 
 export function resolveWorkBuddyMcpToken(): string | null {

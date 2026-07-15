@@ -221,7 +221,30 @@ export async function browserEvaluate(
 	});
 }
 
+// 面板每次打开都会跑 browser.cdp + browser.mailPage 两个探针，二者都会 attach 到用户 Chrome。
+// 用「in-flight 去重 + 短 TTL 缓存」避免同一次打开反复 connectOverCDP。
+// ponytail: TTL 缓存的天花板是探针状态最多滞后 PROBE_CACHE_MS；用户真去用浏览器能力时走的是
+// connectBrowser()（不经此缓存），拿到的是实时连接，所以缓存只影响状态展示，可接受。
+const PROBE_CACHE_MS = 5_000;
+let probeCache: { at: number; value: BrowserCdpProbe } | undefined;
+let probeInFlight: Promise<BrowserCdpProbe> | undefined;
+
 export async function probeBrowserCdp(): Promise<BrowserCdpProbe> {
+	const now = Date.now();
+	if (probeCache && now - probeCache.at < PROBE_CACHE_MS) return probeCache.value;
+	if (probeInFlight) return probeInFlight;
+	probeInFlight = probeBrowserCdpUncached()
+		.then((value) => {
+			probeCache = { at: Date.now(), value };
+			return value;
+		})
+		.finally(() => {
+			probeInFlight = undefined;
+		});
+	return probeInFlight;
+}
+
+async function probeBrowserCdpUncached(): Promise<BrowserCdpProbe> {
 	if (getPlaywrightExtensionToken()) {
 		const ext = await probePlaywrightExtension();
 		if (ext.connected) {

@@ -1,23 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion, useInView, useReducedMotion } from "framer-motion";
+import Link from "next/link";
+import { motion, useInView, useReducedMotion } from "framer-motion";
 import {
-	BookMarked,
-	Calendar,
 	Check,
-	ClipboardList,
+	Clock3,
 	Command,
-	FileText,
-	Globe,
-	History,
+	FolderKanban,
 	Lock,
-	Mail,
-	MessageSquare,
 	Mic,
-	RotateCcw,
 	Sparkles,
-	Table2,
 } from "lucide-react";
 import { VoicePill } from "./VoicePill";
 
@@ -69,12 +62,10 @@ function FeatureCopy({
 	index,
 	title,
 	lead,
-	points,
 }: {
 	index: string;
 	title: string;
 	lead: string;
-	points?: string[];
 }) {
 	return (
 		<motion.div
@@ -87,16 +78,6 @@ function FeatureCopy({
 			<span className="zg-feature-index">{index}</span>
 			<RevealHeading text={title} />
 			<p>{lead}</p>
-			{points && (
-				<ul className="zg-feature-points">
-					{points.map((point) => (
-						<li key={point}>
-							<Check size={15} />
-							{point}
-						</li>
-					))}
-				</ul>
-			)}
 		</motion.div>
 	);
 }
@@ -114,7 +95,14 @@ const speakTokens = [
 	{ t: "把最新的设计稿链接带上。", kind: "keep" },
 ] as const;
 
-const speakPhaseTimes = [300, 3400, 4300, 5100] as const;
+// 1 听写打字 → 2 清理口头语 → 3 转写中(loading) → 4 完成(对勾)+插入 → 5 徽标
+const speakPhaseTimes = [300, 3600, 4500, 5600, 6300] as const;
+
+const speakFullText = speakTokens.map((token) => token.t).join("");
+const speakOffsets = speakTokens.reduce<number[]>((acc, token, i) => {
+	acc.push(i === 0 ? 0 : acc[i - 1]! + speakTokens[i - 1]!.t.length);
+	return acc;
+}, []);
 
 function speakTokenClass(kind: (typeof speakTokens)[number]["kind"], cleaned: boolean) {
 	if (!cleaned || kind === "keep") return "zg-token";
@@ -128,8 +116,10 @@ function SpeakDemo() {
 	const inView = useInView(ref, { once: true, amount: 0.45 });
 	const phase = usePhases(inView, speakPhaseTimes, reduce);
 	const cleaned = phase >= 2;
-	const listening = phase >= 1 && phase < 3;
-	const showPill = phase >= 1 || reduce;
+	const pillState =
+		phase === 0 ? "hidden" : phase <= 2 ? "listening" : phase === 3 ? "processing" : "done";
+	const typed = useTypewriter(speakFullText, phase >= 1, reduce, 62);
+	const typing = phase >= 1 && typed.length < speakFullText.length;
 
 	return (
 		<div className="zg-demo-card zg-demo-card--speak" ref={ref}>
@@ -138,29 +128,27 @@ function SpeakDemo() {
 				正在听你说…
 			</div>
 			<p className="zg-speak-raw" aria-label="原始口述逐字出现，口头语与改口被清理">
-				{speakTokens.map((token, i) => (
-					<motion.span
-						key={i}
-						className={speakTokenClass(token.kind, cleaned)}
-						initial={{ opacity: 0, y: 8 }}
-						animate={
-							phase >= 1
-								? { opacity: cleaned && token.kind !== "keep" ? 0.88 : 1, y: 0 }
-								: {}
-						}
-						transition={{ delay: phase === 1 ? 0.3 * i : 0, duration: 0.32 }}
-					>
-						{token.t}
-					</motion.span>
-				))}
+				{speakTokens.map((token, i) => {
+					const visible = Math.max(
+						0,
+						Math.min(token.t.length, typed.length - speakOffsets[i]!),
+					);
+					if (visible === 0) return null;
+					return (
+						<span key={i} className={speakTokenClass(token.kind, cleaned)}>
+							{token.t.slice(0, visible)}
+						</span>
+					);
+				})}
+				{typing && <span className="zg-typewriter-cursor" aria-hidden="true" />}
 			</p>
 			<div className="zg-speak-pill-slot">
-				<VoicePill active={listening} visible={showPill} />
+				<VoicePill state={pillState} appLogo="/brand/icons/feishu.svg" />
 			</div>
 			<motion.div
 				className="zg-speak-compose"
 				initial={{ opacity: 0, y: 14 }}
-				animate={phase >= 3 ? { opacity: 1, y: 0 } : {}}
+				animate={phase >= 1 ? { opacity: 1, y: 0 } : {}}
 				transition={{ duration: 0.45 }}
 			>
 				<div className="zg-speak-compose-head">
@@ -173,7 +161,13 @@ function SpeakDemo() {
 					</div>
 				</div>
 				<div className="zg-speak-compose-body">
-					<p>设计评审改到周四下午，麻烦大家留意；最新的设计稿链接我放在下面。</p>
+					<motion.p
+						initial={{ opacity: 0 }}
+						animate={phase >= 4 ? { opacity: 1 } : { opacity: 0 }}
+						transition={{ duration: 0.35 }}
+					>
+						设计评审改到周四下午，麻烦大家留意；最新的设计稿链接我放在下面。
+					</motion.p>
 					<div className="zg-speak-compose-bar" aria-hidden="true">
 						<span>＋</span>
 						<span>Aa</span>
@@ -186,7 +180,7 @@ function SpeakDemo() {
 				<motion.span
 					className="zg-done-badge"
 					initial={{ opacity: 0 }}
-					animate={phase >= 4 ? { opacity: 1 } : {}}
+					animate={phase >= 5 ? { opacity: 1 } : {}}
 					transition={{ duration: 0.3 }}
 				>
 					<Check size={13} />
@@ -201,16 +195,16 @@ function SpeakDemo() {
 /* ── 02 Context ─────────────────────────────── */
 
 const contextChips = [
-	{ logo: "/brand/icons/feishu.svg", label: "当前窗口 · 飞书「Q3 规划」" },
-	{ icon: MessageSquare, label: "最近的对话" },
-	{ icon: Globe, label: "打开的网页" },
-	{ icon: ClipboardList, label: "剪贴板" },
-	{ icon: FileText, label: "项目文件" },
-	{ icon: BookMarked, label: "人名与专有名词" },
-	{ icon: Sparkles, label: "你的表达习惯" },
+	{ logo: "/zhigeng-mark.png", label: "当前窗口 · Cursor「知更 iOS」" },
+	{ logo: "/brand/icons/feishu.svg", label: "最近对话 · 飞书 · Alex" },
+	{ logo: "/brand/icons/chrome.svg", label: "打开的网页 · Figma 原型" },
+	{ logo: "/brand/icons/clipboard.svg", label: "剪贴板 · 版本规划" },
+	{ logo: "/brand/icons/finder.png", label: "项目文件 · 知更 iOS Deck" },
+	{ logo: "/zhigeng-mark.png", label: "人名 · Alex" },
+	{ logo: "/zhigeng-mark.png", label: "你的表达习惯" },
 ] as const;
 
-const contextResultText = "Alex，《北落师门》方案今天定稿，晚点发你终版。";
+const contextResultText = "Alex，知更 iOS 方案今天定稿，晚点发你终版。";
 
 /** 触发后逐字打出文本，reduce motion 时直接显示全文 */
 function useTypewriter(text: string, active: boolean, skip: boolean, speed = 42) {
@@ -227,14 +221,14 @@ function useTypewriter(text: string, active: boolean, skip: boolean, speed = 42)
 	return text.slice(0, count);
 }
 
-const contextPhaseTimes = [1500, 1950, 2450] as const;
+const contextPhaseTimes = [900, 1700, 2300, 2900] as const;
 
 function ContextDemo() {
 	const reduce = Boolean(useReducedMotion());
 	const ref = useRef<HTMLDivElement | null>(null);
 	const inView = useInView(ref, { once: true, amount: 0.4 });
 	const phase = usePhases(inView, contextPhaseTimes, reduce);
-	const typed = useTypewriter(contextResultText, phase >= 3, reduce);
+	const typed = useTypewriter(contextResultText, phase >= 4, reduce);
 	const typingDone = typed.length >= contextResultText.length;
 
 	return (
@@ -245,14 +239,30 @@ function ContextDemo() {
 						key={chip.label}
 						initial={{ opacity: 0, y: 12 }}
 						animate={inView || reduce ? { opacity: 1, y: 0 } : {}}
-						transition={{ delay: 0.16 * i, duration: 0.4 }}
+						transition={{ delay: 0.1 * i, duration: 0.4 }}
 					>
-						{"logo" in chip ? <img src={chip.logo} alt="" width={14} height={14} /> : <chip.icon size={14} />}
+						<img src={chip.logo} alt="" width={16} height={16} />
 						{chip.label}
 					</motion.span>
 				))}
 			</div>
-			{phase >= 1 && phase < 3 && (
+			{(phase >= 1 || reduce) && (
+				<motion.div
+					className="zg-context-guess"
+					initial={{ opacity: 0, y: 8 }}
+					animate={{ opacity: 1, y: 0 }}
+					transition={{ duration: 0.35 }}
+				>
+					<span className="zg-context-guess-label">
+						<Sparkles size={13} />
+						猜你在做
+					</span>
+					<p>
+						你在 Cursor 里推进<strong>知更 iOS</strong>方案，准备跟 Alex 同步定稿。
+					</p>
+				</motion.div>
+			)}
+			{phase >= 2 && phase < 4 && !reduce && (
 				<motion.div
 					className="zg-context-processing"
 					initial={{ opacity: 0, y: 8 }}
@@ -261,10 +271,10 @@ function ContextDemo() {
 					transition={{ duration: 0.35 }}
 				>
 					<Sparkles size={14} />
-					正在结合 Context 改写…
+					按这个场景写回复…
 				</motion.div>
 			)}
-			{(phase >= 2 || reduce) && (
+			{(phase >= 3 || reduce) && (
 				<motion.div
 					className="zg-context-result"
 					initial={{ opacity: 0, y: 14 }}
@@ -274,15 +284,15 @@ function ContextDemo() {
 					<motion.p
 						className="zg-context-line zg-context-line-raw"
 						initial={{ opacity: 0 }}
-						animate={phase >= 2 ? { opacity: 1 } : {}}
+						animate={phase >= 3 || reduce ? { opacity: 1 } : {}}
 						transition={{ duration: 0.35 }}
 					>
-						<span>你说</span>“跟 alex 说 beiluo 方案今天定稿”
+						<span>你说</span>“跟 alex 说 ios 方案今天定稿”
 					</motion.p>
 					<p className="zg-context-line">
 						<span>知更写</span>
-						{phase >= 3 ? typed : ""}
-						{phase >= 3 && !typingDone && <i className="zg-typewriter-cursor" aria-hidden="true" />}
+						{phase >= 4 || reduce ? typed : ""}
+						{(phase >= 4 || reduce) && !typingDone && <i className="zg-typewriter-cursor" aria-hidden="true" />}
 					</p>
 					<motion.p
 						className="zg-demo-footnote"
@@ -290,52 +300,65 @@ function ContextDemo() {
 						animate={typingDone ? { opacity: 1 } : {}}
 						transition={{ duration: 0.35 }}
 					>
-						项目叫什么、人名怎么拼、你习惯什么语气 —— 都不用再解释一遍。
+						它先猜你在做「知更 iOS」，再把口语补成可直接发出的回复 —— 项目名、称呼、语气都对上了。
 					</motion.p>
 				</motion.div>
 			)}
-			<motion.p
+			<motion.aside
 				className="zg-privacy"
 				initial={{ opacity: 0 }}
 				animate={typingDone ? { opacity: 1 } : {}}
 				transition={{ delay: 0.3, duration: 0.4 }}
+				aria-label="隐私说明"
 			>
-				<Lock size={13} />
-				Context 留在你的 Mac 上，每一项来源都可以单独关闭。
-			</motion.p>
+				<p className="zg-privacy-title">
+					<Lock size={14} />
+					<strong>本地优先 · 用完即走</strong>
+				</p>
+				<p>
+					窗口、对话、网页、剪贴板与文件线索默认只在需要时启用，并留在你的 Mac 上。调用模型时，只把完成指令所需的片段直达所选
+					AI，不经我们的服务器落盘；所选模型遵循不用于训练的原则。每一项来源都可以单独关闭。
+				</p>
+				<Link href="/privacy" className="zg-privacy-link">
+					了解隐私原则
+				</Link>
+			</motion.aside>
 		</div>
 	);
 }
 
-/* ── 03 智能代回 ─────────────────────────────── */
+/* ── 03 智能写与回 ─────────────────────────────── */
 
-const replyScenarios = [
+const replyResults = [
 	{
 		id: "feishu",
 		app: "飞书",
 		logo: "/brand/icons/feishu.svg",
-		from: "老板",
-		incoming: "明天下午的评审能提前到上午吗？另外数据报告好了没？",
-		intent: "答应他，报告今晚给",
-		reply: "可以的，评审提前到明天上午没问题。数据报告我今晚整理好发您。",
+		scene: "工作 IM · 知更 iOS 群",
+		result: "知更 iOS 方案已定稿，最终 Deck 将在周三前同步；今天的结论我也整理好了。",
 	},
 	{
 		id: "gmail",
 		app: "Gmail",
 		logo: "/brand/icons/gmail.svg",
-		from: "Sarah",
-		incoming: "Hi — could you share the updated deck before Thursday's sync?",
-		intent: "说周三之前给她",
-		reply: "Hi Sarah, sure — I'll send the updated deck by Wednesday EOD so you have time to review before the sync.",
+		scene: "正式邮件 · Sarah",
+		result:
+			"Hi Sarah, the Zhigeng iOS plan is now finalized. I’ll send the final deck by Wednesday, together with a concise summary of today’s decisions.",
 	},
 	{
-		id: "slack",
-		app: "Slack",
-		logo: "/brand/icons/slack.svg",
-		from: "#eng",
-		incoming: "any update on the api migration?",
-		intent: "说测试环境已经跑通了",
-		reply: "Yep — migration is live on staging and final checks are running. Should be good to ship tomorrow.",
+		id: "wechat",
+		app: "微信",
+		logo: "/brand/icons/wechat.svg",
+		scene: "熟人沟通 · 王姐",
+		result: "王姐，知更 iOS 定稿啦。最终版周三前发你，今天聊的重点我也顺手整理好了。",
+	},
+	{
+		id: "notion",
+		app: "Notion",
+		logo: "/brand/icons/notion.svg",
+		scene: "文档 · 项目主页",
+		title: "知更 iOS · 定稿记录",
+		points: ["最终 Deck：周三前发送", "今日决策：已整理至项目页"],
 	},
 ] as const;
 
@@ -348,71 +371,70 @@ function ReplyDemo() {
 	const reduce = Boolean(useReducedMotion());
 	const ref = useRef<HTMLDivElement | null>(null);
 	const inView = useInView(ref, { once: true, amount: 0.35 });
-	const [active, setActive] = useState<(typeof replyScenarios)[number]>(replyScenarios[0]);
 
 	return (
-		<div className="zg-demo-card" ref={ref}>
-			<div className="zg-reply-tabs" role="tablist" aria-label="切换代回场景">
-				{replyScenarios.map((scenario) => (
-					<button
-						key={scenario.id}
-						type="button"
-						role="tab"
-						aria-selected={scenario.id === active.id}
-						className={scenario.id === active.id ? "is-active" : ""}
-						onClick={() => setActive(scenario)}
-					>
-						<img src={scenario.logo} alt="" width={16} height={16} />
-						{scenario.app}
-					</button>
+		<div className="zg-demo-card zg-reply-demo" ref={ref}>
+			<motion.div
+				className="zg-reply-intent"
+				initial={reduce ? false : "hidden"}
+				animate={inView || reduce ? "visible" : "hidden"}
+				variants={replyStep(0)}
+			>
+				<span className="zg-reply-shortcut">
+					<Command size={13} />
+					<Mic size={13} />
+				</span>
+				<div>
+					<small>长按右 ⌘，随口说</small>
+					<p>“知更 iOS 方案定稿了，最终 Deck 周三前发，也把今天的结论整理一下。”</p>
+				</div>
+			</motion.div>
+			<motion.div
+				className="zg-reply-results"
+				initial={reduce ? false : "hidden"}
+				animate={inView || reduce ? "visible" : "hidden"}
+			>
+				{replyResults.map((result, i) => (
+					<motion.article key={result.id} variants={replyStep(0.18 + i * 0.12)}>
+						<header>
+							<span className="zg-reply-app-logo">
+								<img src={result.logo} alt="" width={22} height={22} />
+							</span>
+							<div>
+								<strong>{result.app}</strong>
+								<small>{result.scene}</small>
+							</div>
+						</header>
+						{"title" in result ? (
+							<div className="zg-reply-notion">
+								<b>{result.title}</b>
+								<ul>
+									{result.points.map((point) => (
+										<li key={point}>{point}</li>
+									))}
+								</ul>
+							</div>
+						) : (
+							<p>{result.result}</p>
+						)}
+					</motion.article>
 				))}
-			</div>
-			<AnimatePresence mode="wait" initial={false}>
-				<motion.div
-					key={active.id}
-					className="zg-reply-flow"
-					initial={reduce ? false : "hidden"}
-					animate={inView || reduce ? "visible" : "hidden"}
-					exit={{ opacity: 0, y: -8, transition: { duration: 0.18 } }}
-				>
-					<motion.div className="zg-bubble zg-bubble-in" variants={replyStep(0)}>
-						<span>{active.from}</span>
-						{active.incoming}
-					</motion.div>
-					<motion.div className="zg-reply-hint" variants={replyStep(0.45)}>
-						<Command size={13} />
-						长按右 ⌘，随口说
-						<em>
-							<Mic size={12} />
-							“{active.intent}”
-						</em>
-					</motion.div>
-					<motion.div className="zg-bubble zg-bubble-draft" variants={replyStep(0.95)}>
-						<span>知更起草 · 像你写的</span>
-						{active.reply}
-						<motion.i className="zg-done-badge" variants={replyStep(1.5)}>
-							<Check size={13} />
-							已插入输入框
-						</motion.i>
-					</motion.div>
-				</motion.div>
-			</AnimatePresence>
-			<p className="zg-demo-footnote">中文工作区回中文，英文工作区回英文，语气都照你的来。</p>
+			</motion.div>
+			<p className="zg-demo-footnote">同一句意思，进不同应用，就成为语气与结构都合适的样子。</p>
 		</div>
 	);
 }
 
 /* ── 04 Agent 执行 ─────────────────────────────── */
 
-const agentSteps = [
-	{ icon: FileText, label: "读取 报价单.pdf", meta: "12 页 · 提取 6 组报价" },
-	{ icon: Table2, label: "整理成对比表格", meta: "供应商 × 价格 × 交期" },
-	{ icon: Mail, label: "发邮件给采购部", meta: "附上表格 · 抄送你" },
-	{ icon: Calendar, label: "创建周四 14:00 对齐会", meta: "拉上采购与项目组" },
-	{ icon: History, label: "保存任务记录", meta: "随时可回看、可撤销" },
+const agentRoutes = [
+	{ logo: "/zhigeng-mark.png", label: "知更快捷执行", meta: "消息 · 日程 · 整理文件", direct: true },
+	{ logo: "/brand/icons/codex.svg", label: "Codex", meta: "本地已连接" },
+	{ logo: "/brand/icons/claude.svg", label: "Claude Code", meta: "本地已连接" },
+	{ logo: "/brand/icons/workbuddy.png", label: "WorkBuddy", meta: "本地已连接" },
 ];
 
-const agentPhaseTimes = [600, 1450, 2300, 3150, 4000, 4700] as const;
+const agentPhaseTimes = [600, 1500, 2600, 3600] as const;
 
 function AgentSection() {
 	const reduce = Boolean(useReducedMotion());
@@ -424,35 +446,43 @@ function AgentSection() {
 		<motion.section
 			className="zg-agent"
 			id="agent"
-			aria-label="Agent 执行"
+			aria-label="连接与执行"
 			initial={reduce ? false : "hidden"}
 			whileInView="visible"
 			viewport={{ once: true, amount: 0.2 }}
 			variants={fadeUp}
 		>
 			<div className="zg-agent-head">
-				<span className="zg-feature-index">04 · Agent 执行</span>
-				<RevealHeading text="从一句话，到事情完成" />
-				<p>这是知更和普通语音输入最大的差别：它不止把话写下来，还把事办掉。</p>
+				<span className="zg-feature-index">04 · 连接与执行</span>
+				<RevealHeading text="接上你已经在用的 Agent" />
+				<p>消息、日程等简单事项，知更直接完成；代码与复杂工作，交给本地 Codex、Claude Code 或 WorkBuddy。</p>
 			</div>
 			<div ref={ref}>
 				<div className="zg-agent-command">
 					<Mic size={18} />
-					<p>“把这份 PDF 里的报价整理成表格，发邮件给采购，再约个周四下午的对齐会。”</p>
+					<p>“让 Codex 把这个登录报错修好，跑完测试再告诉我。”</p>
 				</div>
-				<ol className="zg-agent-steps">
-					{agentSteps.map((step, i) => {
-						const status = i < phase ? "is-done" : i === phase ? "is-active" : "";
+				<motion.div
+					className="zg-agent-decision"
+					initial={{ opacity: 0, y: 8 }}
+					animate={phase >= 1 ? { opacity: 1, y: 0 } : {}}
+				>
+					<span>知更判断</span>
+					<strong>代码任务 · 交给本地 Codex</strong>
+				</motion.div>
+				<ol className="zg-agent-routes">
+					{agentRoutes.map((route, i) => {
+						const selected = phase >= 2 && i === 1;
 						return (
-							<li key={step.label} className={status}>
-								<step.icon size={18} aria-hidden="true" />
-								<div>
-									<strong>{step.label}</strong>
-									<small>{step.meta}</small>
-								</div>
-								<span className="zg-step-status" aria-hidden="true">
-									{i < phase ? <Check size={15} /> : i === phase ? <i className="zg-step-dot" /> : null}
+							<li key={route.label} className={selected ? "is-selected" : ""}>
+								<span className={`zg-agent-mark${route.direct ? " is-zhigeng" : ""}`}>
+									<img src={route.logo} alt="" width={20} height={20} />
 								</span>
+								<div>
+									<strong>{route.label}</strong>
+									<small>{route.meta}</small>
+								</div>
+								{selected && <Check size={15} aria-hidden="true" />}
 							</li>
 						);
 					})}
@@ -464,22 +494,20 @@ function AgentSection() {
 					transition={{ duration: 0.4 }}
 				>
 					<Check size={15} />
-					全部完成 · 任务已存档
+					已交给本地 Codex · 完成后知更会通知你
 				</motion.p>
 			</div>
-			<p className="zg-agent-tools">消息 · 邮件 · 日程 · 文件与 PDF · 浏览器 · Office · 本地 Agent</p>
 		</motion.section>
 	);
 }
 
 /* ── 05 记忆与主动协助 ─────────────────────────────── */
 
-const profileItems = [
-	{ label: "从 ChatGPT 导入的个人画像", meta: "一次导入，第一天就懂你", highlight: true },
-	{ label: "项目 · 北落师门 / Q3 规划", meta: "自动学会，不用建词库" },
-	{ label: "人物 · Alex（设计）· 王姐（采购）", meta: "知道谁是谁，称呼不出错" },
-	{ label: "习惯 · 短句 · 先结论 · 不用感叹号", meta: "越用越像你写的" },
-];
+const followUps = [
+	{ person: "Sarah", task: "发送知更 iOS 最终 Deck", time: "周三前", status: "待发送" },
+	{ person: "王姐", task: "确认采购报价", time: "今天 17:00", status: "待回复" },
+	{ person: "知更 iOS", task: "完成方案定稿", time: "今天", status: "进行中" },
+] as const;
 
 const memoryItem = (delay: number) => ({
 	hidden: { opacity: 0, y: 14 },
@@ -488,12 +516,13 @@ const memoryItem = (delay: number) => ({
 
 function MemorySection() {
 	const reduce = Boolean(useReducedMotion());
+
 	return (
 		<section className="zg-feature zg-feature-panel zg-feature--warm" id="memory" aria-label="记忆与主动协助">
 			<FeatureCopy
 				index="05 · 记忆"
 				title="越用，越懂你的工作方式"
-				lead="它记住的不是数据，是你做事的方式。所有记忆都存在本地，属于你。"
+				lead="不只记住你说过什么，也记得你在意谁、正在做什么、答应了什么。记忆留在本地，始终属于你。"
 			/>
 			<motion.div
 				className="zg-memory-grid"
@@ -501,41 +530,107 @@ function MemorySection() {
 				whileInView="visible"
 				viewport={{ once: true, amount: 0.3 }}
 			>
-				<div className="zg-demo-card zg-memory-profile">
-					<span className="zg-demo-chip">你的知更画像</span>
-					<ul>
-						{profileItems.map((item, i) => (
-							<motion.li
-								key={item.label}
-								className={item.highlight ? "is-highlight" : ""}
-								variants={memoryItem(0.15 + 0.2 * i)}
-							>
-								<strong>{item.label}</strong>
-								<small>{item.meta}</small>
-							</motion.li>
-						))}
+				<motion.article
+					className="zg-memory-entity zg-memory-entity--people"
+					variants={memoryItem(0.15)}
+				>
+					<header className="zg-memory-heading">
+						<small>人</small>
+						<strong>重要的人与承诺</strong>
+					</header>
+					<ul className="zg-memory-people">
+						<li>
+							<img src="/brand/avatars/alex.jpg" alt="Alex" width={38} height={38} />
+							<span>
+								<strong>Alex</strong>
+								<small>视觉设计 · 知更 iOS</small>
+								<em>最近承诺 · 周三前给终版</em>
+							</span>
+						</li>
+						<li>
+							<img src="/brand/avatars/wang.jpg" alt="王姐" width={38} height={38} />
+							<span>
+								<strong>王姐</strong>
+								<small>采购负责人 · 长期合作</small>
+								<em>最近承诺 · 定稿后确认报价</em>
+							</span>
+						</li>
 					</ul>
-				</div>
-				<div className="zg-memory-side">
-					<motion.div className="zg-demo-card zg-memory-card" variants={memoryItem(1.1)}>
-						<span className="zg-memory-tag">
-							<Sparkles size={13} />
-							知更注意到了
+				</motion.article>
+				<motion.article
+					className="zg-memory-entity zg-memory-entity--things"
+					variants={memoryItem(0.31)}
+				>
+					<header className="zg-memory-card-head">
+						<span className="zg-memory-visual" aria-hidden="true">
+							<FolderKanban size={22} />
 						</span>
-						<p>你刚复制了周四的航班信息，要把行程加进日历吗？</p>
-						<div className="zg-memory-actions">
-							<b>加入日历</b>
-							<i>先不用</i>
+						<span className="zg-memory-heading">
+							<small>事</small>
+							<strong>知更 iOS · 定稿</strong>
+						</span>
+					</header>
+					<dl className="zg-memory-facts">
+						<div>
+							<dt>状态</dt>
+							<dd><span className="zg-memory-status" />方案已定稿</dd>
 						</div>
-					</motion.div>
-					<motion.div className="zg-demo-card zg-memory-card" variants={memoryItem(1.45)}>
-						<span className="zg-memory-tag">
-							<RotateCcw size={13} />
-							复制找回
+						<div>
+							<dt>截止</dt>
+							<dd>周三下班前</dd>
+						</div>
+						<div>
+							<dt>下一步</dt>
+							<dd>整理决策并发送最终 Deck</dd>
+						</div>
+					</dl>
+				</motion.article>
+				<motion.article
+					className="zg-memory-entity zg-memory-entity--self"
+					variants={memoryItem(0.47)}
+				>
+					<header className="zg-memory-self-head">
+						<img src="/brand/avatars/user.jpg" alt="你的头像" width={44} height={44} />
+						<span className="zg-memory-heading">
+							<small>我</small>
+							<strong>你的表达习惯</strong>
 						</span>
-						<p>两小时前复制的收货地址被覆盖了 —— 知更帮你留着，点一下拿回来。</p>
-					</motion.div>
-				</div>
+					</header>
+					<p className="zg-memory-habits">短句 · 先结论 · 不用感叹号</p>
+					<p className="zg-memory-import">
+						<Sparkles size={14} aria-hidden="true" />
+						已从 AI 助手导入 · 本地记忆
+					</p>
+				</motion.article>
+			</motion.div>
+			<motion.div
+				className="zg-memory-followups"
+				initial={reduce ? false : { opacity: 0, y: 14 }}
+				whileInView={{ opacity: 1, y: 0 }}
+				viewport={{ once: true, amount: 0.45 }}
+				transition={{ delay: reduce ? 0 : 0.45, duration: 0.45 }}
+			>
+				<header>
+					<div>
+						<span className="zg-memory-followup-icon">
+							<Clock3 size={15} />
+						</span>
+						<strong>最近需要跟进</strong>
+					</div>
+					<small>来自本地记忆</small>
+				</header>
+				<ul>
+					{followUps.map((item) => (
+						<li key={`${item.person}-${item.task}`}>
+							<span>
+								<b>{item.person}</b>
+								{item.task}
+							</span>
+							<time>{item.time}</time>
+							<em>{item.status}</em>
+						</li>
+					))}
+				</ul>
 			</motion.div>
 		</section>
 	);
@@ -551,47 +646,28 @@ export function FeatureShowcase() {
 					index="01 · 语音输入"
 					title="一开口，就是可用的文字"
 					lead="不是逐字记录你说的话，而是写下你想说的话。"
-					points={[
-						"自动去掉「嗯、呃、那个」",
-						"识别改口，只保留最终意思",
-						"语序和结构自动理顺",
-						"进飞书、邮件、文档时，格式各就各位",
-					]}
 				/>
 				<div className="zg-feature-demo">
 					<SpeakDemo />
 				</div>
 			</section>
 
-			<section className="zg-feature zg-feature-panel zg-feature--soft zg-feature--flip" id="context" aria-label="Context 感知">
+			<section className="zg-feature zg-feature-panel zg-feature--soft zg-feature--flip" id="context" aria-label="理解当前工作">
 				<FeatureCopy
-					index="02 · Context"
+					index="02 · 理解当下"
 					title="它知道你正在做什么"
-					lead="同一句话，在不同窗口里该写成不同的样子。知更看得到你的当下，所以写得准。"
-					points={[
-						"当前应用与窗口",
-						"最近的对话、网页和文件",
-						"剪贴板内容",
-						"项目、人物与专有名词",
-						"长期表达习惯",
-					]}
+					lead="先猜你在推进哪件事，再把含糊口令写成可直接发出的回复。窗口、对话与文件线索默认留在本地。"
 				/>
 				<div className="zg-feature-demo">
 					<ContextDemo />
 				</div>
 			</section>
 
-			<section className="zg-feature" id="reply" aria-label="智能代回">
+			<section className="zg-feature" id="reply" aria-label="智能写与回">
 				<FeatureCopy
-					index="03 · 智能代回"
-					title="不用组织语言，也能回得像你"
-					lead="消息堆着不想回的时候，说一句大概意思，剩下的交给它。"
-					points={[
-						"读取当前消息，理解对方在问什么",
-						"按你的语气和习惯起草",
-						"中英文工作区自动适配",
-						"直接插入输入框，看一眼就能发",
-					]}
+					index="03 · 写与回"
+					title="一开口，写与回都恰到好处"
+					lead="只说一次大概意思，知更会按目标应用，写成该有的语气与结构。"
 				/>
 				<div className="zg-feature-demo">
 					<ReplyDemo />

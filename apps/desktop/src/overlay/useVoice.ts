@@ -50,10 +50,10 @@ export function useVoiceHandlers() {
 							? createAliyunAsr({
 									wsBaseUrl: wsBaseRef.current,
 									workletPath: "/asr-pcm-worklet.js",
-									model: "qwen3.5-omni-plus-realtime",
 									mode: session.mode,
 									app: session.app,
 									windowTitle: session.windowTitle,
+									authToken: runtime.authToken,
 								})
 							: createMockAsr();
 				asrRef.current = asr;

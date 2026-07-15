@@ -3,6 +3,7 @@ import { FileText, Globe, Clipboard } from "lucide-react";
 import type { ClipboardHistoryItem, HomeContextEvent, HomeSnapshot, LiveContextLite } from "../types.js";
 import { AppIconImg } from "../components/AppIcon.js";
 import { Card } from "../components/FormFields.js";
+import { redactSensitiveUrl } from "../lib/privacy.js";
 
 function formatClock(ts: number) {
 	return new Date(ts).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
@@ -24,21 +25,26 @@ function formatWhen(ts: number) {
 	});
 }
 
+/** 家目录缩写，路径更短更易扫读 */
+function shortPath(p: string) {
+	return p.replace(/^\/Users\/[^/]+/, "~");
+}
+
 function eventLabel(e: HomeContextEvent): { title: string; detail?: string } | null {
 	switch (e.type) {
 		case "app.active":
 			return { title: e.data.appName ?? "未知应用", detail: e.data.windowTitle };
 		case "browser.urlChanged":
-			return { title: "浏览网页", detail: e.data.url };
+			return { title: "浏览网页", detail: e.data.url ? redactSensitiveUrl(e.data.url) : undefined };
 		case "file.created":
 			return {
 				title: `新文件 ${e.data.filePath?.split("/").pop() ?? ""}`,
-				detail: e.data.filePath,
+				detail: e.data.filePath ? shortPath(e.data.filePath) : undefined,
 			};
 		case "file.modified":
 			return {
 				title: `编辑文件 ${e.data.filePath?.split("/").pop() ?? ""}`,
-				detail: e.data.filePath,
+				detail: e.data.filePath ? shortPath(e.data.filePath) : undefined,
 			};
 		case "clipboard.changed": {
 			if (e.data.origin === "fold") return null;
@@ -66,6 +72,24 @@ function TimelineIcon({ event }: { event: HomeContextEvent }) {
 		return <FileText className={cls} strokeWidth={1.75} />;
 	}
 	return <Clipboard className={cls} strokeWidth={1.75} />;
+}
+
+type TrailRow = { event: HomeContextEvent; title: string; detail?: string; count: number };
+
+/** 相邻且标题/详情相同的事件折叠为一条（如连续保存同一文件），保留最新时间戳 */
+function collapseEvents(events: HomeContextEvent[]): TrailRow[] {
+	const rows: TrailRow[] = [];
+	for (const event of events) {
+		const label = eventLabel(event);
+		if (!label) continue;
+		const last = rows[rows.length - 1];
+		if (last && last.title === label.title && last.detail === label.detail) {
+			last.count += 1;
+			continue;
+		}
+		rows.push({ event, title: label.title, detail: label.detail, count: 1 });
+	}
+	return rows;
 }
 
 function formatDwell(ms: number): string {
@@ -159,7 +183,7 @@ export function WorkTrailSection({ snapshot }: { snapshot: HomeSnapshot }) {
 			<div>
 				<h1 className="fold-home-page-title">轨迹</h1>
 				<p className="fold-home-page-subtitle">
-					实时操作记录与应用上下文（复制记录保留近 4 小时，知更 注入的不计入）
+					实时操作记录与应用上下文（复制记录本地保留最近 50 条，知更 注入的不计入）
 				</p>
 			</div>
 
@@ -225,26 +249,29 @@ export function WorkTrailSection({ snapshot }: { snapshot: HomeSnapshot }) {
 			<Card title="操作轨迹">
 				{events.length > 0 ? (
 					<ul className="max-h-72 space-y-3 overflow-y-auto pr-1">
-						{events.map((e) => {
-							const label = eventLabel(e);
-							if (!label) return null;
-							return (
-								<li key={e.id} className="flex items-center gap-3">
-									<span className="w-11 shrink-0 text-[11px] tabular-nums text-[#aeaeb2]">
-										{formatClock(e.timestamp)}
-									</span>
-									<TimelineIcon event={e} />
-									<span className="min-w-0">
-										<span className="block truncate text-[13px] text-[#1d1d1f]">{label.title}</span>
-										{label.detail && (
-											<span className="block truncate text-[11px] text-[#86868b]" title={label.detail}>
-												{label.detail}
+						{collapseEvents(events).map((row) => (
+							<li key={row.event.id} className="flex items-center gap-3">
+								<span className="w-11 shrink-0 text-[11px] tabular-nums text-[#aeaeb2]">
+									{formatClock(row.event.timestamp)}
+								</span>
+								<TimelineIcon event={row.event} />
+								<span className="min-w-0">
+									<span className="block truncate text-[13px] text-[#1d1d1f]">
+										{row.title}
+										{row.count > 1 && (
+											<span className="ml-1.5 rounded-full bg-[#5856d6]/10 px-1.5 py-px text-[11px] font-semibold tabular-nums text-[#5856d6]">
+												×{row.count}
 											</span>
 										)}
 									</span>
-								</li>
-							);
-						})}
+									{row.detail && (
+										<span className="block truncate text-[11px] text-[#86868b]" title={row.detail}>
+											{row.detail}
+										</span>
+									)}
+								</span>
+							</li>
+						))}
 					</ul>
 				) : (
 					<p className="text-[13px] text-[#86868b]">暂无记录。切换应用、浏览网页后会实时出现在这里。</p>
@@ -270,15 +297,18 @@ export function WorkTrailSection({ snapshot }: { snapshot: HomeSnapshot }) {
 			{recentUrls.length > 0 && (
 				<Card title="最近 URL">
 					<ul className="space-y-2.5">
-						{recentUrls.map((u) => (
-							<li
-								key={u.url}
-								className="truncate text-[13px] text-[#3a3a3c]"
-								title={u.url}
-							>
-								{u.title || u.url}
-							</li>
-						))}
+						{recentUrls.map((u) => {
+							const safeUrl = redactSensitiveUrl(u.url);
+							return (
+								<li
+									key={u.url}
+									className="truncate text-[13px] text-[#3a3a3c]"
+									title={safeUrl}
+								>
+									{u.title || safeUrl}
+								</li>
+							);
+						})}
 					</ul>
 				</Card>
 			)}

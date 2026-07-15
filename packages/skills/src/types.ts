@@ -1,8 +1,10 @@
 import type { LiveContext } from "@fold/context";
+import type { LocalTaskEvent } from "@fold/connectors";
 
 export interface ProgressEvent {
 	type: "progress";
 	message?: string;
+	taskEvent?: LocalTaskEvent;
 }
 
 export interface SkillContext {

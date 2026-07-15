@@ -9,12 +9,35 @@ interface Props {
 	appName?: string | null;
 	appPath?: string | null;
 	pageUrl?: string | null;
-	onInsert: (text: string) => Promise<{ ok: boolean; pasted: boolean }>;
+	onInsert: (text: string) => Promise<{ ok: boolean; pasted: boolean; error?: string }>;
 	onDismiss: () => void;
 }
 
 const STRUCTURE_DRAFT_WIDTH = 360;
 const STRUCTURE_DRAFT_HEIGHT = 340;
+
+function insertFailureMessage(error?: string) {
+	const normalized = error?.toLowerCase() ?? "";
+	if (
+		normalized.includes("accessibility-not-trusted") ||
+		normalized.includes("not authorized") ||
+		normalized.includes("not permitted") ||
+		normalized.includes("-1743") ||
+		normalized.includes("辅助功能")
+	) {
+		return "知更没有键盘控制权限，请在系统设置中重新授权";
+	}
+	if (
+		normalized.includes("target-application-not-running") ||
+		(normalized.includes("application") && normalized.includes("not running"))
+	) {
+		return "没有找到原来的目标应用，请重新点击输入框后再试";
+	}
+	if (normalized.includes("target-text-unchanged")) {
+		return "目标输入框没有接受输入，请重新点一下输入框后再试";
+	}
+	return "原输入框焦点已丢失，请重新点击目标输入框后再试";
+}
 
 function clampPosition(x: number, y: number, width: number, height: number) {
 	const pad = 12;
@@ -100,7 +123,7 @@ export function StructureDraftCard({
 				setTimeout(() => onDismiss(), 500);
 				return;
 			}
-			setInsertHint("未能自动粘贴，请检查辅助功能权限后重试");
+			setInsertHint(insertFailureMessage(result.error));
 		} catch {
 			setInsertHint("插入失败，请重试或先复制");
 		} finally {
@@ -178,7 +201,7 @@ export function StructureDraftCard({
 					<p className="fold-predict-card-hint text-amber-200/90">{insertHint}</p>
 				) : null}
 				<p className="fold-predict-card-hint">
-					可在设置中开启<strong>转写后自动插入</strong>以跳过此步骤
+					自动插入未成功，草稿已保留以避免内容丢失
 				</p>
 			</div>
 		</motion.div>

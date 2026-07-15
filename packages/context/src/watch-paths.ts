@@ -9,13 +9,16 @@ export interface WatchRoot {
 
 /** 默认监听：存在才启用；depth 为相对该根目录向下层数。 */
 const DEFAULT_RELATIVE: ReadonlyArray<{ rel: string; depth: number }> = [
-	{ rel: "Downloads", depth: 2 },
-	{ rel: "Documents", depth: 4 },
-	{ rel: "Desktop", depth: 4 },
-	{ rel: "Projects", depth: 5 },
-	{ rel: "Developer", depth: 5 },
-	{ rel: "Code", depth: 5 },
-	{ rel: "workspace", depth: 5 },
+	// Chokidar can hold one descriptor per file on macOS. Keep broad personal
+	// folders shallow so a desktop full of repositories cannot exhaust the
+	// process and break every connector child process with spawn EBADF.
+	{ rel: "Downloads", depth: 0 },
+	{ rel: "Documents", depth: 1 },
+	{ rel: "Desktop", depth: 0 },
+	{ rel: "Projects", depth: 2 },
+	{ rel: "Developer", depth: 2 },
+	{ rel: "Code", depth: 2 },
+	{ rel: "workspace", depth: 2 },
 ];
 
 function expandHome(path: string, home = homedir()): string {
@@ -49,7 +52,7 @@ export function watchRootsFromEnv(home = homedir()): WatchRoot[] {
 		.split(":")
 		.map((part) => part.trim())
 		.filter(Boolean)
-		.map((path) => ({ path: expandHome(path, home), depth: 5 }))
+		.map((path) => ({ path: expandHome(path, home), depth: 2 }))
 		.filter((root) => existsSync(root.path));
 }
 
@@ -64,6 +67,8 @@ export const FILE_WATCH_IGNORED: RegExp[] = [
 	/\.fold([/\\]|$)/,
 	/[\/\\]Library[\/\\]/,
 	/\.(tmp|swp|lock)$/i,
+	// 数据库文件由程序持续写入（如后台服务的 sqlite），不是用户编辑动作
+	/\.(db|sqlite3?)(-wal|-shm|-journal)?$/i,
 	/~$/,
 	// 构建/依赖目录（Projects 等深层监听时降噪）
 	/[\/\\]dist[\/\\]/,

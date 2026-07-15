@@ -24,6 +24,7 @@ export function ProfileCompareStep({ onNext, onBack }: { onNext: () => void; onB
 	return (
 		<OnboardingShell
 			step="profile-compare"
+			backdrop="memory"
 			onBack={onBack}
 			left={
 				<>

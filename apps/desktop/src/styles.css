@@ -515,6 +515,67 @@ body.fold-home-page #root {
   color: rgb(255 255 255 / 0.85);
 }
 
+.fold-predict-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 2px 14px;
+}
+
+.fold-predict-loading-trail {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 14px;
+}
+
+.fold-predict-loading-trail span {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: rgb(196 181 253 / 0.95);
+  box-shadow: 0 0 10px rgb(167 139 250 / 0.55);
+  animation: fold-predict-hop 1.05s ease-in-out infinite;
+}
+
+.fold-predict-loading-trail span:nth-child(2) {
+  animation-delay: 0.14s;
+  background: rgb(255 255 255 / 0.88);
+  box-shadow: 0 0 10px rgb(255 255 255 / 0.35);
+}
+
+.fold-predict-loading-trail span:nth-child(3) {
+  animation-delay: 0.28s;
+}
+
+.fold-predict-loading-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: rgb(255 255 255 / 0.92);
+}
+
+.fold-predict-loading-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: rgb(255 255 255 / 0.48);
+}
+
+@keyframes fold-predict-hop {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0) scale(0.92);
+    opacity: 0.45;
+  }
+  40% {
+    transform: translateY(-4px) scale(1.08);
+    opacity: 1;
+  }
+}
+
 .fold-structure-draft-card {
   width: min(360px, calc(100vw - 24px));
 }
@@ -571,6 +632,22 @@ body.fold-home-page #root {
 .fold-predict-card-hint strong {
   color: rgb(255 255 255 / 0.72);
   font-weight: 650;
+}
+
+.fold-predict-card-reject {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: rgb(255 255 255 / 0.45);
+  font-size: 11px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.fold-predict-card-reject:hover {
+  color: rgb(255 255 255 / 0.75);
 }
 
 .fold-predict-card-link {

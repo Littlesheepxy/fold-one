@@ -28,6 +28,7 @@ export function ProfileTeaserStep({
 	return (
 		<OnboardingShell
 			step="profile-teaser"
+			backdrop="memory"
 			onBack={onBack}
 			left={
 				<>

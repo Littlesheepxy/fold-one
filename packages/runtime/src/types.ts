@@ -1,4 +1,5 @@
 import type { ActionPlan } from "@fold/ai";
+import type { LocalTaskEvent } from "@fold/connectors";
 
 import type { PredictDraftLine } from "./predict-drafts.js";
 import type { PredictPhase } from "./predict.js";
@@ -39,12 +40,18 @@ export interface FoldStateEvent {
 	thinkingText?: string;
 	/** Latest skill progress line while executing. */
 	progressMessage?: string;
+	/** Structured local-agent progress for history, recovery, and richer clients. */
+	localTaskEvent?: LocalTaskEvent;
 	steps?: StepView[];
 	currentApp?: string | null;
 	/** One-line headline result. */
 	result?: string | null;
 	/** Multi-line narrative summary for the detail popover. */
 	resultDetail?: string | null;
+	/** Result checks shown after execution so completion is explainable. */
+	verificationChecks?: Array<{ rule: string; passed: boolean; message?: string }>;
+	/** A recent text insertion can be reverted from the completion UI. */
+	undoAvailable?: boolean;
 	error?: string | null;
 	askTitle?: string | null;
 	askMessage?: string | null;
