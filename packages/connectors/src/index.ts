@@ -91,7 +91,19 @@ export {
 	type WorkBuddyRunInput,
 	type WorkBuddyRunResult,
 } from "./workbuddy/index.js";
-export { openWorkBuddyApp } from "./workbuddy/app.js";
+export { discoverWorkBuddyAppPath, isWorkBuddyAppInstalled, openWorkBuddyApp } from "./workbuddy/app.js";
+export { discoverCodexAppPath, isCodexAppInstalled, openCodexApp } from "./agents/codex-app.js";
+export {
+	CodexAppServerClient,
+	getSharedCodexAppServer,
+	stopSharedCodexAppServer,
+	resolveCodexBinary,
+	type CodexRemoteClient,
+	type CodexRemotePairing,
+	type CodexRemoteStatus,
+	type CodexRemoteStatusSnapshot,
+} from "./agents/codex-app-server.js";
+export { isCursorAppInstalled, openCursorAgentInstall, startCursorBrowserLogin } from "./agents/cursor-app.js";
 export {
 	beginWorkBuddyPairing,
 	getWorkBuddyPairingPhrase,
@@ -142,7 +154,7 @@ export {
 	type PluginProbe,
 } from "./plugins/index.js";
 export {
-	activateWorkBuddyConnectFlow,
+	activateAgentConnectFlow,
 	cancelConnectFlow,
 	getConnectFlowSession,
 	pollConnectFlow,
@@ -163,3 +175,14 @@ export {
 	type ScreenshotTarget,
 	type ScreenCaptureProbe,
 } from "./macos/index.js";
+export {
+	createLocalTaskEmitter,
+	parseLocalTaskReturn,
+	LOCAL_TASK_RETURN_INSTRUCTIONS,
+	type LocalTaskArtifact,
+	type LocalTaskEvent,
+	type LocalTaskEventCallback,
+	type LocalTaskSource,
+	type LocalTaskStatus,
+	type MemoryCandidate,
+} from "./task-events.js";

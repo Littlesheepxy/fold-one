@@ -3,6 +3,7 @@ import type { CapabilityItem, ExecutionMode, FoldConfig, HomeSnapshot } from "..
 import { ConnectFlowModal, type ConnectFlowTarget } from "../components/ConnectFlowModal.js";
 import { CapabilityGroup, ChannelChipGrid } from "../components/ChannelChipGrid.js";
 import { ConnectionIcon, CONNECTION_CHIP_ICON_SIZE } from "../components/ConnectionIcon.js";
+import { CodexRemoteControlPanel } from "../components/CodexRemoteControlPanel.js";
 import { IosSwitch, StatusDot } from "../components/FormFields.js";
 
 const MODE_OPTIONS: Array<{
@@ -202,6 +203,8 @@ export function ConnectionsSection({
 				</p>
 			</div>
 
+			<CodexRemoteControlPanel />
+
 			<section className="fold-execution-mode-grid" aria-label="执行模式">
 				{MODE_OPTIONS.map((opt) => (
 					<button
@@ -234,7 +237,15 @@ export function ConnectionsSection({
 									type="button"
 									disabled={busy}
 									className={`fold-connection-chip fold-connection-chip--solo${ex.isDefault ? " is-default" : ""}${ex.available ? " is-enabled" : ex.connectTarget ? " is-connectable" : ""}`}
-									title={ex.available ? undefined : ex.connectTarget ? `点击连接 ${ex.label}` : ex.error}
+									title={
+										ex.available
+											? `${ex.label} 已连接`
+											: ex.error
+												? `${ex.error}，点击连接`
+												: ex.connectTarget
+													? `点击连接 ${ex.label}`
+													: undefined
+									}
 									onClick={() => {
 										if (ex.available) void selectExecutor(ex.id);
 										else if (ex.connectTarget) openExecutorConnect(ex);
@@ -246,9 +257,9 @@ export function ConnectionsSection({
 										</span>
 										<span className="fold-connection-chip-text">
 											<span className="fold-connection-chip-label">{ex.label}</span>
-											{ex.available && ex.detail ? (
-												<span className="fold-connection-chip-detail">{ex.detail}</span>
-											) : null}
+											<span className="fold-connection-chip-detail">
+												{ex.available ? ex.detail ?? "已连接" : ex.error ?? "尚未连接"}
+											</span>
 										</span>
 										<StatusDot status={ex.available ? "ok" : "off"} />
 									</span>

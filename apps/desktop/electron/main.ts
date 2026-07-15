@@ -1,8 +1,8 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, screen, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, powerSaveBlocker, screen, shell } from "electron";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ContextEngine, isClipboardRecallIntent, resolveClipboardRecall, type ContextEvent } from "@fold/context";
-import { createNangoConnectLink, openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal, openOfficeSetupInTerminal, openWorkBuddyApp, activateWorkBuddyConnectFlow, cancelConnectFlow, pollConnectFlow, resolveConnectTarget, startConnectFlow } from "@fold/connectors";
+import { createNangoConnectLink, openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal, openOfficeSetupInTerminal, openWorkBuddyApp, activateAgentConnectFlow, cancelConnectFlow, pollConnectFlow, resolveConnectTarget, startConnectFlow } from "@fold/connectors";
 import { saveContextEvent, listContextEvents, saveVoiceInteraction, listMemoryEntities } from "@fold/memory";
 import {
 	hasPlannerApiKey,
@@ -33,7 +33,9 @@ import {
 	captureTextInsertionTarget,
 	clearTextInsertionTarget,
 	insertTextToFrontApp,
+	undoTextInsertion,
 } from "./insert-text.js";
+import { canUseUndoReceipt, createUndoReceipt, type UndoReceipt } from "./undo-receipt.js";
 import { buildVoiceOverlayContext } from "./voice-overlay-context.js";
 import { focusApp, focusUrl } from "./focus-context.js";
 import { getAppIconDataUrl, getFirstAppIconDataUrl, resolveAppBundlePath } from "./app-icon.js";
@@ -88,6 +90,16 @@ import {
 	stopMemoryConsolidationLoop,
 	triggerMemoryConsolidationNow,
 } from "./memory-consolidation.js";
+import {
+	disableCodexRemoteControl,
+	enableCodexRemoteControl,
+	getCodexRemoteStatus,
+	listCodexRemoteClients,
+	pollCodexRemotePairing,
+	revokeCodexRemoteClient,
+	shutdownCodexAppServer,
+	startCodexRemotePairing,
+} from "./codex-remote-control.js";
 import { PRODUCT_NAME } from "./brand.js";
 import { createZhigengAppIcon } from "./tray-icon.js";
 import {
@@ -190,6 +202,24 @@ let lastIntent = "";
 let lastReplyTranscript = "";
 let stopHotkey: (() => void) | null = null;
 let stopHabitRecall: (() => void) | null = null;
+let activeTaskPowerBlockerId: number | null = null;
+let activeTaskPowerAssertionCount = 0;
+
+function startTaskPowerAssertion(): void {
+	activeTaskPowerAssertionCount += 1;
+	if (activeTaskPowerBlockerId !== null && powerSaveBlocker.isStarted(activeTaskPowerBlockerId)) return;
+	activeTaskPowerBlockerId = powerSaveBlocker.start("prevent-app-suspension");
+}
+
+function stopTaskPowerAssertion(): void {
+	activeTaskPowerAssertionCount = Math.max(0, activeTaskPowerAssertionCount - 1);
+	if (activeTaskPowerAssertionCount > 0) return;
+	if (activeTaskPowerBlockerId === null) return;
+	if (powerSaveBlocker.isStarted(activeTaskPowerBlockerId)) {
+		powerSaveBlocker.stop(activeTaskPowerBlockerId);
+	}
+	activeTaskPowerBlockerId = null;
+}
 
 function snapshotContextEvents() {
 	return contextEngine.getLiveContext().events.slice(-24).map((e) => ({
@@ -228,6 +258,7 @@ let predictRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 let ahaGuessRunId = 0;
 const appIconCache = new Map<string, string>();
 let lastOverlayState: FoldStateEvent = { status: "idle" };
+let lastUndoReceipt: UndoReceipt | null = null;
 
 function emitState(state: FoldStateEvent) {
 	lastOverlayState = { ...lastOverlayState, ...state };
@@ -581,6 +612,7 @@ async function executeTask(intent: string) {
 		return;
 	}
 	emitState({ status: "understanding", ...clearPredictState() });
+	startTaskPowerAssertion();
 	try {
 		await runTask(lastIntent, emitState, {
 			getLiveContext: () => contextEngine.getLiveContext(),
@@ -591,6 +623,7 @@ async function executeTask(intent: string) {
 	} catch (err) {
 		emitState({ status: "error", error: (err as Error).message });
 	} finally {
+		stopTaskPowerAssertion();
 		void refreshPredictCacheEnriched(contextEngine.getLiveContext());
 	}
 }
@@ -622,6 +655,8 @@ function emitIdleState(extra: Partial<FoldStateEvent> = {}) {
 	const widgetDisplayBounds = positionOverlayForIdle(overlayWindow);
 	emitState({
 		status: "idle",
+		undoAvailable: false,
+		verificationChecks: undefined,
 		voiceTabPlacement: null,
 		voiceHint: null,
 		widgetDisplayBounds,
@@ -813,6 +848,7 @@ async function structureVoiceTranscript(
 				`[fold:voice-insert] targetApp=${targetApp ?? "—"} ok=${insertResult.ok} pasted=${insertResult.pasted}`,
 			);
 			if (insertResult.pasted) {
+				lastUndoReceipt = createUndoReceipt(targetApp);
 				clearTextInsertionTarget();
 				emitState({
 					status: "done",
@@ -822,12 +858,20 @@ async function structureVoiceTranscript(
 					resultDetail: output,
 					voiceTabPlacement,
 					structureDraftOpen: false,
+					undoAvailable: true,
+					verificationChecks: [
+						{
+							rule: "text.inserted",
+							passed: insertResult.verified !== false,
+							message: insertResult.verified === false ? "目标输入框未确认变化" : "已写入目标输入框",
+						},
+					],
 				});
 				setTimeout(() => {
 					if (lastOverlayState.status === "done" && lastOverlayState.voiceMode === "structure") {
 						emitIdleState({ voiceMode: null });
 					}
-				}, 850);
+				}, 6000);
 			} else {
 				emitState({
 					status: "done",
@@ -966,6 +1010,7 @@ const IPC_HANDLE_CHANNELS = [
 	"fold:structure-voice",
 	"fold:reply-voice",
 	"fold:retry-task",
+	"fold:undo-last-insert",
 	"fold:ask-response",
 	"fold:dismiss",
 	"fold:toggle-voice",
@@ -1235,6 +1280,20 @@ function registerIpc() {
 
 	ipcMain.handle("fold:run-memory-consolidation", async () => triggerMemoryConsolidationNow());
 
+	ipcMain.handle("fold:codex-remote-status", () => getCodexRemoteStatus());
+	ipcMain.handle("fold:codex-remote-enable", () => enableCodexRemoteControl());
+	ipcMain.handle("fold:codex-remote-disable", () => disableCodexRemoteControl());
+	ipcMain.handle("fold:codex-remote-pair-start", () => startCodexRemotePairing());
+	ipcMain.handle(
+		"fold:codex-remote-pair-poll",
+		(_e, input: { pairingCode?: string; manualPairingCode?: string }) =>
+			pollCodexRemotePairing(input),
+	);
+	ipcMain.handle("fold:codex-remote-clients", () => listCodexRemoteClients());
+	ipcMain.handle("fold:codex-remote-revoke", (_e, clientId: string) =>
+		revokeCodexRemoteClient(clientId),
+	);
+
 	ipcMain.handle("fold:get-episode", (_e, id: string) => {
 		if (!id) return null;
 		return buildEpisodeDetail(id);
@@ -1399,8 +1458,19 @@ function registerIpc() {
 		}
 		lastReplyTranscript = "";
 		clearPredictTargetApp();
-		if (result.pasted) clearTextInsertionTarget();
-		emitIdleState();
+		if (result.pasted) {
+			lastUndoReceipt = createUndoReceipt(refreshedTarget?.appName ?? targetApp);
+			clearTextInsertionTarget();
+			emitState({
+				status: "done",
+				result: "已插入回复",
+				resultDetail: text,
+				undoAvailable: true,
+				verificationChecks: [{ rule: "text.inserted", passed: result.verified !== false, message: "已写入目标输入框" }],
+			});
+		} else {
+			emitState({ status: "error", error: result.error ?? "插入失败" });
+		}
 		return result;
 	});
 
@@ -1421,9 +1491,18 @@ function registerIpc() {
 				refreshedTarget?.appName ?? targetApp,
 			);
 			if (result.pasted) {
+				lastUndoReceipt = createUndoReceipt(refreshedTarget?.appName ?? targetApp);
 				voiceTargetApp = null;
 				clearTextInsertionTarget();
-				emitIdleState({ voiceMode: null });
+				emitState({
+					status: "done",
+					voiceMode: "structure",
+					result: "已插入文字",
+					resultDetail: trimmed,
+					undoAvailable: true,
+					structureDraftOpen: false,
+					verificationChecks: [{ rule: "text.inserted", passed: result.verified !== false, message: "已写入目标输入框" }],
+				});
 			}
 			return result;
 		},
@@ -1466,11 +1545,11 @@ function registerIpc() {
 		return { ok: true };
 	});
 
-	ipcMain.handle("fold:connect-flow-activate-workbuddy", async (_e, sessionId: string) => {
+	ipcMain.handle("fold:connect-flow-activate", async (_e, sessionId: string) => {
 		if (typeof sessionId !== "string" || !sessionId) {
 			return { ok: false, opened: false };
 		}
-		const result = activateWorkBuddyConnectFlow(sessionId);
+		const result = activateAgentConnectFlow(sessionId);
 		return { ok: true, opened: result.opened, url: result.url };
 	});
 
@@ -1505,6 +1584,20 @@ function registerIpc() {
 
 	ipcMain.handle("fold:retry-task", async () => {
 		if (lastIntent) await executeTask(lastIntent);
+	});
+
+	ipcMain.handle("fold:undo-last-insert", async () => {
+		if (!canUseUndoReceipt(lastUndoReceipt)) {
+			lastUndoReceipt = null;
+			return { ok: false, error: "撤销时限已过" };
+		}
+		const receipt = lastUndoReceipt;
+		const result = await undoTextInsertion(receipt?.targetApp);
+		if (result.ok) {
+			lastUndoReceipt = null;
+			emitState({ status: "done", result: "已撤销刚才的输入", undoAvailable: false });
+		}
+		return result;
 	});
 
 	ipcMain.handle("fold:ask-response", async (_e, optionId: string) => {
@@ -1812,9 +1905,12 @@ app.whenReady().then(() => {
 });
 
 app.on("will-quit", () => {
+	activeTaskPowerAssertionCount = 0;
+	stopTaskPowerAssertion();
 	stopHotkey?.();
 	stopHabitRecall?.();
 	stopMemoryConsolidationLoop();
+	void shutdownCodexAppServer();
 	contextEngine.stop();
 });
 

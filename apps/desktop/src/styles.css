@@ -2912,6 +2912,32 @@ body:has(.react-grid-item.resizing) {
   color: #3a3a3c;
 }
 
+.fold-aha-evidence {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 9px 11px;
+  border-radius: 12px;
+  background: rgb(88 86 214 / 0.055);
+  color: #6e6e73;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.fold-aha-evidence strong {
+  flex: none;
+  color: #4f4db8;
+  font-weight: 650;
+}
+
+.fold-aha-evidence span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .fold-aha-foot {
   display: flex;
   flex-wrap: wrap;
@@ -3598,6 +3624,131 @@ body:has(.react-grid-item.resizing) {
   font-size: 11px;
   line-height: 1.45;
   color: #6e6e73;
+}
+
+.fold-codex-remote {
+  padding: 18px;
+  border: 0.5px solid rgb(0 0 0 / 0.07);
+  border-radius: 22px;
+  background: rgb(255 255 255 / 0.78);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.035);
+}
+
+.fold-codex-remote-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.fold-codex-remote-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  color: #1d1d1f;
+}
+
+.fold-codex-remote-head p {
+  margin: 6px 0 0;
+  max-width: 46ch;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #86868b;
+}
+
+.fold-codex-remote-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  font-size: 12px;
+  color: #3a3a3c;
+}
+
+.fold-codex-remote-meta {
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: #aeaeb2;
+}
+
+.fold-codex-remote-error {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #c0392b;
+}
+
+.fold-codex-remote-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.fold-codex-remote-pair {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgb(88 86 214 / 0.06);
+}
+
+.fold-codex-remote-code {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #5856d6;
+  font-variant-numeric: tabular-nums;
+}
+
+.fold-codex-remote-pair small,
+.fold-codex-remote-pair p {
+  margin: 0;
+  font-size: 12px;
+  color: #6e6e73;
+}
+
+.fold-codex-remote-clients {
+  margin-top: 16px;
+}
+
+.fold-codex-remote-clients h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 650;
+  color: #1d1d1f;
+}
+
+.fold-codex-remote-clients ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fold-codex-remote-clients li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+  border-radius: 12px;
+  background: rgb(0 0 0 / 0.035);
+}
+
+.fold-codex-remote-clients strong {
+  display: block;
+  font-size: 13px;
+  color: #1d1d1f;
+}
+
+.fold-codex-remote-clients small {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  color: #86868b;
 }
 
 .fold-execution-mode-grid {

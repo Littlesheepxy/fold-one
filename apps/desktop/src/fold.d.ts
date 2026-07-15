@@ -59,6 +59,7 @@ interface FoldApi {
 	structureVoice(transcript: string, opts?: { directStructured?: boolean }): Promise<void>;
 	replyVoice(transcript: string): Promise<void>;
 	retryTask(): Promise<void>;
+	undoLastInsert(): Promise<{ ok: boolean; error?: string }>;
 	askResponse(optionId: string): Promise<void>;
 	getConfig(): Promise<FoldConfig>;
 	getHomeSnapshot(): Promise<HomeSnapshot>;
@@ -86,6 +87,45 @@ interface FoldApi {
 	listEpisodes(): Promise<EpisodeSummary[]>;
 	listMemoryEntities(): Promise<MemoryEntityRecord[]>;
 	runMemoryConsolidation(): Promise<{ ok: boolean; dates: string[] }>;
+	codexRemoteStatus(): Promise<{
+		status: "disabled" | "connecting" | "connected" | "errored" | "unknown";
+		serverName?: string | null;
+		environmentId?: string | null;
+		error?: string;
+	}>;
+	codexRemoteEnable(): Promise<{
+		status: "disabled" | "connecting" | "connected" | "errored" | "unknown";
+		serverName?: string | null;
+		environmentId?: string | null;
+		error?: string;
+	}>;
+	codexRemoteDisable(): Promise<{
+		status: "disabled" | "connecting" | "connected" | "errored" | "unknown";
+		serverName?: string | null;
+		environmentId?: string | null;
+		error?: string;
+	}>;
+	codexRemotePairStart(): Promise<{
+		pairingCode?: string;
+		manualPairingCode?: string;
+		environmentId?: string;
+		expiresAt?: number;
+	}>;
+	codexRemotePairPoll(input: {
+		pairingCode?: string;
+		manualPairingCode?: string;
+	}): Promise<{ claimed: boolean }>;
+	codexRemoteClients(): Promise<{
+		environmentId: string | null;
+		clients: Array<{
+			clientId: string;
+			name?: string;
+			lastConnectedAt?: number;
+			platform?: string;
+		}>;
+		error?: string;
+	}>;
+	codexRemoteRevoke(clientId: string): Promise<{ ok: boolean; error?: string }>;
 	getEpisode(id: string): Promise<EpisodeDetail | null>;
 	predictPickIntent(intent: string): Promise<{ ok: boolean }>;
 	predictInsertDraft(text: string): Promise<{ ok: boolean; pasted: boolean; error?: string }>;
@@ -124,13 +164,15 @@ interface FoldApi {
 		opensBrowserAutomatically?: boolean;
 		copyText?: string;
 		copyThenOpen?: boolean;
+		requiresAction?: boolean;
+		actionLabel?: string;
 	}>;
 	pollConnectFlow(sessionId: string): Promise<{
 		status: "pending" | "success" | "error";
 		message?: string;
 		error?: string;
 	}>;
-	activateWorkBuddyConnect(sessionId: string): Promise<{ ok: boolean; opened: boolean; url?: string }>;
+	activateConnectFlow(sessionId: string): Promise<{ ok: boolean; opened: boolean; url?: string }>;
 	cancelConnectFlow(sessionId: string): Promise<{ ok: boolean }>;
 	openExternal(url: string): Promise<{ ok: boolean }>;
 	saveConfig(config: FoldConfig): Promise<{ ok: boolean }>;

@@ -13,6 +13,9 @@ export interface FoldStateEvent {
 	steps?: Array<{ id: string; label: string; status: string }>;
 	currentApp?: string | null;
 	result?: string | null;
+	resultDetail?: string | null;
+	verificationChecks?: Array<{ rule: string; passed: boolean; message?: string }>;
+	undoAvailable?: boolean;
 	error?: string | null;
 	askOptions?: Array<{ id: string; label: string }>;
 }
@@ -70,6 +73,8 @@ contextBridge.exposeInMainWorld("fold", {
 	replyVoice: (transcript: string) =>
 		ipcRenderer.invoke("fold:reply-voice", transcript) as Promise<void>,
 	retryTask: () => ipcRenderer.invoke("fold:retry-task") as Promise<void>,
+	undoLastInsert: () =>
+		ipcRenderer.invoke("fold:undo-last-insert") as Promise<{ ok: boolean; error?: string }>,
 	askResponse: (optionId: string) =>
 		ipcRenderer.invoke("fold:ask-response", optionId) as Promise<void>,
 	getConfig: () => ipcRenderer.invoke("fold:get-config") as Promise<Record<string, unknown>>,
@@ -92,6 +97,52 @@ contextBridge.exposeInMainWorld("fold", {
 		ipcRenderer.invoke("fold:list-memory-entities") as Promise<Record<string, unknown>[]>,
 	runMemoryConsolidation: () =>
 		ipcRenderer.invoke("fold:run-memory-consolidation") as Promise<{ ok: boolean; dates: string[] }>,
+	codexRemoteStatus: () =>
+		ipcRenderer.invoke("fold:codex-remote-status") as Promise<{
+			status: string;
+			serverName?: string | null;
+			environmentId?: string | null;
+			error?: string;
+		}>,
+	codexRemoteEnable: () =>
+		ipcRenderer.invoke("fold:codex-remote-enable") as Promise<{
+			status: string;
+			serverName?: string | null;
+			environmentId?: string | null;
+			error?: string;
+		}>,
+	codexRemoteDisable: () =>
+		ipcRenderer.invoke("fold:codex-remote-disable") as Promise<{
+			status: string;
+			serverName?: string | null;
+			environmentId?: string | null;
+			error?: string;
+		}>,
+	codexRemotePairStart: () =>
+		ipcRenderer.invoke("fold:codex-remote-pair-start") as Promise<{
+			pairingCode?: string;
+			manualPairingCode?: string;
+			environmentId?: string;
+			expiresAt?: number;
+		}>,
+	codexRemotePairPoll: (input: { pairingCode?: string; manualPairingCode?: string }) =>
+		ipcRenderer.invoke("fold:codex-remote-pair-poll", input) as Promise<{ claimed: boolean }>,
+	codexRemoteClients: () =>
+		ipcRenderer.invoke("fold:codex-remote-clients") as Promise<{
+			environmentId: string | null;
+			clients: Array<{
+				clientId: string;
+				name?: string;
+				lastConnectedAt?: number;
+				platform?: string;
+			}>;
+			error?: string;
+		}>,
+	codexRemoteRevoke: (clientId: string) =>
+		ipcRenderer.invoke("fold:codex-remote-revoke", clientId) as Promise<{
+			ok: boolean;
+			error?: string;
+		}>,
 	getEpisode: (id: string) =>
 		ipcRenderer.invoke("fold:get-episode", id) as Promise<Record<string, unknown> | null>,
 	predictPickIntent: (intent: string) =>
@@ -195,6 +246,8 @@ contextBridge.exposeInMainWorld("fold", {
 			opensBrowserAutomatically?: boolean;
 			copyText?: string;
 			copyThenOpen?: boolean;
+			requiresAction?: boolean;
+			actionLabel?: string;
 		}>,
 	pollConnectFlow: (sessionId: string) =>
 		ipcRenderer.invoke("fold:connect-flow-poll", sessionId) as Promise<{
@@ -202,8 +255,8 @@ contextBridge.exposeInMainWorld("fold", {
 			message?: string;
 			error?: string;
 		}>,
-	activateWorkBuddyConnect: (sessionId: string) =>
-		ipcRenderer.invoke("fold:connect-flow-activate-workbuddy", sessionId) as Promise<{
+	activateConnectFlow: (sessionId: string) =>
+		ipcRenderer.invoke("fold:connect-flow-activate", sessionId) as Promise<{
 			ok: boolean;
 			opened: boolean;
 			url?: string;
