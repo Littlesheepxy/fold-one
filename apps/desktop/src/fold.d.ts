@@ -9,6 +9,9 @@ import type {
 	HomeSnapshot,
 	LiveContextLite,
 	UserProfileData,
+	MemoryEntityRecord,
+	PersonMemoryValue,
+	ProjectMemoryValue,
 } from "./settings/types.js";
 
 interface ProfileImportOption {
@@ -46,6 +49,7 @@ interface FoldApi {
 		provider: "mock" | "dashscope" | "local-whisper";
 		modelPath?: string;
 		ready: boolean;
+		authToken?: string;
 	}>;
 	localAsrStart(): Promise<{ ok: boolean }>;
 	localAsrAudio(chunk: ArrayBuffer): void;
@@ -80,10 +84,16 @@ interface FoldApi {
 	getAppIcon(appPath: string, appName?: string): Promise<string | null>;
 	getFirstAppIcon(appNames: string[]): Promise<string | null>;
 	listEpisodes(): Promise<EpisodeSummary[]>;
+	listMemoryEntities(): Promise<MemoryEntityRecord[]>;
+	runMemoryConsolidation(): Promise<{ ok: boolean; dates: string[] }>;
 	getEpisode(id: string): Promise<EpisodeDetail | null>;
 	predictPickIntent(intent: string): Promise<{ ok: boolean }>;
-	predictInsertDraft(text: string): Promise<{ ok: boolean; pasted: boolean }>;
-	structureInsertDraft(text: string, targetAppName?: string | null): Promise<{ ok: boolean; pasted: boolean }>;
+	predictInsertDraft(text: string): Promise<{ ok: boolean; pasted: boolean; error?: string }>;
+	structureInsertDraft(text: string, targetAppName?: string | null): Promise<{
+		ok: boolean;
+		pasted: boolean;
+		error?: string;
+	}>;
 	copyText(text: string): Promise<{ ok: boolean }>;
 	predictStartVoice(): Promise<{ ok: boolean }>;
 	predictRefineVoice(): Promise<{ ok: boolean }>;
@@ -124,6 +134,74 @@ interface FoldApi {
 	cancelConnectFlow(sessionId: string): Promise<{ ok: boolean }>;
 	openExternal(url: string): Promise<{ ok: boolean }>;
 	saveConfig(config: FoldConfig): Promise<{ ok: boolean }>;
+	accountGetState(): Promise<{
+		signedIn: boolean;
+		email?: string;
+		name?: string;
+		userId?: string;
+		planTier: "free" | "pro" | "ultra";
+		voiceSecondsRemaining?: number;
+		smartActionsRemaining?: number;
+		voiceSecondsLimit?: number;
+		smartActionsLimit?: number;
+		periodEnd?: string;
+		syncedAt?: number;
+	}>;
+	accountRequestCode(email: string): Promise<{ ok: true; mode: string } | { ok: false; error: string }>;
+	accountVerifyCode(input: {
+		email: string;
+		code: string;
+	}): Promise<
+		| {
+				ok: true;
+				state: {
+					signedIn: boolean;
+					email?: string;
+					name?: string;
+					userId?: string;
+					planTier: "free" | "pro" | "ultra";
+					voiceSecondsRemaining?: number;
+					smartActionsRemaining?: number;
+					syncedAt?: number;
+				};
+		  }
+		| { ok: false; error: string }
+	>;
+	accountLogout(): Promise<{
+		signedIn: boolean;
+		planTier: "free" | "pro" | "ultra";
+	}>;
+	accountSync(): Promise<{
+		signedIn: boolean;
+		email?: string;
+		name?: string;
+		userId?: string;
+		planTier: "free" | "pro" | "ultra";
+		voiceSecondsRemaining?: number;
+		smartActionsRemaining?: number;
+		syncedAt?: number;
+	}>;
+	accountUpdateName(
+		name: string,
+	): Promise<{ ok: true; state: { name?: string } } | { ok: false; error: string }>;
+	accountCheckout(input: {
+		productId: string;
+	}): Promise<
+		| {
+				ok: true;
+				mode: string;
+				activated?: boolean;
+				checkoutUrl?: string;
+				state: { planTier: "free" | "pro" | "ultra" };
+		  }
+		| { ok: false; error: string }
+	>;
+	accountCancelPlan(): Promise<
+		{ ok: true; state: { planTier: "free" | "pro" | "ultra" } } | { ok: false; error: string }
+	>;
+	accountDelete(): Promise<
+		{ ok: true; state: { signedIn: boolean } } | { ok: false; error: string }
+	>;
 	setMousePassthrough(ignore: boolean): void;
 	getDisplayWorkArea(overlayPoint?: { x: number; y: number }): Promise<{
 		x: number;

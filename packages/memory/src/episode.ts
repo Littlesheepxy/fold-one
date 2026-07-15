@@ -194,17 +194,37 @@ export function saveContextEvent(event: RawContextEventInput, dataDir?: string):
 
 const CONTEXT_EVENT_RETENTION_MS = 4 * 60 * 60 * 1000;
 
-export function listContextEvents(
-	limit = 400,
-	dataDir?: string,
-	sinceMs = Date.now() - CONTEXT_EVENT_RETENTION_MS,
-): Array<{
+export type ContextEventRow = {
 	id: string;
 	type: string;
 	source: string;
 	timestamp: number;
 	data: Record<string, unknown>;
-}> {
+};
+
+function mapContextEventRows(
+	rows: Array<{
+		id: string;
+		timestamp: number;
+		type: string;
+		source: string;
+		data_json: string;
+	}>,
+): ContextEventRow[] {
+	return rows.map((row) => ({
+		id: row.id,
+		timestamp: row.timestamp,
+		type: row.type,
+		source: row.source,
+		data: JSON.parse(row.data_json) as Record<string, unknown>,
+	}));
+}
+
+export function listContextEvents(
+	limit = 400,
+	dataDir?: string,
+	sinceMs = Date.now() - CONTEXT_EVENT_RETENTION_MS,
+): ContextEventRow[] {
 	const conn = getDb(dataDir);
 	const rows = conn
 		.prepare(
@@ -222,15 +242,31 @@ export function listContextEvents(
 		data_json: string;
 	}>;
 
-	return rows
-		.reverse()
-		.map((row) => ({
-			id: row.id,
-			timestamp: row.timestamp,
-			type: row.type,
-			source: row.source,
-			data: JSON.parse(row.data_json) as Record<string, unknown>,
-		}));
+	return mapContextEventRows(rows.reverse());
+}
+
+/** 按时间范围拉取 context_events（整固用，不受 4 小时窗口限制）。 */
+export function listContextEventsInRange(
+	startMs: number,
+	endMs: number,
+	dataDir?: string,
+): ContextEventRow[] {
+	const conn = getDb(dataDir);
+	const rows = conn
+		.prepare(
+			`SELECT id, timestamp, type, source, data_json
+			 FROM context_events
+			 WHERE timestamp >= ? AND timestamp <= ?
+			 ORDER BY timestamp ASC`,
+		)
+		.all(startMs, endMs) as Array<{
+		id: string;
+		timestamp: number;
+		type: string;
+		source: string;
+		data_json: string;
+	}>;
+	return mapContextEventRows(rows);
 }
 
 export interface ClipboardHistoryRow {
@@ -388,6 +424,15 @@ export function listRecentEpisodes(limit = 5, dataDir?: string): Episode[] {
 	return conn
 		.prepare(`${EPISODE_SELECT} ORDER BY timestamp DESC LIMIT ?`)
 		.all(limit)
+		.map((row) => mapEpisodeRow(row as EpisodeRow));
+}
+
+/** 按时间范围拉取 episodes（整固用）。 */
+export function listEpisodesInRange(startMs: number, endMs: number, dataDir?: string): Episode[] {
+	const conn = getDb(dataDir);
+	return conn
+		.prepare(`${EPISODE_SELECT} WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp ASC`)
+		.all(startMs, endMs)
 		.map((row) => mapEpisodeRow(row as EpisodeRow));
 }
 

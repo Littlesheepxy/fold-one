@@ -1,6 +1,14 @@
+import { ArrowLeft, BriefcaseBusiness, UserRound, Users } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { EpisodeSummary, HomeSnapshot, UserProfileData } from "../types.js";
-import { Card, formatTime } from "../components/FormFields.js";
+import type {
+	EpisodeSummary,
+	HomeSnapshot,
+	MemoryEntityRecord,
+	PersonMemoryValue,
+	ProjectMemoryValue,
+	UserProfileData,
+} from "../types.js";
+import { formatTime } from "../components/FormFields.js";
 import { ProfileImportModal } from "./ProfileImportModal.js";
 
 type Habit = { label: string; count: number; example?: string };
@@ -13,6 +21,25 @@ const HABIT_CLUSTERS = [
 	{ id: "browser", label: "浏览器与网页", pattern: /chrome|网页|浏览|打开.*网|标签页/i },
 	{ id: "screen", label: "屏幕读取", pattern: /屏幕|截图|ocr|界面/i },
 ] as const;
+
+const FOLLOW_UP_PATTERN = /待办|提醒|跟进|答应|截止|之前|发给|回复|提交/i;
+
+function personInitial(name: string): string {
+	const c = name.trim().charAt(0);
+	return c ? c.toUpperCase() : "?";
+}
+
+function isPersonEntity(
+	e: MemoryEntityRecord,
+): e is MemoryEntityRecord & { type: "entity.person"; value: PersonMemoryValue } {
+	return e.type === "entity.person";
+}
+
+function isProjectEntity(
+	e: MemoryEntityRecord,
+): e is MemoryEntityRecord & { type: "entity.project"; value: ProjectMemoryValue } {
+	return e.type === "entity.project";
+}
 
 function clusterHabits(episodes: EpisodeSummary[], limit = 5): Habit[] {
 	const clusters = new Map<string, Habit>();
@@ -105,6 +132,8 @@ export function ProfileSection({
 	const [storedProfile, setStoredProfile] = useState<UserProfileData | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [importOpen, setImportOpen] = useState(false);
+	const [memoryView, setMemoryView] = useState<"overview" | "people" | "things" | "me">("overview");
+	const [memoryEntities, setMemoryEntities] = useState<MemoryEntityRecord[]>([]);
 
 	function reloadProfile() {
 		void window.fold.profileGet().then((p) => setStoredProfile((p as UserProfileData | null) ?? null));
@@ -114,11 +143,16 @@ export function ProfileSection({
 		if (!active) return;
 		let mounted = true;
 		setLoading(true);
-		void Promise.all([window.fold.listEpisodes(), window.fold.profileGet()])
-			.then(([items, profile]) => {
+		void Promise.all([
+			window.fold.listEpisodes(),
+			window.fold.profileGet(),
+			window.fold.listMemoryEntities(),
+		])
+			.then(([items, profile, entities]) => {
 				if (!mounted) return;
 				setEpisodes(items);
 				setStoredProfile((profile as UserProfileData | null) ?? null);
+				setMemoryEntities((entities as MemoryEntityRecord[]) ?? []);
 			})
 			.finally(() => {
 				if (mounted) setLoading(false);
@@ -138,130 +172,291 @@ export function ProfileSection({
 		...(storedProfile?.preferredTools ?? []),
 		...(storedProfile?.workPatterns ?? []),
 	].slice(0, 6);
+	const followUps = episodes
+		.filter((episode) => {
+			// 已完成的任务不需要跟进；空口令（如「代回：.」）没有可跟进的内容
+			if (episode.status.toLowerCase() === "success") return false;
+			if (episode.intent.replace(/^(代回|转写)：/, "").replace(/[\s.。，,、…]+/g, "").length < 2) return false;
+			return FOLLOW_UP_PATTERN.test(`${episode.intent} ${episode.summary}`);
+		})
+		.slice(0, 3);
 
-	return (
-		<div className="space-y-4">
-			<Card title="个人画像">
-				<div className="mb-3 flex flex-wrap items-center gap-3">
+	const peopleEntities = memoryEntities.filter(isPersonEntity);
+	const projectEntities = memoryEntities.filter(isProjectEntity);
+
+	if (memoryView === "people") {
+		return (
+			<div className="fold-memory-page">
+				<div className="fold-memory-subpage-heading">
+					<button type="button" className="fold-memory-back" onClick={() => setMemoryView("overview")}>
+						<ArrowLeft size={15} /> 返回记忆
+					</button>
+					<h2>人</h2>
+					<p>人物关系来自导入画像和后续互动。</p>
+				</div>
+
+				<section className="fold-memory-subpage">
+					{peopleEntities.length > 0 ? (
+						<ul className="fold-memory-people-list">
+							{peopleEntities.map((entity) => (
+								<li key={entity.key} className="fold-memory-person-card">
+									<span className="fold-memory-person-avatar" aria-hidden="true">
+										{personInitial(entity.value.name)}
+									</span>
+									<div>
+										<strong>{entity.value.name}</strong>
+										{entity.value.role && <small>{entity.value.role}</small>}
+										{entity.value.commitment && <em>{entity.value.commitment}</em>}
+										<small className="fold-memory-person-date">最近 · {entity.value.lastSeenDate}</small>
+									</div>
+								</li>
+							))}
+						</ul>
+					) : (
+						<p className="fold-memory-empty">目前还没有可展示的人物关系记录。导入画像或继续互动后，每日整固会逐步形成记忆。</p>
+					)}
+					{storedProfile?.migrationArchive?.trim() ? (
+						<div className="fold-memory-archive-block">
+							<h3>本地档案</h3>
+							<pre className="fold-memory-archive">{storedProfile.migrationArchive}</pre>
+						</div>
+					) : null}
+				</section>
+			</div>
+		);
+	}
+
+	if (memoryView === "things") {
+		return (
+			<div className="fold-memory-page">
+				<div className="fold-memory-subpage-heading">
+					<button type="button" className="fold-memory-back" onClick={() => setMemoryView("overview")}>
+						<ArrowLeft size={15} /> 返回记忆
+					</button>
+					<h2>事</h2>
+					<p>从真实任务记录中整理行动习惯、待跟进事项和近期经历。</p>
+				</div>
+
+				<section className="fold-memory-subpage">
+					<h3>项目与事项</h3>
+					{projectEntities.length > 0 ? (
+						<div className="fold-memory-project-list">
+							{projectEntities.map((entity) => (
+								<article key={entity.key} className="fold-memory-project-card">
+									<strong>{entity.value.name}</strong>
+									{entity.value.status && <span>状态 · {entity.value.status}</span>}
+									{entity.value.nextStep && <p>{entity.value.nextStep}</p>}
+									{entity.value.filePaths?.[0] && (
+										<small title={entity.value.filePaths[0]}>{entity.value.filePaths[0]}</small>
+									)}
+									<small>活跃 · {entity.value.lastActiveDate}</small>
+								</article>
+							))}
+						</div>
+					) : (
+						<p className="fold-memory-empty">整固后会把高频文件与任务归纳成项目记忆。</p>
+					)}
+				</section>
+
+				<section className="fold-memory-subpage">
+					<h3>行动习惯</h3>
+					{loading ? (
+						<p className="fold-memory-empty">正在整理…</p>
+					) : habits.length > 0 ? (
+						<div className="fold-memory-detail-list">
+							{habits.map((habit) => (
+								<div key={habit.label}>
+									<strong>{habit.label}</strong><span>{habit.count} 次</span>
+									{habit.example && habit.example !== habit.label && <p>例：{habit.example}</p>}
+								</div>
+							))}
+						</div>
+					) : <p className="fold-memory-empty">完成任务后，这里会归纳你常做的事。</p>}
+				</section>
+
+				<section className="fold-memory-subpage">
+					<h3>需要跟进</h3>
+					{followUps.length > 0 ? (
+						<div className="fold-memory-followup-list">
+							{followUps.map((episode) => (
+								<button type="button" key={episode.id} onClick={() => onNavigate("tasks", episode.id)}>
+									<span>{episode.intent}</span>
+									<small>{formatTime(episode.timestamp)} · {statusLabel(episode.status)}</small>
+								</button>
+							))}
+						</div>
+					) : <p className="fold-memory-empty">近期记录中没有识别到需要跟进的事项。</p>}
+				</section>
+
+				<section className="fold-memory-subpage">
+					<h3>近期经历</h3>
+					{episodes.length > 0 ? (
+						<div className="fold-memory-detail-list">
+							{episodes.slice(0, 5).map((episode) => (
+								<div key={episode.id}>
+									<strong>{episode.intent}</strong><span>{formatTime(episode.timestamp)}</span>
+									{episode.summary && <p>{episode.summary}</p>}
+								</div>
+							))}
+						</div>
+					) : <p className="fold-memory-empty">还没有任务记录。</p>}
+				</section>
+			</div>
+		);
+	}
+
+	if (memoryView === "me") {
+		return (
+			<div className="fold-memory-page">
+				<div className="fold-memory-subpage-heading">
+					<button type="button" className="fold-memory-back" onClick={() => setMemoryView("overview")}>
+						<ArrowLeft size={15} /> 返回记忆
+					</button>
+					<h2>我</h2>
+					<p>根据导入画像和真实任务记录形成的个人偏好。</p>
+				</div>
+
+				<section className="fold-memory-subpage">
+					<p className="fold-memory-detail-summary">{buildProfileLine(episodes, habits, storedProfile)}</p>
+					<div className="fold-memory-profile-details">
+						{storedProfile?.role && <div><strong>角色</strong><span>{storedProfile.role}</span></div>}
+						{topics.length > 0 && <div><strong>关注领域</strong><span>{topics.join("、")}</span></div>}
+						{storedProfile?.preferredTools?.length ? <div><strong>常用工具</strong><span>{storedProfile.preferredTools.join("、")}</span></div> : null}
+						{storedProfile?.workPatterns?.length ? <div><strong>工作方式</strong><span>{storedProfile.workPatterns.join("、")}</span></div> : null}
+						{storedProfile?.communicationStyle && <div><strong>沟通风格</strong><span>{storedProfile.communicationStyle}</span></div>}
+						{storedProfile?.constraints?.length ? <div><strong>边界与约束</strong><span>{storedProfile.constraints.join("、")}</span></div> : null}
+						<div>
+							<strong>任务记录</strong>
+							<span>{stats.total} 次，{stats.success} 次成功{stats.partial > 0 ? `，${stats.partial} 次部分完成` : ""}</span>
+						</div>
+					</div>
 					<button type="button" className="fold-profile-action-btn primary" onClick={() => setImportOpen(true)}>
 						从 AI 助手导入
 					</button>
-					{storedProfile?.updatedAt && (
-						<span className="text-[11px] text-[#86868b]">
-							上次更新 {formatTime(storedProfile.updatedAt)}
-						</span>
-					)}
+				</section>
+
+				{importOpen && (
+					<ProfileImportModal onClose={() => setImportOpen(false)} onSaved={reloadProfile} />
+				)}
+			</div>
+		);
+	}
+
+	return (
+		<div className="fold-memory-page">
+			<div className="fold-memory-heading">
+				<div>
+					<h2>记忆</h2>
+					<p>知更从你的画像与互动中，持续记住重要的人、事和偏好。</p>
+				</div>
+				<button type="button" className="fold-profile-action-btn primary" onClick={() => setImportOpen(true)}>
+					从 AI 助手导入
+				</button>
+			</div>
+
+			<div className="fold-memory-grid">
+				<button type="button" className="fold-memory-card fold-memory-card--people" onClick={() => setMemoryView("people")}>
+					<div className="fold-memory-card-head">
+						<div className="fold-memory-card-title">
+							<span className="fold-memory-icon"><Users size={20} /></span>
+							<div><span>人</span><small>关系记忆</small></div>
+						</div>
+					</div>
+					<div className="fold-memory-avatars" aria-hidden="true">
+						{peopleEntities.length > 0
+							? peopleEntities.slice(0, 3).map((e) => (
+									<span key={e.key}>{personInitial(e.value.name)}</span>
+								))
+							: (
+								<>
+									<span>人</span><span>人</span><span>人</span>
+								</>
+							)}
+					</div>
+					<p className="fold-memory-summary">
+						{peopleEntities.length > 0
+							? `已记住 ${peopleEntities.length} 位相关人物。`
+							: "人物关系会从导入画像和后续互动中逐步形成。"}
+					</p>
+					<p className="fold-memory-summary">
+						{storedProfile?.migrationArchive?.trim() ? "已保存一份本地导入档案。" : "每日空闲时会整固轨迹与任务。"}
+					</p>
+					<span className="fold-memory-card-link">进入人物记忆 →</span>
+				</button>
+
+				<button type="button" className="fold-memory-card fold-memory-card--things" onClick={() => setMemoryView("things")}>
+					<div className="fold-memory-card-head">
+						<div className="fold-memory-card-title">
+							<span className="fold-memory-icon"><BriefcaseBusiness size={20} /></span>
+							<div><span>事</span><small>行动与习惯</small></div>
+						</div>
+					</div>
+					<p className="fold-memory-kicker">
+						{loading
+							? "正在整理…"
+							: projectEntities.length > 0
+								? `${projectEntities.length} 个活跃项目`
+								: habits.length > 0
+									? `已归纳 ${habits.length} 类习惯`
+									: "尚未形成习惯"}
+					</p>
+					<p className="fold-memory-summary">
+						{recent ? `最近：${recent.intent}` : "完成任务后，这里会归纳你常做的事。"}
+					</p>
+					<p className="fold-memory-summary">
+						{followUps.length > 0 ? `${followUps.length} 项近期记录需要跟进。` : "近期没有识别到待跟进事项。"}
+					</p>
+					<span className="fold-memory-card-link">查看事项与项目 →</span>
+				</button>
+
+				<button type="button" className="fold-memory-card fold-memory-card--me" onClick={() => setMemoryView("me")}>
+					<div className="fold-memory-card-head">
+						<div className="fold-memory-card-title">
+							<span className="fold-memory-icon"><UserRound size={20} /></span>
+							<div><span>我</span><small>画像与偏好</small></div>
+						</div>
+					</div>
+					<p className="fold-memory-summary">{loading ? "加载中…" : buildProfileLine(episodes, habits, storedProfile)}</p>
+					<p className="fold-memory-summary">
+						{profileTags.length > 0 ? `偏好：${profileTags.slice(0, 3).join("、")}` : "导入画像或继续使用后，这里会形成更具体的偏好。"}
+					</p>
+					{storedProfile?.updatedAt && <p className="fold-memory-updated">更新于 {formatTime(storedProfile.updatedAt)}</p>}
+					<span className="fold-memory-card-link">查看我的画像 →</span>
+				</button>
+			</div>
+
+			<section className="fold-memory-followups">
+				<div className="fold-memory-followups-head">
+					<div>
+						<h3>最近需要跟进</h3>
+						<p>从近期记录中识别出的提醒与承诺</p>
+					</div>
+					<button type="button" onClick={() => onNavigate("tasks")} className="fold-home-link">查看全部任务 →</button>
 				</div>
 				{loading ? (
-					<p className="text-[13px] text-[#86868b]">加载中…</p>
+					<p className="fold-memory-empty">加载中…</p>
+				) : followUps.length > 0 ? (
+					<div className="fold-memory-followup-list">
+						{followUps.map((episode) => (
+							<button type="button" key={episode.id} onClick={() => onNavigate("tasks", episode.id)}>
+								<span>{episode.intent}</span>
+								<small>{formatTime(episode.timestamp)} · {statusLabel(episode.status)}</small>
+							</button>
+						))}
+					</div>
 				) : (
-					<>
-						<p className="text-[13px] leading-relaxed text-[#3a3a3c]">
-							{buildProfileLine(episodes, habits, storedProfile)}
-						</p>
-						{profileTags.length > 0 && (
-							<div className="mt-3 flex flex-wrap gap-2">
-								{profileTags.map((tag) => (
-									<span key={tag} className="fold-home-badge">
-										{tag}
-									</span>
-								))}
-							</div>
-						)}
-						{topics.length > 0 && (
-							<div className="mt-3 flex flex-wrap gap-2">
-								{topics.map((topic) => (
-									<span key={topic} className="fold-home-badge">
-										{topic}
-									</span>
-								))}
-							</div>
-						)}
-						{stats.total > 0 && (
-							<div className="mt-3 flex flex-wrap gap-2">
-								<span className="fold-home-badge">{stats.total} 次任务</span>
-								{stats.success > 0 && (
-									<span className="fold-home-badge fold-home-badge-ok">{stats.success} 成功</span>
-								)}
-								{stats.partial > 0 && (
-									<span className="fold-home-badge fold-home-badge-warn">{stats.partial} 部分完成</span>
-								)}
-							</div>
-						)}
-					</>
+					<p className="fold-memory-empty">近期记录中没有识别到需要跟进的事项。</p>
 				)}
-			</Card>
+				{snapshot.liveContext.activeApp && (
+					<button type="button" onClick={() => onNavigate("work")} className="fold-home-link fold-memory-trail-link">
+						当前在 {snapshot.liveContext.activeApp} · 看轨迹 →
+					</button>
+				)}
+			</section>
 
 			{importOpen && (
-				<ProfileImportModal
-					onClose={() => setImportOpen(false)}
-					onSaved={() => {
-						reloadProfile();
-					}}
-				/>
+				<ProfileImportModal onClose={() => setImportOpen(false)} onSaved={reloadProfile} />
 			)}
-
-			<Card title="我的习惯">
-				{loading ? (
-					<p className="text-[13px] text-[#86868b]">加载中…</p>
-				) : habits.length > 0 ? (
-					<ul className="space-y-3">
-						{habits.map((habit) => (
-							<li key={habit.label}>
-								<div className="flex items-start gap-2">
-									<span className="fold-home-badge mt-0.5 shrink-0 tabular-nums">{habit.count} 次</span>
-									<div className="min-w-0">
-										<p className="text-[13px] font-medium text-[#1d1d1f]">{habit.label}</p>
-										{habit.example && habit.example !== habit.label && (
-											<p className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed text-[#86868b]">
-												例：{habit.example}
-											</p>
-										)}
-									</div>
-								</div>
-							</li>
-						))}
-					</ul>
-				) : (
-					<p className="text-[13px] text-[#86868b]">完成任务后，这里会归纳你常做的事。</p>
-				)}
-			</Card>
-
-			<Card title="最近动态">
-				{loading ? (
-					<p className="text-[13px] text-[#86868b]">加载中…</p>
-				) : recent ? (
-					<button
-						type="button"
-						onClick={() => onNavigate("tasks", recent.id)}
-						className="fold-profile-recent-btn"
-					>
-						<p className="text-left text-[13px] font-medium leading-relaxed text-[#1d1d1f]">
-							{recent.intent}
-						</p>
-						{recent.summary && (
-							<p className="mt-1 line-clamp-2 text-left text-[13px] leading-relaxed text-[#6e6e73]">
-								{recent.summary}
-							</p>
-						)}
-						<p className="mt-1.5 text-left text-[11px] text-[#86868b]">
-							{formatTime(recent.timestamp)} · {statusLabel(recent.status)}
-						</p>
-					</button>
-				) : (
-					<p className="text-[13px] text-[#86868b]">还没有任务记录。</p>
-				)}
-				<div className="mt-3 flex flex-wrap gap-4">
-					<button type="button" onClick={() => onNavigate("tasks")} className="fold-home-link">
-						查看全部任务 →
-					</button>
-					{snapshot.liveContext.activeApp && (
-						<button type="button" onClick={() => onNavigate("work")} className="fold-home-link">
-							当前在 {snapshot.liveContext.activeApp} · 看轨迹 →
-						</button>
-					)}
-				</div>
-			</Card>
 		</div>
 	);
 }

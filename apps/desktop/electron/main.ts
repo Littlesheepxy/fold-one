@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ContextEngine, isClipboardRecallIntent, resolveClipboardRecall, type ContextEvent } from "@fold/context";
 import { createNangoConnectLink, openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal, openOfficeSetupInTerminal, openWorkBuddyApp, activateWorkBuddyConnectFlow, cancelConnectFlow, pollConnectFlow, resolveConnectTarget, startConnectFlow } from "@fold/connectors";
-import { saveContextEvent, listContextEvents, saveVoiceInteraction } from "@fold/memory";
+import { saveContextEvent, listContextEvents, saveVoiceInteraction, listMemoryEntities } from "@fold/memory";
 import {
 	hasPlannerApiKey,
 	recallHabitsFromUsage,
@@ -29,7 +29,11 @@ import {
 	resolveReplyPredictions,
 	setPredictTargetApp,
 } from "./predict-enrich.js";
-import { insertTextToFrontApp } from "./insert-text.js";
+import {
+	captureTextInsertionTarget,
+	clearTextInsertionTarget,
+	insertTextToFrontApp,
+} from "./insert-text.js";
 import { buildVoiceOverlayContext } from "./voice-overlay-context.js";
 import { focusApp, focusUrl } from "./focus-context.js";
 import { getAppIconDataUrl, getFirstAppIconDataUrl, resolveAppBundlePath } from "./app-icon.js";
@@ -42,6 +46,18 @@ import {
 	saveConfig,
 	type FoldConfig,
 } from "./config.js";
+import {
+	cancelPlan,
+	checkoutPlan,
+	deleteAccount,
+	getAccountState,
+	logoutAccount,
+	requestAccountCode,
+	syncAccountEntitlements,
+	updateAccountName,
+	verifyAccountCode,
+} from "./account-sync.js";
+import { loadAccountSecret } from "./secure-store.js";
 import { buildHomeSnapshot } from "./home-snapshot.js";
 import {
 	cursorPointInOverlay,
@@ -67,6 +83,11 @@ import {
 import { startHoldHotkey } from "./hotkey.js";
 import { createTray } from "./tray.js";
 import { migrateLegacyDataDir } from "./data-dir.js";
+import {
+	startMemoryConsolidationLoop,
+	stopMemoryConsolidationLoop,
+	triggerMemoryConsolidationNow,
+} from "./memory-consolidation.js";
 import { PRODUCT_NAME } from "./brand.js";
 import { createZhigengAppIcon } from "./tray-icon.js";
 import {
@@ -78,7 +99,11 @@ import {
 	resolveLocalModelPath,
 	startLocalWhisperSession,
 } from "./local-whisper.js";
-import { downloadVoicePack, getVoiceSetupStatus } from "./voice-setup.js";
+import {
+	downloadVoicePack,
+	getVoiceSetupStatus,
+	shouldUseSmartVoice,
+} from "./voice-setup.js";
 import { scanInputHabits, listInstalledInputMethods } from "./input-habit-scanner/index.js";
 import { exportInputHabitsToRime } from "./input-habit-scanner/export-rime.js";
 import {
@@ -201,7 +226,7 @@ let pendingUserAction: {
 } | null = null;
 let predictRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 let ahaGuessRunId = 0;
-const appIconCache = new Map<string, string | null>();
+const appIconCache = new Map<string, string>();
 let lastOverlayState: FoldStateEvent = { status: "idle" };
 
 function emitState(state: FoldStateEvent) {
@@ -774,27 +799,47 @@ async function structureVoiceTranscript(
 			.filter((part, index, arr) => index === 0 || part !== arr[0])
 			.join("\n\n");
 		const output = body || text;
+		if (opts.directStructured && smartAccess.usesTrial) {
+			consumeSmartActionTrial();
+		}
 		const targetApp = voiceTargetApp ?? ctx.activeApp;
 		const autoInsert = loadConfig().structureAutoInsert !== false;
 		recordVoiceInteraction("structure", text, output);
 
 		if (autoInsert) {
 			contextEngine.suppressClipboardCapture(5000);
-			await insertTextToFrontApp(output, targetApp);
-			emitState({
-				status: "done",
-				transcript: text,
-				voiceMode: "structure",
-				result: "已输入",
-				resultDetail: output,
-				voiceTabPlacement,
-				structureDraftOpen: false,
-			});
-			setTimeout(() => {
-				if (lastOverlayState.status === "done" && lastOverlayState.voiceMode === "structure") {
-					emitIdleState({ voiceMode: null });
-				}
-			}, 850);
+			const insertResult = await insertTextToFrontApp(output, targetApp);
+			console.log(
+				`[fold:voice-insert] targetApp=${targetApp ?? "—"} ok=${insertResult.ok} pasted=${insertResult.pasted}`,
+			);
+			if (insertResult.pasted) {
+				clearTextInsertionTarget();
+				emitState({
+					status: "done",
+					transcript: text,
+					voiceMode: "structure",
+					result: "已输入",
+					resultDetail: output,
+					voiceTabPlacement,
+					structureDraftOpen: false,
+				});
+				setTimeout(() => {
+					if (lastOverlayState.status === "done" && lastOverlayState.voiceMode === "structure") {
+						emitIdleState({ voiceMode: null });
+					}
+				}, 850);
+			} else {
+				emitState({
+					status: "done",
+					transcript: text,
+					voiceMode: "structure",
+					result: "转写完成，点击插入",
+					resultDetail: output,
+					voiceTabPlacement,
+					structureDraftOpen: true,
+					...buildVoiceOverlayContext(ctx),
+				});
+			}
 		} else {
 			emitState({
 				status: "done",
@@ -810,7 +855,10 @@ async function structureVoiceTranscript(
 	} catch (err) {
 		emitState({ status: "error", error: (err as Error).message, transcript: text });
 	} finally {
-		if (loadConfig().structureAutoInsert !== false) {
+		if (
+			loadConfig().structureAutoInsert !== false &&
+			lastOverlayState.structureDraftOpen !== true
+		) {
 			voiceTargetApp = null;
 		}
 	}
@@ -935,6 +983,15 @@ const IPC_HANDLE_CHANNELS = [
 	"fold:onboarding-set-voice-app",
 	"fold:onboarding-aha-guess",
 	"fold:onboarding-simulate-clipboard",
+	"fold:account-get-state",
+	"fold:account-request-code",
+	"fold:account-verify-code",
+	"fold:account-logout",
+	"fold:account-sync",
+	"fold:account-update-name",
+	"fold:account-checkout",
+	"fold:account-cancel-plan",
+	"fold:account-delete",
 ] as const;
 
 function resolveAsrRuntime() {
@@ -946,6 +1003,7 @@ function resolveAsrRuntime() {
 	const hasLocal = hasLocalWhisperModel(modelPath);
 	const hasCloud = hasRealAsr(config);
 	const tier = resolveEntitlements(config.planTier);
+	const smartAccess = resolveSmartActionAccess(config);
 
 	if (requested === "local-whisper" || requested === "local-funasr") {
 		return { provider: "local-whisper" as const, modelPath: resolvedModelPath, ready: hasLocal };
@@ -956,8 +1014,8 @@ function resolveAsrRuntime() {
 			ready: hasCloud,
 		};
 	}
-	// 会员版：自动走云端
-	if (tier.cloudAsr) {
+	// 会员或仍有智能体验次数：自动走云端；额度耗尽后回退到本地。
+	if (shouldUseSmartVoice(requested, tier.cloudAsr, smartAccess.allowed)) {
 		return {
 			provider: hasCloud ? ("dashscope" as const) : ("dashscope" as const),
 			ready: hasCloud,
@@ -983,13 +1041,32 @@ function registerIpc() {
 		return { ok: true };
 	});
 
+	ipcMain.handle("fold:account-get-state", () => getAccountState());
+	ipcMain.handle("fold:account-request-code", (_e, email: string) => requestAccountCode(email));
+	ipcMain.handle("fold:account-verify-code", (_e, input: { email: string; code: string }) =>
+		verifyAccountCode(input),
+	);
+	ipcMain.handle("fold:account-logout", () => logoutAccount());
+	ipcMain.handle("fold:account-sync", () => syncAccountEntitlements());
+	ipcMain.handle("fold:account-update-name", (_e, name: string) => updateAccountName(name));
+	ipcMain.handle(
+		"fold:account-checkout",
+		(_e, input: { productId: string }) => checkoutPlan(input),
+	);
+	ipcMain.handle("fold:account-cancel-plan", () => cancelPlan());
+	ipcMain.handle("fold:account-delete", () => deleteAccount());
+
 	ipcMain.handle("fold:get-mock-asr", () => resolveAsrRuntime().provider === "mock");
 
 	ipcMain.handle("fold:get-voice-setup", () => getVoiceSetupStatus());
 
 	ipcMain.handle("fold:download-voice-pack", () => downloadVoicePack());
 
-	ipcMain.handle("fold:get-asr-runtime", resolveAsrRuntime);
+	ipcMain.handle("fold:get-asr-runtime", () => {
+		const runtime = resolveAsrRuntime();
+		const authToken = loadAccountSecret() ?? loadConfig().hubApiKey?.trim() ?? undefined;
+		return { ...runtime, authToken };
+	});
 
 	ipcMain.handle("fold:local-asr-start", () => {
 		startLocalWhisperSession();
@@ -1134,9 +1211,11 @@ function registerIpc() {
 		const cacheKey = appPath?.endsWith(".app") ? appPath : `name:${appName ?? appPath}`;
 		if (!cacheKey || cacheKey === "name:") return null;
 		const cached = appIconCache.get(cacheKey);
-		if (cached !== undefined) return cached;
+		if (cached) return cached;
 		const dataUrl = getAppIconDataUrl(appPath, appName);
-		appIconCache.set(cacheKey, dataUrl);
+		// ponytail: 只缓存成功结果——图标一旦拿到不会变，但失败可能是瞬时的（sips 临时文件竞争等），
+		// 缓存 null 会让某个 app 的图标在整个进程生命周期内永久丢失，只能重启桌面端才能恢复。
+		if (dataUrl) appIconCache.set(cacheKey, dataUrl);
 		return dataUrl;
 	});
 
@@ -1144,13 +1223,17 @@ function registerIpc() {
 		const key = `names:${appNames.join("|")}`;
 		if (!appNames.length) return null;
 		const cached = appIconCache.get(key);
-		if (cached !== undefined) return cached;
+		if (cached) return cached;
 		const dataUrl = getFirstAppIconDataUrl(appNames);
-		appIconCache.set(key, dataUrl);
+		if (dataUrl) appIconCache.set(key, dataUrl);
 		return dataUrl;
 	});
 
 	ipcMain.handle("fold:list-episodes", () => listEpisodesForHome(50));
+
+	ipcMain.handle("fold:list-memory-entities", () => listMemoryEntities());
+
+	ipcMain.handle("fold:run-memory-consolidation", async () => triggerMemoryConsolidationNow());
 
 	ipcMain.handle("fold:get-episode", (_e, id: string) => {
 		if (!id) return null;
@@ -1307,14 +1390,16 @@ function registerIpc() {
 			return { ok: true, pasted: true };
 		}
 		const targetApp = getPredictTargetApp() ?? contextEngine.getLiveContext().activeApp;
+		const refreshedTarget = captureTextInsertionTarget();
 		overlayWindow?.setIgnoreMouseEvents(true, { forward: true });
 		contextEngine.suppressClipboardCapture(5000);
-		const result = await insertTextToFrontApp(text, targetApp);
+		const result = await insertTextToFrontApp(text, refreshedTarget?.appName ?? targetApp);
 		if (lastReplyTranscript.trim()) {
 			recordVoiceInteraction("reply", lastReplyTranscript, text);
 		}
 		lastReplyTranscript = "";
 		clearPredictTargetApp();
+		if (result.pasted) clearTextInsertionTarget();
 		emitIdleState();
 		return result;
 	});
@@ -1324,16 +1409,22 @@ function registerIpc() {
 		async (_e, text: string, targetAppName?: string | null) => {
 			const trimmed = String(text ?? "").trim();
 			if (!trimmed) return { ok: false, pasted: false };
-			await contextEngine.refreshActiveApp();
 			const targetApp =
 				String(targetAppName ?? "").trim() ||
 				voiceTargetApp ||
 				contextEngine.getLiveContext().activeApp;
+			const refreshedTarget = captureTextInsertionTarget();
 			overlayWindow?.setIgnoreMouseEvents(true, { forward: true });
 			contextEngine.suppressClipboardCapture(5000);
-			const result = await insertTextToFrontApp(trimmed, targetApp);
-			voiceTargetApp = null;
-			emitIdleState({ voiceMode: null });
+			const result = await insertTextToFrontApp(
+				trimmed,
+				refreshedTarget?.appName ?? targetApp,
+			);
+			if (result.pasted) {
+				voiceTargetApp = null;
+				clearTextInsertionTarget();
+				emitIdleState({ voiceMode: null });
+			}
 			return result;
 		},
 	);
@@ -1466,6 +1557,7 @@ function registerIpc() {
 		}
 		clearPredictTargetApp();
 		voiceTargetApp = null;
+		clearTextInsertionTarget();
 		emitIdleState();
 	});
 
@@ -1506,12 +1598,14 @@ registerIpc();
 
 async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 	if (isRecording) return;
+	// Capture synchronously before any async work so the exact focused field is retained.
+	const insertionTarget = captureTextInsertionTarget();
 	await contextEngine.refreshActiveApp();
 	voiceOutcome = outcome;
 	voiceCanUseDirectStructure =
 		outcome === "structure" && resolveAsrRuntime().provider === "dashscope";
 	const ctx = contextEngine.getLiveContext();
-	voiceTargetApp = ctx.activeApp ?? null;
+	voiceTargetApp = insertionTarget?.appName ?? ctx.activeApp ?? null;
 	isRecording = true;
 	createOverlayWindow();
 
@@ -1551,6 +1645,7 @@ async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 	}
 
 	const voiceTabPlacement = await positionOverlayForActiveContext(overlayWindow, voiceTargetApp);
+	raiseOverlayForVoiceUi();
 	emitState({
 		status: "listening",
 		transcript: "",
@@ -1586,6 +1681,7 @@ function startReplyRefineRecording() {
 	createOverlayWindow();
 	const app = voiceTargetApp ?? contextEngine.getLiveContext().activeApp;
 	void positionOverlayForActiveContext(overlayWindow, app).then((voiceTabPlacement) => {
+		raiseOverlayForVoiceUi();
 		emitState({
 			...lastOverlayState,
 			status: "predict",
@@ -1690,6 +1786,7 @@ app.whenReady().then(() => {
 	contextEngine.start();
 	hydrateContextFromDb();
 	stopHabitRecall = startHabitRecallLoop(() => recallHabitsFromUsage());
+	startMemoryConsolidationLoop();
 	createOverlayWindow();
 	registerHotkeys();
 	void refreshPredictCacheEnriched(contextEngine.getLiveContext());
@@ -1717,6 +1814,7 @@ app.whenReady().then(() => {
 app.on("will-quit", () => {
 	stopHotkey?.();
 	stopHabitRecall?.();
+	stopMemoryConsolidationLoop();
 	contextEngine.stop();
 });
 

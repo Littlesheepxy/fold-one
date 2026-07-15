@@ -37,6 +37,15 @@ export interface FoldConfig {
 	mailProvider?: string;
 	nangoSecretKey?: string;
 	hubApiKey?: string;
+	accountUserId?: string;
+	accountEmail?: string;
+	accountName?: string;
+	accountSyncedAt?: number;
+	voiceSecondsRemaining?: number;
+	smartActionsRemaining?: number;
+	voiceSecondsLimit?: number;
+	smartActionsLimit?: number;
+	periodEnd?: string;
 	playwrightMcpExtensionToken?: string;
 	asrWsUrl?: string;
 	chromeCdpUrl?: string;
@@ -217,3 +226,42 @@ export interface UserProfileData {
 	migrationArchive?: string;
 	updatedAt?: number;
 }
+
+export interface PersonMemoryValue {
+	name: string;
+	role?: string;
+	commitment?: string;
+	projectKeys?: string[];
+	episodeIds: string[];
+	lastSeenDate: string;
+	history?: Array<{ date: string; note: string }>;
+}
+
+export interface ProjectMemoryValue {
+	name: string;
+	status?: string;
+	nextStep?: string;
+	personKeys?: string[];
+	filePaths?: string[];
+	episodeIds: string[];
+	lastActiveDate: string;
+	history?: Array<{ date: string; note: string }>;
+}
+
+export type MemoryEntityRecord =
+	| {
+			id: string;
+			type: "entity.person";
+			key: string;
+			value: PersonMemoryValue;
+			confidence: number;
+			updatedAt: number;
+	  }
+	| {
+			id: string;
+			type: "entity.project";
+			key: string;
+			value: ProjectMemoryValue;
+			confidence: number;
+			updatedAt: number;
+	  };

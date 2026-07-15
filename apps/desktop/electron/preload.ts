@@ -53,6 +53,7 @@ contextBridge.exposeInMainWorld("fold", {
 			provider: "mock" | "dashscope" | "local-whisper";
 			modelPath?: string;
 			ready: boolean;
+			authToken?: string;
 		}>,
 	localAsrStart: () =>
 		ipcRenderer.invoke("fold:local-asr-start") as Promise<{ ok: boolean }>,
@@ -87,16 +88,25 @@ contextBridge.exposeInMainWorld("fold", {
 	getFirstAppIcon: (appNames: string[]) =>
 		ipcRenderer.invoke("fold:get-first-app-icon", appNames) as Promise<string | null>,
 	listEpisodes: () => ipcRenderer.invoke("fold:list-episodes") as Promise<Record<string, unknown>[]>,
+	listMemoryEntities: () =>
+		ipcRenderer.invoke("fold:list-memory-entities") as Promise<Record<string, unknown>[]>,
+	runMemoryConsolidation: () =>
+		ipcRenderer.invoke("fold:run-memory-consolidation") as Promise<{ ok: boolean; dates: string[] }>,
 	getEpisode: (id: string) =>
 		ipcRenderer.invoke("fold:get-episode", id) as Promise<Record<string, unknown> | null>,
 	predictPickIntent: (intent: string) =>
 		ipcRenderer.invoke("fold:predict-pick-intent", intent) as Promise<{ ok: boolean }>,
 	predictInsertDraft: (text: string) =>
-		ipcRenderer.invoke("fold:predict-insert-draft", text) as Promise<{ ok: boolean; pasted: boolean }>,
+		ipcRenderer.invoke("fold:predict-insert-draft", text) as Promise<{
+			ok: boolean;
+			pasted: boolean;
+			error?: string;
+		}>,
 	structureInsertDraft: (text: string, targetAppName?: string | null) =>
 		ipcRenderer.invoke("fold:structure-insert-draft", text, targetAppName) as Promise<{
 			ok: boolean;
 			pasted: boolean;
+			error?: string;
 		}>,
 	copyText: (text: string) =>
 		ipcRenderer.invoke("fold:copy-text", text) as Promise<{ ok: boolean }>,
@@ -203,6 +213,70 @@ contextBridge.exposeInMainWorld("fold", {
 	openExternal: (url: string) => ipcRenderer.invoke("fold:open-external", url) as Promise<{ ok: boolean }>,
 	saveConfig: (config: Record<string, unknown>) =>
 		ipcRenderer.invoke("fold:save-config", config) as Promise<{ ok: boolean }>,
+	accountGetState: () =>
+		ipcRenderer.invoke("fold:account-get-state") as Promise<{
+			signedIn: boolean;
+			email?: string;
+			name?: string;
+			userId?: string;
+			planTier: "free" | "pro" | "ultra";
+			voiceSecondsRemaining?: number;
+			smartActionsRemaining?: number;
+			voiceSecondsLimit?: number;
+			smartActionsLimit?: number;
+			syncedAt?: number;
+		}>,
+	accountRequestCode: (email: string) =>
+		ipcRenderer.invoke("fold:account-request-code", email) as Promise<
+			{ ok: true; mode: string } | { ok: false; error: string }
+		>,
+	accountVerifyCode: (input: { email: string; code: string }) =>
+		ipcRenderer.invoke("fold:account-verify-code", input) as Promise<
+			| { ok: true; state: Record<string, unknown> }
+			| { ok: false; error: string }
+		>,
+	accountLogout: () =>
+		ipcRenderer.invoke("fold:account-logout") as Promise<{
+			signedIn: boolean;
+			planTier: "free" | "pro" | "ultra";
+		}>,
+	accountSync: () =>
+		ipcRenderer.invoke("fold:account-sync") as Promise<{
+			signedIn: boolean;
+			email?: string;
+			name?: string;
+			userId?: string;
+			planTier: "free" | "pro" | "ultra";
+			voiceSecondsRemaining?: number;
+			smartActionsRemaining?: number;
+			syncedAt?: number;
+		}>,
+	accountUpdateName: (name: string) =>
+		ipcRenderer.invoke("fold:account-update-name", name) as Promise<
+			| { ok: true; state: Record<string, unknown> }
+			| { ok: false; error: string }
+		>,
+	accountCheckout: (input: { productId: string }) =>
+		ipcRenderer.invoke("fold:account-checkout", input) as Promise<
+			| {
+					ok: true;
+					mode: string;
+					activated?: boolean;
+					checkoutUrl?: string;
+					state: Record<string, unknown>;
+			  }
+			| { ok: false; error: string }
+		>,
+	accountCancelPlan: () =>
+		ipcRenderer.invoke("fold:account-cancel-plan") as Promise<
+			| { ok: true; state: Record<string, unknown> }
+			| { ok: false; error: string }
+		>,
+	accountDelete: () =>
+		ipcRenderer.invoke("fold:account-delete") as Promise<
+			| { ok: true; state: Record<string, unknown> }
+			| { ok: false; error: string }
+		>,
 	setMousePassthrough: (ignore: boolean) => {
 		ipcRenderer.send("fold:mouse-passthrough", ignore);
 	},
