@@ -60,7 +60,7 @@ function resolveProgressLine({
 	if (status === "planning") {
 		const thinking = thinkingText?.trim();
 		if (thinking) return pickThinkingSnippet(thinking);
-		if (list.length > 0) return list[0]?.label ?? "Fold 正在规划…";
+		if (list.length > 0) return list[0]?.label ?? "知更 正在规划…";
 	}
 
 	if (status === "understanding") {
@@ -68,7 +68,7 @@ function resolveProgressLine({
 		return intent ? intent : "正在理解任务…";
 	}
 
-	return "Fold 正在处理…";
+	return "知更 正在处理…";
 }
 
 export function ProgressLine(props: Props) {

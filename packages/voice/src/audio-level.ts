@@ -18,7 +18,12 @@ export function pcm16AudioLevel(frameBuffer: ArrayBuffer | Uint8Array | null | u
 		sumSq += sample * sample;
 	}
 	const rms = Math.sqrt(sumSq / sampleCount);
-	return Math.max(0, Math.min(1, Math.sqrt(rms) * 1.6));
+	// 用 dB 映射接近人耳对响度的感知；-45dB 以下视作环境底噪并完全静音。
+	const db = 20 * Math.log10(Math.max(rms, 1e-7));
+	if (db <= -45) return 0;
+	const normalized = Math.max(0, Math.min(1, (db + 45) / 32));
+	// 轻度压缩动态范围，让轻声可见，同时避免大声时所有柱子同时顶满。
+	return normalized ** 0.78;
 }
 
 export function smoothAudioLevel(current: number, next: number): number {

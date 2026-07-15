@@ -1,7 +1,7 @@
 import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { detectMailConnector, isAgentSubagentsEnabled, listAvailableAgents, probeBrowserCdp, probeGmailCli, probeLarkCli, probeNango, probeOfficeChannels, probePlugins, probeScreenCapture, probeSlackCli, probeUitars, probeWorkBuddyGateway, resolveMailConnector } from "@fold/connectors";
+import { detectMailConnector, isAgentSubagentsEnabled, listAvailableAgents, probeBrowserCdp, probeGmailCli, probeLarkCli, probeNango, probeOfficeChannels, probePlugins, probeScreenCapture, probeSlackCli, probeUitars, probeWorkBuddyGateway, resolveMailConnector, type AgentId } from "@fold/connectors";
 import type { LiveContext } from "@fold/context";
 import { listSkills } from "@fold/skills";
 import { mentionsDownloads } from "./capability-resolver.js";
@@ -130,14 +130,25 @@ export async function runProbes(intent: string, context: LiveContext): Promise<P
 		runProbe("agent.available", async () => {
 			const enabled = isAgentSubagentsEnabled();
 			const agents = enabled ? await listAvailableAgents() : [];
+			const preferredRaw = process.env.FOLD_PREFERRED_EXECUTOR?.trim();
+			let preferred: AgentId | null = agents[0] ?? null;
+			if (
+				preferredRaw === "claude-code" ||
+				preferredRaw === "codex" ||
+				preferredRaw === "cursor"
+			) {
+				if (agents.includes(preferredRaw)) preferred = preferredRaw;
+			}
 			return ok("agent.available", {
 				enabled,
 				agents,
-				preferred: agents[0] ?? null,
+				preferred,
 			});
 		}),
 		runProbe("uitars.available", async () => ok("uitars.available", await probeUitars())),
-		runProbe("workbuddy.available", async () => ok("workbuddy.available", await probeWorkBuddyGateway())),
+		runProbe("workbuddy.available", async () =>
+			ok("workbuddy.available", await probeWorkBuddyGateway({ requireEnabled: false })),
+		),
 	]);
 	return { probes };
 }

@@ -1,16 +1,19 @@
-import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
+import { Keyboard, Mic } from "lucide-react";
 import type { FoldConfig } from "../types.js";
-import { BRAND_ICONS, BrandIcon, ChromeIcon } from "../components/brand-icons.js";
-import { BooleanField, Field } from "../components/FormFields.js";
+import { BooleanField, ConnectionBadge, Field, StatusDot } from "../components/FormFields.js";
+import { InputHabitScannerPanel } from "./InputHabitScannerPanel.js";
+
+type VoiceSetup = Awaited<ReturnType<typeof window.fold.getVoiceSetup>>;
 
 function SettingsGroup({
 	icon,
 	title,
 	children,
 }: {
-	icon: ReactNode;
+	icon: React.ReactNode;
 	title: string;
-	children: ReactNode;
+	children: React.ReactNode;
 }) {
 	return (
 		<div className="fold-home-group">
@@ -23,164 +26,311 @@ function SettingsGroup({
 	);
 }
 
+function ShortcutRow({
+	title,
+	description,
+	keys,
+}: {
+	title: string;
+	description: string;
+	keys: string[];
+}) {
+	return (
+		<div className="fold-home-setting-row">
+			<div className="fold-home-setting-copy">
+				<span className="fold-home-setting-row-title">{title}</span>
+				<span className="fold-home-setting-row-desc">{description}</span>
+			</div>
+			<div className="fold-home-kbd-group" aria-label={`快捷键：${keys.join(" ")}`}>
+				{keys.map((key) => (
+					<kbd key={key} className="fold-home-kbd">
+						{key}
+					</kbd>
+				))}
+			</div>
+		</div>
+	);
+}
+
 export function SettingsSection({
 	config,
 	saved,
 	onUpdate,
 	onUpdateBoolean,
 	onSave,
+	onPersistBoolean,
 }: {
 	config: FoldConfig;
 	saved: boolean;
 	onUpdate: (key: keyof FoldConfig, value: string) => void;
 	onUpdateBoolean: (key: keyof FoldConfig, value: boolean) => void;
 	onSave: () => void;
+	onPersistBoolean: (key: keyof FoldConfig, value: boolean) => Promise<void>;
 }) {
+	const [voiceSetup, setVoiceSetup] = useState<VoiceSetup | null>(null);
+	const [downloading, setDownloading] = useState(false);
+	const [downloadError, setDownloadError] = useState<string | null>(null);
+	const [advancedOpen, setAdvancedOpen] = useState(false);
+
+	const planTier = config.planTier ?? "free";
+
+	const refreshVoiceSetup = () => {
+		void window.fold.getVoiceSetup().then(setVoiceSetup);
+	};
+
+	useEffect(() => {
+		refreshVoiceSetup();
+	}, [planTier, saved]);
+
+	const handleDownloadVoicePack = async () => {
+		setDownloading(true);
+		setDownloadError(null);
+		const result = await window.fold.downloadVoicePack();
+		setDownloading(false);
+		if (result.ok) {
+			refreshVoiceSetup();
+			return;
+		}
+		setDownloadError(result.error);
+	};
+
+	const voiceStatus =
+		voiceSetup?.mode === "cloud"
+			? "ok"
+			: voiceSetup?.ready
+				? "ok"
+				: voiceSetup?.mode === "download-needed"
+					? "warn"
+					: "error";
+
 	return (
-		<div className="space-y-4">
-			<SettingsGroup icon={<BrandIcon src={BRAND_ICONS.openrouter} size={20} />} title="语音 & Planner">
-				<Field
-					label="DashScope API Key（语音识别）"
-					type="password"
-					value={config.dashscopeApiKey ?? ""}
-					onChange={(v) => onUpdate("dashscopeApiKey", v)}
-					hint="留空则使用 Mock ASR 演示"
-				/>
-				<Field
-					label="OpenRouter API Key（Planner）"
-					type="password"
-					value={config.openrouterApiKey ?? ""}
-					onChange={(v) => onUpdate("openrouterApiKey", v)}
-					hint="也可在项目根 .env 里配置 OPENROUTER_API_KEY"
-				/>
-				<Field
-					label="Planner Provider"
-					value={config.plannerProvider ?? "openrouter"}
-					onChange={(v) => onUpdate("plannerProvider", v)}
-					options={["openrouter", "openai", "anthropic", "dashscope", "deepseek", "moonshot"]}
-				/>
-				<Field
-					label="Planner Model"
-					value={config.plannerModel ?? "openai/gpt-5.5"}
-					onChange={(v) => onUpdate("plannerModel", v)}
-					hint="OpenRouter 模型 ID，如 openai/gpt-5.5"
-				/>
-				<Field
-					label="ASR WebSocket URL"
-					value={config.asrWsUrl ?? "ws://localhost:3003"}
-					onChange={(v) => onUpdate("asrWsUrl", v)}
-				/>
-			</SettingsGroup>
-
-			<SettingsGroup icon={<BrandIcon src={BRAND_ICONS.zhipu} size={20} />} title="OCR & 邮件">
-				<Field
-					label="Zhipu API Key（OCR fallback）"
-					type="password"
-					value={config.zhipuApiKey ?? ""}
-					onChange={(v) => onUpdate("zhipuApiKey", v)}
-					hint="扫描件/图片 PDF 提取失败时使用"
-				/>
-				<Field
-					label="Zhipu OCR Model"
-					value={config.zhipuOcrModel ?? "glm-ocr"}
-					onChange={(v) => onUpdate("zhipuOcrModel", v)}
-				/>
-				<Field
-					label="Mail Provider"
-					value={config.mailProvider ?? "auto"}
-					onChange={(v) => onUpdate("mailProvider", v)}
-					options={["auto", "apple-mail", "gmail-cli", "gmail-nango", "gmail-web", "file"]}
-				/>
-				<Field
-					label="Playwright Bridge Token（浏览器插件）"
-					type="password"
-					value={config.playwrightMcpExtensionToken ?? ""}
-					onChange={(v) => onUpdate("playwrightMcpExtensionToken", v)}
-					hint="Chrome 装 Playwright MCP Bridge 后，在扩展状态页复制 PLAYWRIGHT_MCP_EXTENSION_TOKEN"
-				/>
-				<Field
-					label="Fold Hub API Key（托管授权）"
-					type="password"
-					value={config.hubApiKey ?? ""}
-					onChange={(v) => onUpdate("hubApiKey", v)}
-					hint="foldhub.cn → 设置 → API Keys 生成（tm_ 开头）；配置后可一键授权 Gmail 等应用"
-				/>
-				<Field
-					label="Nango Secret Key（开发者直连）"
-					type="password"
-					value={config.nangoSecretKey ?? ""}
-					onChange={(v) => onUpdate("nangoSecretKey", v)}
-					hint="仅开发者需要；app.nango.dev → Environment Settings 获取"
-				/>
-				<Field
-					label="Chrome CDP URL（Gmail Web）"
-					value={config.chromeCdpUrl ?? ""}
-					onChange={(v) => onUpdate("chromeCdpUrl", v)}
-					hint="例：http://127.0.0.1:9222"
-				/>
-			</SettingsGroup>
-
-			<SettingsGroup icon={<ChromeIcon size={20} />} title="自动化 & Agent">
-				<BooleanField
-					label="允许本地脚本执行"
-					checked={config.allowScriptExecution ?? false}
-					onChange={(v) => onUpdateBoolean("allowScriptExecution", v)}
-					hint="开启后 Planner 可以调用 os.shell / os.applescript / os.python"
-				/>
-				<BooleanField
-					label="允许脚本写文件"
-					checked={config.allowFileWrite ?? false}
-					onChange={(v) => onUpdateBoolean("allowFileWrite", v)}
-					hint="预留开关；默认关闭"
-				/>
-				<BooleanField
-					label="允许本地 Agent Subagent"
-					checked={config.allowAgentSubagents ?? false}
-					onChange={(v) => onUpdateBoolean("allowAgentSubagents", v)}
-					hint="开启后 Tier 2 / Repair 可调用本机 claude / codex / agent CLI"
-				/>
-				<BooleanField
-					label="允许 UI-TARS GUI 修复（实验）"
-					checked={config.allowUitars ?? false}
-					onChange={(v) => onUpdateBoolean("allowUitars", v)}
-					hint="原生桌面 App 视觉自动化；需配置下方 UI-TARS VLM"
-				/>
-				<Field
-					label="UI-TARS VLM Base URL"
-					value={config.uitarsVlmBaseUrl ?? "https://openrouter.ai/api/v1"}
-					onChange={(v) => onUpdate("uitarsVlmBaseUrl", v)}
-				/>
-				<Field
-					label="UI-TARS VLM API Key"
-					type="password"
-					value={config.uitarsVlmApiKey ?? ""}
-					onChange={(v) => onUpdate("uitarsVlmApiKey", v)}
-				/>
-				<Field
-					label="UI-TARS VLM Model"
-					value={config.uitarsVlmModel ?? "bytedance/ui-tars-1.5-7b"}
-					onChange={(v) => onUpdate("uitarsVlmModel", v)}
-				/>
-				<BooleanField
-					label="允许 Work Buddy 工作流"
-					checked={config.allowWorkbuddy ?? true}
-					onChange={(v) => onUpdateBoolean("allowWorkbuddy", v)}
-				/>
-				<Field
-					label="Work Buddy Gateway URL"
-					value={config.workbuddyGatewayUrl ?? "http://127.0.0.1:5126"}
-					onChange={(v) => onUpdate("workbuddyGatewayUrl", v)}
-				/>
-			</SettingsGroup>
-
-			<div className="flex items-center gap-3 pt-1">
-				<button type="button" onClick={onSave} className="fold-home-save">
-					保存
-				</button>
-				{saved && <span className="text-[13px] font-medium text-emerald-600">已保存</span>}
+		<div className="space-y-5">
+			<div>
+				<h1 className="fold-home-page-title">设置</h1>
+				<p className="fold-home-page-subtitle">快捷键、语音与应用行为</p>
 			</div>
 
-			<p className="fold-home-footnote">快捷键：⌥ Space 开始/结束语音；Esc 取消。</p>
+			<SettingsGroup icon={<Keyboard size={18} strokeWidth={1.75} />} title="键盘快捷键">
+				<div className="fold-home-settings-panel">
+					<ShortcutRow
+						title="转写"
+						description="杂乱的想法 → 清晰的文本"
+						keys={["右 ⌘", "短按"]}
+					/>
+					<div className="fold-home-settings-panel fold-home-settings-panel--nested">
+						<BooleanField
+							label="转写后自动插入输入框"
+							checked={config.structureAutoInsert !== false}
+							onChange={(v) => void onPersistBoolean("structureAutoInsert", v)}
+							hint="关闭后先在 知更 草稿窗里查看、修改，再手动插入或复制"
+						/>
+					</div>
+					<ShortcutRow
+						title="代回"
+						description="聊天上下文 → 拟好的回复"
+						keys={["右 ⌘", "按住"]}
+					/>
+					<ShortcutRow
+						title="Agent"
+						description="说出任务 → 自动执行"
+						keys={["⌥", "Space"]}
+					/>
+					<ShortcutRow
+						title="取消"
+						description="取消当前语音或任务。"
+						keys={["Esc"]}
+					/>
+				</div>
+			</SettingsGroup>
+
+			<SettingsGroup icon={<Mic size={18} strokeWidth={1.75} />} title="语音输入">
+				<div className="rounded-xl border border-black/8 bg-black/2.5 px-3.5 py-3">
+					<div className="flex items-start gap-2.5">
+						<StatusDot status={voiceStatus} />
+						<div className="min-w-0 flex-1">
+							<p className="text-[13px] font-semibold text-[#1d1d1f]">
+								{voiceSetup?.title ?? "检查语音状态…"}
+							</p>
+							<p className="mt-1 text-[11px] leading-relaxed text-[#6e6e73]">
+								{voiceSetup?.detail ??
+									(planTier === "free"
+										? "免费版在本地识别语音，无需配置。"
+										: "会员版自动使用云端识别。")}
+							</p>
+						</div>
+						<ConnectionBadge status={voiceStatus} />
+					</div>
+
+					{voiceSetup?.mode === "download-needed" && (
+						<div className="mt-3 space-y-2">
+							<button
+								type="button"
+								onClick={() => void handleDownloadVoicePack()}
+								disabled={downloading}
+								className="fold-home-save disabled:opacity-60"
+							>
+								{downloading
+									? "下载中…"
+									: `下载语音包（约 ${voiceSetup.downloadSizeMb ?? 470} MB）`}
+							</button>
+							{downloadError && (
+								<p className="text-[11px] leading-relaxed text-red-600">{downloadError}</p>
+							)}
+						</div>
+					)}
+				</div>
+			</SettingsGroup>
+
+			<div className="rounded-xl border border-black/8">
+				<button
+					type="button"
+					onClick={() => setAdvancedOpen((open) => !open)}
+					className="flex w-full items-center justify-between px-3.5 py-3 text-left"
+				>
+					<span className="text-[13px] font-medium text-[#1d1d1f]">高级设置</span>
+					<span className="text-[11px] text-[#86868b]">{advancedOpen ? "收起" : "展开"}</span>
+				</button>
+
+				{advancedOpen && (
+					<div className="space-y-4 border-t border-black/6 px-3.5 py-4">
+						<p className="text-[11px] leading-relaxed text-[#86868b]">
+							仅供开发调试或自带 API Key（BYOK）。普通用户无需修改。
+						</p>
+
+						<BooleanField
+							label="使用自己的 API Key（BYOK）"
+							checked={config.byokOverrides ?? false}
+							onChange={(v) => onUpdateBoolean("byokOverrides", v)}
+							hint="开启后智能能力走你的 Key，不消耗体验次数"
+						/>
+						<Field
+							label="DashScope API Key"
+							type="password"
+							value={config.dashscopeApiKey ?? ""}
+							onChange={(v) => onUpdate("dashscopeApiKey", v)}
+						/>
+						<Field
+							label="OpenRouter API Key"
+							type="password"
+							value={config.openrouterApiKey ?? ""}
+							onChange={(v) => onUpdate("openrouterApiKey", v)}
+						/>
+						<Field
+							label="语音识别路由（开发）"
+							value={config.asrProvider ?? "auto"}
+							onChange={(v) => onUpdate("asrProvider", v)}
+							options={["auto", "local-whisper", "dashscope"]}
+						/>
+						<Field
+							label="本地语音包路径（开发）"
+							value={config.localWhisperModelPath ?? ""}
+							onChange={(v) => onUpdate("localWhisperModelPath", v)}
+							hint="留空则使用默认路径 ~/.fold/models/ggml-small.bin"
+						/>
+						<Field
+							label="Planner Provider"
+							value={config.plannerProvider ?? "openrouter"}
+							onChange={(v) => onUpdate("plannerProvider", v)}
+							options={["openrouter", "openai", "anthropic", "dashscope", "deepseek", "moonshot"]}
+						/>
+						<Field
+							label="Planner Model"
+							value={config.plannerModel ?? "openai/gpt-5.5"}
+							onChange={(v) => onUpdate("plannerModel", v)}
+							hint="Agent 任务规划；转写/代回见下方 Fast Model"
+						/>
+						<Field
+							label="Fast Provider"
+							value={config.fastProvider ?? ""}
+							onChange={(v) => onUpdate("fastProvider", v)}
+							options={["", "openrouter", "openai", "anthropic", "dashscope", "deepseek", "moonshot"]}
+							hint="留空继承 Planner Provider"
+						/>
+						<Field
+							label="Fast Model"
+							value={config.fastModel ?? ""}
+							onChange={(v) => onUpdate("fastModel", v)}
+							hint="转写净化、代回草案。留空默认：OpenRouter→gemini-3.1-flash-lite，DashScope→qwen-flash"
+						/>
+						<Field
+							label="Zhipu API Key（OCR）"
+							type="password"
+							value={config.zhipuApiKey ?? ""}
+							onChange={(v) => onUpdate("zhipuApiKey", v)}
+						/>
+						<Field
+							label="Mail Provider"
+							value={config.mailProvider ?? "auto"}
+							onChange={(v) => onUpdate("mailProvider", v)}
+							options={["auto", "apple-mail", "gmail-cli", "gmail-nango", "gmail-web", "file"]}
+						/>
+						<Field
+							label="Playwright Bridge Token"
+							type="password"
+							value={config.playwrightMcpExtensionToken ?? ""}
+							onChange={(v) => onUpdate("playwrightMcpExtensionToken", v)}
+						/>
+						<Field
+							label="Fold Hub API Key"
+							type="password"
+							value={config.hubApiKey ?? ""}
+							onChange={(v) => onUpdate("hubApiKey", v)}
+						/>
+						<Field
+							label="Chrome CDP URL"
+							value={config.chromeCdpUrl ?? ""}
+							onChange={(v) => onUpdate("chromeCdpUrl", v)}
+						/>
+						<BooleanField
+							label="允许本地脚本执行"
+							checked={config.allowScriptExecution ?? false}
+							onChange={(v) => onUpdateBoolean("allowScriptExecution", v)}
+						/>
+						<BooleanField
+							label="允许 Agent Subagent"
+							checked={config.allowAgentSubagents ?? false}
+							onChange={(v) => onUpdateBoolean("allowAgentSubagents", v)}
+							hint="通常由「连接」页执行模式管理；此处供开发覆盖"
+						/>
+						<BooleanField
+							label="允许 UI-TARS（实验）"
+							checked={config.allowUitars ?? false}
+							onChange={(v) => onUpdateBoolean("allowUitars", v)}
+						/>
+						<BooleanField
+							label="允许 Work Buddy"
+							checked={config.allowWorkbuddy ?? true}
+							onChange={(v) => onUpdateBoolean("allowWorkbuddy", v)}
+							hint="通常由「连接」页执行模式管理"
+						/>
+
+						<div className="rounded-lg border border-black/6 bg-[#fafafa] px-3 py-3">
+							<p className="text-[12px] font-medium text-[#1d1d1f]">引导流程（测试）</p>
+							<p className="mt-1 text-[11px] leading-relaxed text-[#86868b]">
+								重新打开首启引导窗口，从辅助功能步骤开始。无需手动改 config.json。
+							</p>
+							<button
+								type="button"
+								className="fold-home-save mt-2"
+								onClick={() => void window.fold.openOnboarding({ reset: true })}
+							>
+								打开引导
+							</button>
+						</div>
+
+						<InputHabitScannerPanel />
+
+						<div className="flex items-center gap-3 pt-1">
+							<button type="button" onClick={onSave} className="fold-home-save">
+								保存高级设置
+							</button>
+							{saved && (
+								<span className="text-[13px] font-medium text-emerald-600">已保存</span>
+							)}
+						</div>
+					</div>
+				)}
+			</div>
 		</div>
 	);
 }

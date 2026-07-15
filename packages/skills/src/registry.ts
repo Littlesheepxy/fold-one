@@ -1,5 +1,6 @@
 import {
 	clipboardRead,
+	clipboardRecall,
 	finderLatestDownload,
 	mailCountUnread,
 	mailDraft,
@@ -7,7 +8,7 @@ import {
 	pdfExtract,
 } from "./builtin/index.js";
 import * as agentSkill from "./builtin/agent.js";
-import { browserCurrentPage, browserInteractSkill } from "./builtin/browser.js";
+import { browserCurrentPage, browserEvaluateSkill, browserInteractSkill } from "./builtin/browser.js";
 import { feishuMailTriage } from "./builtin/feishu.js";
 import { guiUitars } from "./builtin/gui.js";
 import { officeCli } from "./builtin/office.js";
@@ -21,6 +22,16 @@ import type { SkillContext, SkillDefinition, SkillStepView, SkillValidator } fro
 
 function findStep(results: SkillStepView[], skill: string): SkillStepView | undefined {
 	return results.find((r) => r.skill === skill);
+}
+
+/** exitOk 类规则须对计划中每一个同 skill 步骤生效，防止"第一步成功、后续失败"漏报。 */
+function everyStepOk(
+	results: SkillStepView[],
+	skill: string,
+	check: (step: SkillStepView) => boolean,
+): boolean {
+	const steps = results.filter((r) => r.skill === skill);
+	return steps.length > 0 && steps.every(check);
 }
 
 const REGISTRY: SkillDefinition[] = [
@@ -82,6 +93,19 @@ const REGISTRY: SkillDefinition[] = [
 		catalogDoc: "clipboard.read: {} -> { text }",
 	},
 	{
+		id: "clipboard.recall",
+		handler: clipboardRecall,
+		label: "找回复制记录",
+		catalogDoc: "clipboard.recall: { query: string } -> { ok, summary, text?, entry? }",
+		validators: {
+			"clipboard.recall.ok": (results) => {
+				const step = findStep(results, "clipboard.recall");
+				const output = step?.output as { ok?: boolean } | undefined;
+				return step?.status === "success" && output?.ok === true;
+			},
+		},
+	},
+	{
 		id: "browser.currentPage",
 		handler: browserCurrentPage,
 		label: "读取浏览器页面",
@@ -93,6 +117,28 @@ const REGISTRY: SkillDefinition[] = [
 				const output = page?.output as { url?: string } | undefined;
 				return page?.status === "success" && Boolean(output?.url);
 			},
+		},
+	},
+	{
+		id: "browser.evaluate",
+		handler: browserEvaluateSkill,
+		label: "浏览器执行 JS",
+		catalogDoc: [
+			'browser.evaluate: { code: string, url?: string, urlPattern?: string } -> { value, mode, targetUrl } (runs JS in the user\'s real Chrome, login state preserved)',
+			'  code must be a function expression, e.g. "() => JSON.stringify([...document.querySelectorAll(\'a[href]\')].map(a => ({text: a.innerText.trim(), href: a.href})))".',
+			"  Return JSON-serializable data (stringify complex values). Target page: url (navigate) > urlPattern (regex matched against the user's open tabs, e.g. \"baidu\") > the tab the user is looking at.",
+			'  When the user refers to a specific open page (e.g. 百度页面), pass urlPattern like "baidu" instead of guessing a url.',
+			"  Prefer this over os.applescript for reading/scraping web pages.",
+		].join("\n"),
+		validators: {
+			"browser.evaluate.ok": (results) =>
+				everyStepOk(
+					results,
+					"browser.evaluate",
+					(s) =>
+						s.status === "success" &&
+						(s.output as { value?: unknown } | undefined)?.value !== undefined,
+				),
 		},
 	},
 	{
@@ -172,17 +218,19 @@ const REGISTRY: SkillDefinition[] = [
 		catalogDoc: [
 			'office.cli: { channel: "feishu"|"github"|"dingtalk"|"wecom"|"slack", args: string[] } -> { ok, stdout, stderr, exitCode }',
 			"  Runs the channel's official CLI in execFile mode (no shell/pipes). Channel binaries: feishu=lark-cli, github=gh, dingtalk=dws, wecom=wecom-cli.",
-			"  Feishu covers bitable(base)/docs/sheets/calendar/im/drive/wiki, e.g.:",
-			'    多维表格插记录: args ["base","+record-batch-create","--params","{...}","--data","{...}"]',
-			'    任意飞书 API: args ["api","GET","/open-apis/..."]; 查参数: args ["schema","<service.resource.method>"]',
+			"  Feishu covers bitable(base)/docs/sheets/calendar/im/drive/wiki. Prefer the generic api form (path params inline, body via --data):",
+			'    新建多维表格: args ["api","POST","/open-apis/bitable/v1/apps","--data","{\\"name\\":\\"...\\"}"] -> stdout data.app.app_token + data.app.default_table_id + data.app.url',
+			'    批量插记录: args ["api","POST","/open-apis/bitable/v1/apps/<app_token>/tables/<table_id>/records/batch_create","--data","{\\"records\\":[{\\"fields\\":{...}}]}"]',
+			'    查参数: args ["schema","<service.resource.method>"]',
 			"  钉钉(dws)覆盖 AI表格/日历/文档/待办/审批; 企业微信(wecom-cli)覆盖 文档/智能表格/日程/待办/消息。加 --format json 获取可解析输出。",
 		].join("\n"),
 		validators: {
-			"office.cli.exitOk": (results) => {
-				const step = findStep(results, "office.cli");
-				const output = step?.output as { ok?: boolean } | undefined;
-				return step?.status === "success" && output?.ok === true;
-			},
+			"office.cli.exitOk": (results) =>
+				everyStepOk(
+					results,
+					"office.cli",
+					(s) => s.status === "success" && (s.output as { ok?: boolean } | undefined)?.ok === true,
+				),
 		},
 	},
 	{
@@ -194,11 +242,12 @@ const REGISTRY: SkillDefinition[] = [
 			'  Runs a user-installed plugin CLI in execFile mode. Only use plugin ids listed under "Installed plugins" below.',
 		].join("\n"),
 		validators: {
-			"plugin.cli.exitOk": (results) => {
-				const step = findStep(results, "plugin.cli");
-				const output = step?.output as { ok?: boolean } | undefined;
-				return step?.status === "success" && output?.ok === true;
-			},
+			"plugin.cli.exitOk": (results) =>
+				everyStepOk(
+					results,
+					"plugin.cli",
+					(s) => s.status === "success" && (s.output as { ok?: boolean } | undefined)?.ok === true,
+				),
 		},
 	},
 	{
@@ -228,11 +277,14 @@ const REGISTRY: SkillDefinition[] = [
 			"  This is execFile mode: command must be a single executable name, not sh/bash/zsh; no pipes or redirects.",
 		].join("\n"),
 		validators: {
-			"os.shell.exitOk": (results) => {
-				const shell = findStep(results, "os.shell");
-				const output = shell?.output as { exitCode?: number } | undefined;
-				return shell?.status === "success" && output?.exitCode === 0;
-			},
+			"os.shell.exitOk": (results) =>
+				everyStepOk(
+					results,
+					"os.shell",
+					(s) =>
+						s.status === "success" &&
+						(s.output as { exitCode?: number } | undefined)?.exitCode === 0,
+				),
 			"os.stdout.nonEmpty": (results) => {
 				const shell = findStep(results, "os.shell");
 				const output = shell?.output as { stdout?: string } | undefined;
@@ -276,11 +328,14 @@ const REGISTRY: SkillDefinition[] = [
 			"  Prefer inline code; only pass scriptPath for a file that already exists. Print the final answer to stdout.",
 		].join("\n"),
 		validators: {
-			"os.python.exitOk": (results) => {
-				const step = findStep(results, "os.python");
-				const output = step?.output as { exitCode?: number } | undefined;
-				return step?.status === "success" && output?.exitCode === 0;
-			},
+			"os.python.exitOk": (results) =>
+				everyStepOk(
+					results,
+					"os.python",
+					(s) =>
+						s.status === "success" &&
+						(s.output as { exitCode?: number } | undefined)?.exitCode === 0,
+				),
 		},
 	},
 ];
@@ -319,6 +374,36 @@ export function buildSkillCatalog(): string {
 /** 步骤中文名，从 manifest 派生。 */
 export function labelForSkill(skill: string): string {
 	return REGISTRY.find((s) => s.id === skill)?.label ?? skill;
+}
+
+const OFFICE_CHANNEL_LABELS: Record<string, string> = {
+	feishu: "飞书",
+	github: "GitHub",
+	dingtalk: "钉钉",
+	wecom: "企业微信",
+	slack: "Slack",
+};
+
+/** 带上下文的中文步骤名（如 office.cli → 飞书 CLI）。 */
+export function labelForStep(
+	skill: string,
+	ctx?: { output?: unknown; args?: Record<string, unknown> },
+): string {
+	if (skill === "office.cli") {
+		const channel =
+			(ctx?.output as { channel?: string } | undefined)?.channel ??
+			(typeof ctx?.args?.channel === "string" ? ctx.args.channel : undefined);
+		if (channel && OFFICE_CHANNEL_LABELS[channel]) {
+			return `${OFFICE_CHANNEL_LABELS[channel]} CLI`;
+		}
+	}
+	if (skill === "plugin.cli") {
+		const plugin =
+			(ctx?.output as { plugin?: string } | undefined)?.plugin ??
+			(typeof ctx?.args?.plugin === "string" ? ctx.args.plugin : undefined);
+		if (typeof plugin === "string" && plugin.trim()) return `${plugin} CLI`;
+	}
+	return labelForSkill(skill);
 }
 
 /** 合并全部 manifest 的验证规则表。 */

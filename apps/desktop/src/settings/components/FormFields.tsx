@@ -90,10 +90,46 @@ export function Card({
 	);
 }
 
-export function StatusDot({ status }: { status: "ok" | "warn" | "error" }) {
+export function StatusDot({
+	status,
+}: {
+	status: "ok" | "warn" | "error" | "off";
+}) {
 	const color =
-		status === "ok" ? "bg-emerald-500" : status === "warn" ? "bg-amber-400" : "bg-[#c7c7cc]";
-	return <span className={`inline-block h-2 w-2 rounded-full ${color}`} />;
+		status === "ok"
+			? "bg-emerald-500"
+			: status === "warn"
+				? "bg-amber-400"
+				: status === "off"
+					? "bg-[#c7c7cc]"
+					: "bg-[#c7c7cc]";
+	return <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${color}`} />;
+}
+
+export function IosSwitch({
+	checked,
+	onChange,
+	disabled,
+	ariaLabel,
+}: {
+	checked: boolean;
+	onChange: (v: boolean) => void;
+	disabled?: boolean;
+	ariaLabel: string;
+}) {
+	return (
+		<button
+			type="button"
+			role="switch"
+			aria-checked={checked}
+			aria-label={ariaLabel}
+			disabled={disabled}
+			className={`fold-ios-switch${checked ? " is-on" : ""}`}
+			onClick={() => onChange(!checked)}
+		>
+			<span className="fold-ios-switch-thumb" />
+		</button>
+	);
 }
 
 export function formatTime(ts: number) {

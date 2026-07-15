@@ -11,6 +11,8 @@ export interface EpisodeStep {
 	status: string;
 	durationMs: number;
 	error?: string;
+	/** 展示用步骤名（含渠道，如「飞书 CLI」） */
+	label?: string;
 }
 
 export interface EpisodeSummary {
@@ -119,7 +121,7 @@ export interface RawContextEventInput {
 
 let db: Database.Database | null = null;
 
-function getDb(dataDir?: string): Database.Database {
+export function getDb(dataDir?: string): Database.Database {
 	if (db) return db;
 	const dir = (dataDir ?? process.env.FOLD_DATA_DIR ?? join(homedir(), ".fold")).replace(
 		/^~/,
@@ -188,6 +190,120 @@ export function saveContextEvent(event: RawContextEventInput, dataDir?: string):
 			JSON.stringify(event.data),
 			"raw",
 		);
+}
+
+const CONTEXT_EVENT_RETENTION_MS = 4 * 60 * 60 * 1000;
+
+export type ContextEventRow = {
+	id: string;
+	type: string;
+	source: string;
+	timestamp: number;
+	data: Record<string, unknown>;
+};
+
+function mapContextEventRows(
+	rows: Array<{
+		id: string;
+		timestamp: number;
+		type: string;
+		source: string;
+		data_json: string;
+	}>,
+): ContextEventRow[] {
+	return rows.map((row) => ({
+		id: row.id,
+		timestamp: row.timestamp,
+		type: row.type,
+		source: row.source,
+		data: JSON.parse(row.data_json) as Record<string, unknown>,
+	}));
+}
+
+export function listContextEvents(
+	limit = 400,
+	dataDir?: string,
+	sinceMs = Date.now() - CONTEXT_EVENT_RETENTION_MS,
+): ContextEventRow[] {
+	const conn = getDb(dataDir);
+	const rows = conn
+		.prepare(
+			`SELECT id, timestamp, type, source, data_json
+			 FROM context_events
+			 WHERE timestamp >= ?
+			 ORDER BY timestamp DESC
+			 LIMIT ?`,
+		)
+		.all(sinceMs, limit) as Array<{
+		id: string;
+		timestamp: number;
+		type: string;
+		source: string;
+		data_json: string;
+	}>;
+
+	return mapContextEventRows(rows.reverse());
+}
+
+/** 按时间范围拉取 context_events（整固用，不受 4 小时窗口限制）。 */
+export function listContextEventsInRange(
+	startMs: number,
+	endMs: number,
+	dataDir?: string,
+): ContextEventRow[] {
+	const conn = getDb(dataDir);
+	const rows = conn
+		.prepare(
+			`SELECT id, timestamp, type, source, data_json
+			 FROM context_events
+			 WHERE timestamp >= ? AND timestamp <= ?
+			 ORDER BY timestamp ASC`,
+		)
+		.all(startMs, endMs) as Array<{
+		id: string;
+		timestamp: number;
+		type: string;
+		source: string;
+		data_json: string;
+	}>;
+	return mapContextEventRows(rows);
+}
+
+export interface ClipboardHistoryRow {
+	id: string;
+	timestamp: number;
+	text: string;
+	appName: string | null;
+	windowTitle: string | null;
+	appPath: string | null;
+}
+
+/** 从 context_events 提取用户复制记录，供召回与展示。 */
+export function listClipboardHistory(
+	limit = 50,
+	dataDir?: string,
+	sinceMs = Date.now() - CONTEXT_EVENT_RETENTION_MS,
+): ClipboardHistoryRow[] {
+	const events = listContextEvents(limit * 4, dataDir, sinceMs).filter(
+		(e) => e.type === "clipboard.changed",
+	);
+	const items: ClipboardHistoryRow[] = [];
+	let lastText = "";
+	for (const event of events) {
+		if (event.data.origin === "fold") continue;
+		const text = typeof event.data.text === "string" ? event.data.text.trim() : "";
+		if (text.length < 4 || text === lastText) continue;
+		lastText = text;
+		items.push({
+			id: event.id,
+			timestamp: event.timestamp,
+			text,
+			appName: typeof event.data.appName === "string" ? event.data.appName : null,
+			windowTitle: typeof event.data.windowTitle === "string" ? event.data.windowTitle : null,
+			appPath: typeof event.data.appPath === "string" ? event.data.appPath : null,
+		});
+	}
+	return items.slice(-limit).reverse();
 }
 
 function ensureColumn(conn: Database.Database, table: string, column: string, type: string) {
@@ -308,6 +424,15 @@ export function listRecentEpisodes(limit = 5, dataDir?: string): Episode[] {
 	return conn
 		.prepare(`${EPISODE_SELECT} ORDER BY timestamp DESC LIMIT ?`)
 		.all(limit)
+		.map((row) => mapEpisodeRow(row as EpisodeRow));
+}
+
+/** 按时间范围拉取 episodes（整固用）。 */
+export function listEpisodesInRange(startMs: number, endMs: number, dataDir?: string): Episode[] {
+	const conn = getDb(dataDir);
+	return conn
+		.prepare(`${EPISODE_SELECT} WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp ASC`)
+		.all(startMs, endMs)
 		.map((row) => mapEpisodeRow(row as EpisodeRow));
 }
 

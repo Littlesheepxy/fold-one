@@ -1,13 +1,35 @@
 import { animate, motion, AnimatePresence, useMotionValue } from "framer-motion";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useOverlayStore } from "./useOverlayStore";
 import { useVoiceHandlers } from "./useVoice";
+import { useProcessingFill, PROCESSING_FILL_COMPLETE } from "./useProcessingFill";
 import { useMousePassthrough } from "./useMousePassthrough";
-import { DotMatrixLoader } from "./components/DotMatrixLoader";
+import { GreenCheckMark } from "./components/GreenCheckMark";
+import { VoiceWave } from "./components/VoiceWave";
 import { StepList } from "./components/StepList";
 import { ProgressLine } from "./components/ProgressLine";
-import { TranscriptScroll } from "./components/TranscriptScroll";
 import { AskOptions } from "./components/AskOptions";
+import { PredictConfirmCard } from "./components/PredictConfirmCard";
+import { voiceSurfaceLabel } from "../lib/page-context";
+import { StructureDraftCard } from "./components/StructureDraftCard";
+import { ContextAppIcon } from "./components/ContextAppIcon";
+import { playFoldSoundForStatus, preloadFoldSounds } from "./sounds.js";
+import { ZhigengLogoMark } from "../components/ZhigengLogoMark";
+import { PRODUCT_NAME } from "../brand/constants";
+import {
+	type DisplayBounds,
+	type WidgetPosition,
+	DOCKED_WIDTH,
+	ORB_SIZE,
+	clampDragX,
+	clampWidgetPosition,
+	clampY,
+	defaultWidgetPosition,
+	dockedX,
+	expandedX,
+	isUsableSavedPosition,
+	resolveSnapSide,
+} from "./widget-position";
 
 function friendlyError(raw: string | null | undefined): string {
 	if (!raw) return "出错了";
@@ -19,48 +41,6 @@ function friendlyError(raw: string | null | undefined): string {
 	}
 	if (raw.includes("mail.draft.exists")) return "邮件草稿创建失败";
 	return raw.replace(/^Validation failed:\s*/i, "");
-}
-
-function playExpandSound() {
-	try {
-		const AudioContextClass = window.AudioContext;
-		const ctx = new AudioContextClass();
-		const osc = ctx.createOscillator();
-		const gain = ctx.createGain();
-
-		osc.type = "sine";
-		osc.frequency.setValueAtTime(520, ctx.currentTime);
-		osc.frequency.exponentialRampToValueAtTime(780, ctx.currentTime + 0.12);
-		gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-		gain.gain.exponentialRampToValueAtTime(0.08, ctx.currentTime + 0.02);
-		gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.18);
-		osc.connect(gain);
-		gain.connect(ctx.destination);
-		osc.start();
-		osc.stop(ctx.currentTime + 0.2);
-		setTimeout(() => void ctx.close(), 260);
-	} catch {
-		// Audio can be blocked until the first user gesture.
-	}
-}
-
-function FoldLogo({ className = "" }: { className?: string }) {
-	return (
-		<svg
-			className={`fold-logo-mark ${className}`}
-			viewBox="0 0 32 28"
-			fill="none"
-			aria-hidden="true"
-		>
-			<path
-				d="M6 7.5L16 18.5L26 7.5"
-				stroke="currentColor"
-				strokeWidth="8"
-				strokeLinecap="round"
-				strokeLinejoin="round"
-			/>
-		</svg>
-	);
 }
 
 function HomeIcon() {
@@ -210,55 +190,99 @@ function MultiColorBorderBeam({
 }
 
 function compactSummary(result: string | null | undefined) {
-	return result ?? "Fold 已完成任务";
+	return result ?? `${PRODUCT_NAME} 已完成任务`;
 }
 
-const EDGE_GAP = 12;
-const ORB_SIZE = 48;
-const DOCKED_WIDTH = 78;
+function PredictSuggestions({
+	anchor,
+	suggestions,
+	mode,
+	onRun,
+	onDismiss,
+}: {
+	anchor: string | null | undefined;
+	suggestions: Array<{ intent: string; label: string; confidence: number; reason: string }>;
+	mode: string | null | undefined;
+	onRun: (intent: string) => void;
+	onDismiss: () => void;
+}) {
+	if (mode === "silent" || !suggestions.length) {
+		const isLoading = anchor?.includes("正在读取");
+		return (
+			<div className="min-w-0 flex-1">
+				<p className="text-sm font-medium whitespace-nowrap">
+					{isLoading ? anchor : "暂无高把握推荐"}
+				</p>
+				{!isLoading && (
+					<p className="mt-1 text-xs text-white/45">多执行几次任务后，{PRODUCT_NAME} 会根据你的习惯预测下一步</p>
+				)}
+				{!isLoading && (
+					<button
+						type="button"
+						onClick={(e) => {
+							e.stopPropagation();
+							onDismiss();
+						}}
+						className="mt-2 rounded-full bg-white/10 px-2.5 py-1 text-xs text-white/70 hover:bg-white/20"
+					>
+						关闭
+					</button>
+				)}
+			</div>
+		);
+	}
+
+	return (
+		<div className="min-w-0 flex-1 space-y-2">
+			<div>
+				<p className="text-sm font-medium">猜你想做</p>
+				{anchor && (
+					<p className="mt-0.5 truncate text-xs text-white/50" title={anchor}>
+						📍 {anchor}
+					</p>
+				)}
+			</div>
+			<ul className="space-y-1.5">
+				{suggestions.map((s) => (
+					<li key={s.intent}>
+						<button
+							type="button"
+							className="fold-predict-chip w-full text-left"
+							title={`${s.reason} · ${s.intent}`}
+							onClick={(e) => {
+								e.stopPropagation();
+								onRun(s.intent);
+							}}
+						>
+							<span className="block truncate text-[13px] font-medium text-white">{s.label}</span>
+							<span className="mt-0.5 block truncate text-[10px] text-white/45">{s.reason}</span>
+						</button>
+					</li>
+				))}
+			</ul>
+			<button
+				type="button"
+				onClick={(e) => {
+					e.stopPropagation();
+					onDismiss();
+				}}
+				className="text-[10px] text-white/40 hover:text-white/60"
+			>
+				Esc 关闭
+			</button>
+		</div>
+	);
+}
+
 const PANEL_SAFE_WIDTH = 460;
-const SNAP_THRESHOLD = 28;
-const DOCK_PEEK = 52;
 
-type SnapSide = "left" | "right" | null;
-interface WidgetPosition {
-	x: number;
-	y: number;
-	snapSide?: SnapSide;
-}
-
-function clampY(y: number) {
-	return Math.min(Math.max(EDGE_GAP, y), window.innerHeight - ORB_SIZE - EDGE_GAP);
-}
-
-function clampDragX(x: number) {
-	return Math.min(Math.max(EDGE_GAP, x), window.innerWidth - ORB_SIZE - EDGE_GAP);
-}
-
-function resolveSnapSide(x: number): SnapSide {
-	if (x <= SNAP_THRESHOLD) return "left";
-	if (x + ORB_SIZE >= window.innerWidth - SNAP_THRESHOLD) return "right";
-	return null;
-}
-
-function dockedX(side: Exclude<SnapSide, null>) {
-	return side === "left" ? -(DOCKED_WIDTH - DOCK_PEEK) : window.innerWidth - DOCK_PEEK;
-}
-
-function clampWidgetPosition(pos: WidgetPosition): WidgetPosition {
-	const snapSide = pos.snapSide ?? resolveSnapSide(pos.x);
+function fallbackDisplayBounds(): DisplayBounds {
 	return {
-		x: snapSide ? dockedX(snapSide) : clampDragX(pos.x),
-		y: clampY(pos.y),
-		snapSide,
+		x: 0,
+		y: 0,
+		width: typeof window !== "undefined" ? window.innerWidth : 1512,
+		height: typeof window !== "undefined" ? window.innerHeight : 900,
 	};
-}
-
-function expandedX(anchorX: number, width: number, snapSide: SnapSide) {
-	const dockInset = DOCKED_WIDTH - DOCK_PEEK;
-	if (snapSide === "left") return -dockInset;
-	if (snapSide === "right") return window.innerWidth - width + dockInset;
-	return Math.min(Math.max(EDGE_GAP, anchorX), Math.max(EDGE_GAP, window.innerWidth - width - EDGE_GAP));
 }
 
 export function OverlayApp() {
@@ -276,29 +300,37 @@ export function OverlayApp() {
 		askMessage,
 		askHint,
 		askOptions,
+		voiceMode,
+		predictMode,
+		predictPhase,
+		predictSurface,
+		predictAnchor,
+		predictSuggestions,
+		predictDrafts,
+		predictSelectedIntent,
+		predictDraftsLoading,
+		predictCursor,
+		contextAppName,
+		contextAppPath,
+		contextWindowTitle,
+		contextPageUrl,
+		contextPageLabel,
+		predictRefining,
+		voiceTabPlacement,
+		voiceHint,
+		widgetDisplayBounds,
+		structureDraftOpen,
+		voiceLevel,
 		setState,
+		setVoiceLevel,
 	} = useOverlayStore();
 
 	const [mockAsr, setMockAsr] = useState(true);
 	const [detailsOpen, setDetailsOpen] = useState(false);
 	const [panelOpen, setPanelOpen] = useState(false);
-	const initialPosition = useRef(
-		(() => {
-		if (typeof window === "undefined") return { x: 32, y: 32, snapSide: null };
-		const saved = window.localStorage.getItem("fold-widget-position");
-		if (saved) {
-			try {
-				return clampWidgetPosition(JSON.parse(saved) as WidgetPosition);
-			} catch {
-				// ignore corrupt localStorage
-			}
-		}
-		return clampWidgetPosition({
-			x: Math.max(24, window.innerWidth - 92),
-			y: Math.max(24, window.innerHeight - 128),
-		});
-		})(),
-	);
+	const [displayBounds, setDisplayBounds] = useState<DisplayBounds>(fallbackDisplayBounds);
+	const [bootstrapped, setBootstrapped] = useState(false);
+	const initialPosition = useRef<WidgetPosition>({ x: 0, y: 0, snapSide: null });
 	const x = useMotionValue(initialPosition.current.x);
 	const y = useMotionValue(initialPosition.current.y);
 	const positionRef = useRef(initialPosition.current);
@@ -311,48 +343,197 @@ export function OverlayApp() {
 	useVoiceHandlers();
 	useMousePassthrough();
 
+	const applyWidgetPosition = (pos: WidgetPosition, area: DisplayBounds) => {
+		const next = clampWidgetPosition(pos, area);
+		x.set(next.x);
+		y.set(next.y);
+		positionRef.current = next;
+		setAnchorPosition(next);
+		window.localStorage.setItem("fold-widget-position", JSON.stringify(next));
+		return next;
+	};
+
+	const bootstrapWidgetPosition = (area: DisplayBounds) => {
+		const saved = window.localStorage.getItem("fold-widget-position");
+		let seed = defaultWidgetPosition(area);
+		if (saved) {
+			try {
+				const parsed = JSON.parse(saved) as WidgetPosition;
+				if (isUsableSavedPosition(parsed, area)) {
+					seed = clampWidgetPosition({ x: parsed.x, y: parsed.y, snapSide: parsed.snapSide ?? null }, area);
+				}
+			} catch {
+				// ignore corrupt localStorage
+			}
+		}
+		setDisplayBounds(area);
+		initialPosition.current = applyWidgetPosition(seed, area);
+		setBootstrapped(true);
+	};
+
+	const boundsKey = widgetDisplayBounds
+		? `${widgetDisplayBounds.x}:${widgetDisplayBounds.y}:${widgetDisplayBounds.width}:${widgetDisplayBounds.height}`
+		: "";
+
+	useLayoutEffect(() => {
+		if (!widgetDisplayBounds) return;
+		bootstrapWidgetPosition(widgetDisplayBounds);
+	}, [boundsKey]);
+
 	useEffect(() => {
-		void window.fold.getUseMockAsr().then(setMockAsr);
+		const syncViewport = () => {
+			const w = window.innerWidth;
+			const h = window.innerHeight;
+			for (const el of [document.documentElement, document.body, document.getElementById("root")]) {
+				if (!el) continue;
+				el.style.width = `${w}px`;
+				el.style.height = `${h}px`;
+			}
+		};
+		syncViewport();
+		window.addEventListener("resize", syncViewport);
+		return () => window.removeEventListener("resize", syncViewport);
 	}, []);
 
 	useEffect(() => {
-		if (prevStatusRef.current === "idle" && status !== "idle") {
-			playExpandSound();
-		}
-		if (status !== "done") setDetailsOpen(false);
-		if (status !== "idle") setPanelOpen(false);
-		if (status !== "idle") setIdleRailOpen(false);
-		prevStatusRef.current = status;
-	}, [status]);
+		if (widgetDisplayBounds) return;
+		let cancelled = false;
+		void (async () => {
+			try {
+				const area = await window.fold.getDisplayWorkArea();
+				if (cancelled) return;
+				bootstrapWidgetPosition(area);
+			} catch {
+				if (cancelled) return;
+				const state = await window.fold.getOverlayState();
+				if (state.widgetDisplayBounds) {
+					bootstrapWidgetPosition(state.widgetDisplayBounds);
+				}
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [widgetDisplayBounds]);
 
 	useEffect(() => {
 		return window.fold.onState((state) => setState(state));
 	}, [setState]);
 
 	useEffect(() => {
-		const tHandler = (e: Event) => {
-			const text = (e as CustomEvent<string>).detail;
-			setState({ transcript: text, status: "listening" });
-		};
-		window.addEventListener("fold:transcript-local", tHandler);
-		return () => {
-			window.removeEventListener("fold:transcript-local", tHandler);
-		};
+		void window.fold.getOverlayState().then((state) => setState(state));
 	}, [setState]);
 
-	const isExecuting = status === "understanding" || status === "planning" || status === "working";
+	useEffect(() => {
+		void window.fold.getUseMockAsr().then(setMockAsr);
+	}, []);
+
+	useEffect(() => {
+		preloadFoldSounds();
+	}, []);
+
+	useEffect(() => {
+		const prev = prevStatusRef.current;
+		playFoldSoundForStatus(prev, status, voiceMode);
+		if (status !== "done") setDetailsOpen(false);
+		if (status !== "idle" && status !== "predict") setPanelOpen(false);
+		if (status !== "idle") setIdleRailOpen(false);
+		prevStatusRef.current = status;
+	}, [status, voiceMode]);
+
+	useEffect(() => {
+		const handler = (e: Event) => {
+			const level = (e as CustomEvent<number>).detail;
+			if (typeof level === "number") setVoiceLevel(level);
+		};
+		window.addEventListener("fold:voice-level-local", handler);
+		const off = window.fold.onVoiceLevel((level) => setVoiceLevel(level));
+		return () => {
+			window.removeEventListener("fold:voice-level-local", handler);
+			off();
+		};
+	}, [setVoiceLevel]);
+
+	useEffect(() => {
+		if (status !== "listening") setVoiceLevel(0);
+	}, [status, setVoiceLevel]);
+
+	const isAgentExecuting =
+		status === "understanding" || status === "planning" || status === "working";
+	const isVoiceFormatting = status === "formatting";
+	const isVoiceAssist = voiceMode === "structure" || voiceMode === "reply";
+	const usesFillProgress =
+		isVoiceAssist && (status === "formatting" || status === "done");
+	const fillProgress = useProcessingFill(status, usesFillProgress);
+	const fillComplete = fillProgress >= PROCESSING_FILL_COMPLETE;
 	const isAuthPrompt = status === "ask";
-	const collapsed = status === "idle" && !panelOpen;
+	const isPredictCard = status === "predict" && Boolean(predictCursor);
+	const isStructureDraftCard = Boolean(structureDraftOpen) && voiceMode === "structure";
+	const voiceSurface = voiceSurfaceLabel({
+		voiceMode,
+		contextPageUrl,
+		contextPageLabel,
+		contextWindowTitle,
+	});
+	const inputScene =
+		isVoiceAssist &&
+		(status === "listening" || isVoiceFormatting || status === "done");
+	const replyPredictScene =
+		status === "predict" && predictSurface === "reply" && Boolean(voiceTabPlacement);
+	const voiceTabAnchorScene = inputScene || replyPredictScene;
+
+	const inputSettling = inputScene && status === "done" && !fillComplete;
+	const isVoiceFormattingActive = isVoiceFormatting || inputSettling;
+	const isExecuting = isAgentExecuting || isVoiceFormattingActive;
+	const isProcessingFill = isVoiceFormattingActive;
+	const showCheckmark = status === "done" && (inputScene ? fillComplete : true);
+	const predictCardPosition =
+		isPredictCard && predictSurface === "reply" && voiceTabPlacement
+			? {
+					x: Math.max(12, voiceTabPlacement.left - 184),
+					y: Math.max(12, voiceTabPlacement.top - 340),
+				}
+			: isPredictCard && predictSurface === "reply" && typeof window !== "undefined"
+				? {
+						x: Math.max(12, window.innerWidth / 2 - 184),
+						y: Math.max(12, window.innerHeight - 360),
+					}
+				: predictCursor;
+	const structureDraftPosition =
+		isStructureDraftCard && voiceTabPlacement
+			? { x: voiceTabPlacement.left, y: voiceTabPlacement.top }
+			: isStructureDraftCard && typeof window !== "undefined"
+				? { x: window.innerWidth / 2, y: window.innerHeight - 120 }
+				: null;
+	const collapsed = (status === "idle" && !panelOpen) || isPredictCard || isStructureDraftCard;
 	const dockedSide = collapsed ? anchorPosition.snapSide : null;
 	const idleShellWidth = idleRailOpen ? 424 : 360;
-	const shellWidth = collapsed
+	const shellWidth = inputScene
+		? isVoiceFormattingActive
+			? 96
+			: status === "done"
+				? fillComplete
+					? 58
+					: 96
+				: voiceHint
+					? 360
+				: contextPageUrl
+					? 196
+					: contextAppName
+					? 148
+					: 124
+		: collapsed
 		? (dockedSide ? DOCKED_WIDTH : ORB_SIZE)
 		: status === "error"
 			? 360
 			: status === "idle"
 				? idleShellWidth
+			: status === "predict"
+				? 400
 			: status === "working" || status === "planning" || status === "understanding"
 				? 300
+				: status === "formatting"
+					? 132
 				: status === "done"
 					? 320
 				: status === "ask"
@@ -360,15 +541,19 @@ export function OverlayApp() {
 				: status === "listening"
 					? 320
 					: 390;
-	const expandedLeft = expandedX(anchorPosition.x, shellWidth, anchorPosition.snapSide ?? null);
+	const expandedLeft = expandedX(anchorPosition.x, shellWidth, anchorPosition.snapSide ?? null, displayBounds);
 
 	useEffect(() => {
+		if (!bootstrapped) return;
+		if (inputScene) return;
 		if (document.body.dataset.foldDragging === "true") return;
 		const target = {
 			x: collapsed
-				? (positionRef.current.snapSide ? dockedX(positionRef.current.snapSide) : clampDragX(positionRef.current.x))
+				? (positionRef.current.snapSide
+					? dockedX(positionRef.current.snapSide, displayBounds)
+					: clampDragX(positionRef.current.x, displayBounds))
 				: expandedLeft,
-			y: clampY(positionRef.current.y),
+			y: clampY(positionRef.current.y, displayBounds),
 			snapSide: collapsed ? positionRef.current.snapSide : positionRef.current.snapSide,
 		};
 		animate(x, target.x, { type: "spring", stiffness: 520, damping: 42, mass: 0.75 });
@@ -376,7 +561,7 @@ export function OverlayApp() {
 		positionRef.current = target;
 		setAnchorPosition(target);
 		window.localStorage.setItem("fold-widget-position", JSON.stringify(target));
-	}, [collapsed, expandedLeft, x, y, shellWidth]);
+	}, [bootstrapped, collapsed, displayBounds, expandedLeft, inputScene, x, y, shellWidth]);
 
 	const onDragStart = () => {
 		dragMovedRef.current = true;
@@ -390,17 +575,24 @@ export function OverlayApp() {
 			x: x.get(),
 			y: y.get(),
 		};
-		const snapSide = collapsed ? resolveSnapSide(raw.x) : null;
-		const next = {
-			x: snapSide ? dockedX(snapSide) : clampDragX(raw.x),
-			y: clampY(raw.y),
-			snapSide,
-		};
-		animate(x, next.x, { type: "spring", stiffness: 520, damping: 38, mass: 0.8 });
-		animate(y, next.y, { type: "spring", stiffness: 520, damping: 38, mass: 0.8 });
-		positionRef.current = next;
-		setAnchorPosition(next);
-		window.localStorage.setItem("fold-widget-position", JSON.stringify(next));
+		void (async () => {
+			const area = await window.fold.getDisplayWorkArea({
+				x: raw.x + ORB_SIZE / 2,
+				y: raw.y + ORB_SIZE / 2,
+			});
+			setDisplayBounds(area);
+			const snapSide = collapsed ? resolveSnapSide(raw.x, area) : null;
+			const next = {
+				x: snapSide ? dockedX(snapSide, area) : clampDragX(raw.x, area),
+				y: clampY(raw.y, area),
+				snapSide,
+			};
+			animate(x, next.x, { type: "spring", stiffness: 520, damping: 38, mass: 0.8 });
+			animate(y, next.y, { type: "spring", stiffness: 520, damping: 38, mass: 0.8 });
+			positionRef.current = next;
+			setAnchorPosition(next);
+			window.localStorage.setItem("fold-widget-position", JSON.stringify(next));
+		})();
 		setTimeout(() => {
 			dragMovedRef.current = false;
 			delete document.body.dataset.foldDragging;
@@ -409,10 +601,10 @@ export function OverlayApp() {
 	};
 
 	return (
-		<div className="fixed inset-0 pointer-events-none">
+		<div className="pointer-events-none absolute inset-0">
 			<motion.div
 				data-fold-interactive=""
-				drag
+				drag={!inputScene}
 				dragMomentum={false}
 				onDragStart={onDragStart}
 				onDragEnd={onDragEnd}
@@ -426,16 +618,46 @@ export function OverlayApp() {
 						window.fold.setMousePassthrough(true);
 					}
 				}}
-				style={{ x, y }}
-				className="absolute pointer-events-auto select-none"
+				style={
+					voiceTabAnchorScene
+						? voiceTabPlacement
+							? {
+									left: voiceTabPlacement.left - shellWidth / 2,
+									top: voiceTabPlacement.top,
+									right: "auto",
+									bottom: "auto",
+									x: 0,
+									y: 0,
+								}
+							: {
+									left: `calc(50% - ${shellWidth / 2}px)`,
+									right: "auto",
+									top: "auto",
+									bottom: Math.max(96, Math.round(window.innerHeight * 0.12)),
+									x: 0,
+									y: 0,
+								}
+						: { x, y, top: 0, left: 0, opacity: bootstrapped ? 1 : 0 }
+				}
+				className={`${voiceTabAnchorScene ? "fold-input-tab-anchor" : "absolute"} pointer-events-auto select-none`}
 			>
 				<motion.div
 					className={`fold-shell ${collapsed ? "fold-shell-collapsed" : ""} ${
-						isExecuting ? "fold-shell-executing" : ""
+						inputScene ? "fold-input-tab" : ""
+					} ${
+						isProcessingFill ? "fold-shell-fill" : ""
+					} ${
+						isAgentExecuting ? "fold-shell-executing is-processing" : ""
+					} ${
+						isVoiceFormattingActive ? "fold-shell-formatting" : ""
+					} ${
+						showCheckmark ? "is-done" : ""
 					} ${
 						!collapsed && (status === "error" || status === "ask") ? "fold-shell-expanded" : ""
 					} ${
 						!collapsed && status === "idle" ? "fold-shell-idle" : ""
+					} ${
+						status === "predict" && !isPredictCard ? "fold-shell-predict fold-shell-expanded" : ""
 					} ${
 						dockedSide ? `fold-shell-docked fold-shell-docked-${dockedSide}` : ""
 					} ${
@@ -443,14 +665,18 @@ export function OverlayApp() {
 					}`}
 					animate={{ width: shellWidth }}
 					transition={{ type: "spring", stiffness: 520, damping: 42, mass: 0.7 }}
+					style={
+						isProcessingFill
+							? ({ "--fold-fill-progress": String(fillProgress) } as React.CSSProperties)
+							: undefined
+					}
 					onClick={() => {
 						if (collapsed && !dragMovedRef.current) setPanelOpen(true);
 					}}
 				>
-					{isExecuting && <MultiColorBorderBeam />}
 					{isAuthPrompt && <MultiColorBorderBeam duration={5} />}
 
-					{!isExecuting && !isAuthPrompt && (
+					{!inputScene && !isExecuting && !isAuthPrompt && status !== "done" && (
 						<button
 							type="button"
 							className="fold-logo-button"
@@ -459,16 +685,29 @@ export function OverlayApp() {
 								if (dragMovedRef.current) return;
 								if (collapsed) setPanelOpen(true);
 								else if (status === "idle") setPanelOpen(false);
-								else if (status === "done") void window.fold.dismiss();
 							}}
-							aria-label={collapsed ? "打开 Fold" : "收起 Fold"}
+							aria-label={collapsed ? `打开 ${PRODUCT_NAME}` : `收起 ${PRODUCT_NAME}`}
 						>
-							<FoldLogo />
+							<ZhigengLogoMark className="fold-logo-mark" size={32} mono />
+						</button>
+					)}
+
+					{showCheckmark && (
+						<button
+							type="button"
+							className="fold-logo-button"
+							onClick={(e) => {
+								e.stopPropagation();
+								void window.fold.dismiss();
+							}}
+							aria-label="关闭"
+						>
+							<GreenCheckMark phase="done" />
 						</button>
 					)}
 
 					<AnimatePresence initial={false} mode="popLayout">
-						{!collapsed && (
+						{!collapsed && !isVoiceFormattingActive && (
 							<motion.div
 								key={status === "idle" ? "ready" : status}
 								className="fold-shell-content"
@@ -480,8 +719,8 @@ export function OverlayApp() {
 								{status === "idle" && (
 									<>
 										<div className="min-w-0 flex-1">
-											<p className="text-sm font-medium whitespace-nowrap">Fold 准备好了</p>
-											<p className="mt-1 text-xs text-white/45 whitespace-nowrap">点开始语音，或按 ⌥ Space</p>
+											<p className="text-sm font-medium whitespace-nowrap">{PRODUCT_NAME} 准备好了</p>
+											<p className="mt-1 text-xs text-white/45 whitespace-nowrap">⌥Space Agent · 右⌘ 转写/代回</p>
 										</div>
 										<button
 											type="button"
@@ -497,30 +736,68 @@ export function OverlayApp() {
 									</>
 								)}
 
-								{status === "listening" && (
-									<>
-										<div className="w-[200px]">
-											<TranscriptScroll text={transcript ?? ""} placeholder="Fold 正在聆听…" />
-											{mockAsr && (
-												<p className="mt-1 text-[10px] text-amber-300/90">Demo 语音 · Settings 填 Key 启用真 ASR</p>
-											)}
-										</div>
-										<button
-											type="button"
-											onClick={(e) => {
-												e.stopPropagation();
-												void window.fold.toggleVoice();
-											}}
-											className="rounded-full bg-white px-3 py-1.5 text-xs font-medium text-black hover:bg-white/90"
-										>
-											结束
-										</button>
-									</>
+								{status === "predict" && !isPredictCard && (
+									<PredictSuggestions
+										anchor={predictAnchor}
+										suggestions={predictSuggestions ?? []}
+										mode={predictMode}
+										onRun={(intent) => void window.fold.predictPickIntent(intent)}
+										onDismiss={() => void window.fold.dismiss()}
+									/>
 								)}
 
-								{isExecuting && (
+								{status === "listening" && (
+									inputScene ? (
+										<div className={voiceHint ? "fold-input-tab-stack" : undefined}>
+											<div className="fold-input-tab-row">
+												{contextAppName || contextPageUrl ? (
+													<span className="fold-input-app-icon" aria-hidden="true">
+														<ContextAppIcon
+															appName={contextAppName}
+															appPath={contextAppPath}
+															pageUrl={contextPageUrl}
+															size={18}
+														/>
+													</span>
+												) : null}
+												<span
+													className="fold-input-mode max-w-[132px] truncate"
+													title={voiceSurface}
+												>
+													{voiceSurface}
+												</span>
+												<span className="fold-input-separator" />
+												<VoiceWave level={voiceLevel} />
+											</div>
+											{voiceHint ? (
+												<p className="fold-input-voice-hint">{voiceHint}</p>
+											) : null}
+										</div>
+									) : (
+										<>
+											<VoiceWave level={voiceLevel} />
+											<div className="min-w-0 flex-1">
+												<p className="text-sm font-medium whitespace-nowrap">Agent 正在聆听…</p>
+												{mockAsr && (
+													<p className="mt-0.5 text-[10px] text-amber-300/90">Demo 语音 · Settings 填 Key 启用真 ASR</p>
+												)}
+											</div>
+											<button
+												type="button"
+												onClick={(e) => {
+													e.stopPropagation();
+													void window.fold.toggleVoice();
+												}}
+												className="rounded-full bg-white px-3 py-1.5 text-xs font-medium text-black hover:bg-white/90"
+											>
+												结束
+											</button>
+										</>
+									)
+								)}
+
+								{isAgentExecuting && !inputScene && (
 									<div className="fold-exec-row">
-										<DotMatrixLoader />
 										<ProgressLine
 											status={status}
 											transcript={transcript}
@@ -532,7 +809,7 @@ export function OverlayApp() {
 									</div>
 								)}
 
-								{status === "done" && (
+								{status === "done" && !inputScene && (
 									<button
 										type="button"
 										className="min-w-0 flex-1 text-left"
@@ -662,6 +939,42 @@ export function OverlayApp() {
 					)}
 				</AnimatePresence>
 			</motion.div>
+
+			{isPredictCard && predictCardPosition && (
+				<PredictConfirmCard
+					x={predictCardPosition.x}
+					y={predictCardPosition.y}
+					phase={predictPhase}
+					surface={predictSurface}
+					anchor={predictAnchor}
+					appName={contextAppName}
+					appPath={contextAppPath}
+					windowTitle={contextWindowTitle}
+					refining={predictRefining}
+					suggestions={predictSuggestions ?? []}
+					drafts={predictDrafts}
+					loading={Boolean(predictAnchor?.includes("正在"))}
+					draftsLoading={predictDraftsLoading}
+					selectedIntent={predictSelectedIntent}
+					onPickIntent={(intent) => void window.fold.predictPickIntent(intent)}
+					onInsertDraft={(text) => void window.fold.predictInsertDraft(text)}
+					onDismiss={() => void window.fold.dismiss()}
+				/>
+			)}
+
+			{isStructureDraftCard && structureDraftPosition && resultDetail && (
+				<StructureDraftCard
+					key={transcript || resultDetail}
+					x={structureDraftPosition.x}
+					y={structureDraftPosition.y}
+					text={resultDetail}
+					appName={contextAppName}
+					appPath={contextAppPath}
+					pageUrl={contextPageUrl}
+					onInsert={(text) => window.fold.structureInsertDraft(text, contextAppName)}
+					onDismiss={() => void window.fold.dismiss()}
+				/>
+			)}
 		</div>
 	);
 }

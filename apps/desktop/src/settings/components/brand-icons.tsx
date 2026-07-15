@@ -4,17 +4,43 @@ function lobeIcon(slug: string): string {
 	return `${CDN}/${slug}.svg`;
 }
 
+/** 打包在 apps/desktop/public/brand-icons/ 的本地资源 */
+function localIcon(name: string, ext: "svg" | "png" = "svg"): string {
+	return `/brand-icons/${name}.${ext}`;
+}
+
 export const BRAND_ICONS = {
 	claude: lobeIcon("claude-color"),
 	google: lobeIcon("google-color"),
-	chrome: "/brand-icons/chrome.svg",
+	chrome: localIcon("chrome"),
+	feishu: localIcon("feishu"),
+	dingtalk: localIcon("dingtalk"),
+	wecom: localIcon("wecom", "png"),
+	wechat: localIcon("wechat"),
+	slack: localIcon("slack", "png"),
+	workbuddy: localIcon("workbuddy", "png"),
 	openai: lobeIcon("openai"),
+	notion: lobeIcon("notion"),
+	deepseek: lobeIcon("deepseek-color"),
+	doubao: lobeIcon("doubao-color"),
+	qwen: lobeIcon("qwen-color"),
+	kimi: lobeIcon("kimi-color"),
 	cursor: lobeIcon("cursor"),
 	codex: lobeIcon("codex-color"),
 	openrouter: lobeIcon("openrouter"),
 	zhipu: lobeIcon("zhipu-color"),
 	bytedance: lobeIcon("bytedance-color"),
 } as const;
+
+/** 画像导入弹窗：各 AI 聊天平台 logo（与 Lobe 同源图标库） */
+export const CHAT_PLATFORM_ICONS: Record<string, string> = {
+	chatgpt: BRAND_ICONS.openai,
+	claude: BRAND_ICONS.claude,
+	doubao: BRAND_ICONS.doubao,
+	deepseek: BRAND_ICONS.deepseek,
+	tongyi: BRAND_ICONS.qwen,
+	kimi: BRAND_ICONS.kimi,
+};
 
 export function BrandIcon({
 	src,

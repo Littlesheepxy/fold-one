@@ -1,7 +1,7 @@
 import type { ActionPlan, ActionStep } from "@fold/ai";
 import { connectorLabel, resolveMailConnector } from "@fold/connectors";
 import { executeSkill, type SkillContext } from "@fold/skills";
-import { labelForSkill } from "./step-labels.js";
+import { labelForStep } from "./step-labels.js";
 import type { StepResult, StateEmitter, StepView } from "./types.js";
 
 export interface StepFailure extends StepResult {
@@ -16,7 +16,7 @@ function stepViews(
 ): StepView[] {
 	return plan.steps.map((s) => ({
 		id: s.id,
-		label: labelForSkill(s.skill),
+		label: labelForStep(s.skill, { args: s.args }),
 		status:
 			s.id === runningId
 				? "running"
@@ -26,6 +26,55 @@ function stepViews(
 						? "failed"
 						: "pending",
 	}));
+}
+
+const STEP_TEMPLATE_RE = /\{\{\s*steps\.([\w-]+)\.([\w.-]+)\s*\}\}/g;
+const WHOLE_TEMPLATE_RE = /^\{\{\s*steps\.([\w-]+)\.([\w.-]+)\s*\}\}$/;
+
+/** 沿 path 取值；遇到 JSON 字符串（如 CLI stdout）自动解析后继续下钻。 */
+function resolveStepPath(output: unknown, path: string): unknown {
+	let cur: unknown = output;
+	const segs = path.split(".");
+	for (let i = 0; i < segs.length; i++) {
+		const seg = segs[i]!;
+		if (i === 0 && (seg === "output" || seg === "result")) continue;
+		if (typeof cur === "string") {
+			try {
+				cur = JSON.parse(cur);
+			} catch {
+				return undefined;
+			}
+		}
+		if (cur == null || typeof cur !== "object") return undefined;
+		cur = (cur as Record<string, unknown>)[seg];
+	}
+	return cur;
+}
+
+function renderResolved(resolved: unknown): string {
+	return typeof resolved === "string" ? resolved : JSON.stringify(resolved);
+}
+
+/** 把 args 里的 {{steps.<id>.<path>}} 替换为前序步骤的输出。 */
+export function interpolateStepArgs(value: unknown, outputs: Map<string, unknown>): unknown {
+	if (typeof value === "string") {
+		const whole = value.match(WHOLE_TEMPLATE_RE);
+		if (whole) {
+			const resolved = resolveStepPath(outputs.get(whole[1]!), whole[2]!);
+			return resolved === undefined ? value : renderResolved(resolved);
+		}
+		return value.replace(STEP_TEMPLATE_RE, (raw, id: string, path: string) => {
+			const resolved = resolveStepPath(outputs.get(id), path);
+			return resolved === undefined ? raw : renderResolved(resolved);
+		});
+	}
+	if (Array.isArray(value)) return value.map((v) => interpolateStepArgs(v, outputs));
+	if (value && typeof value === "object") {
+		return Object.fromEntries(
+			Object.entries(value).map(([k, v]) => [k, interpolateStepArgs(v, outputs)]),
+		);
+	}
+	return value;
 }
 
 function buildDependencyGraph(steps: ActionStep[]): ActionStep[][] {
@@ -65,6 +114,22 @@ export async function runPlan(
 	for (const batch of batches) {
 		const batchResults = await Promise.all(
 			batch.map(async (step) => {
+				// 依赖步骤失败时不再带着坏参数往下跑
+				const failedDep = step.dependsOn?.find(
+					(d) => results.find((r) => r.stepId === d)?.status === "failed",
+				);
+				if (failedDep) {
+					const result: StepFailure = {
+						stepId: step.id,
+						skill: step.skill,
+						status: "failed",
+						durationMs: 0,
+						error: `依赖步骤 ${failedDep} 失败，已跳过`,
+						retryable: false,
+					};
+					results.push(result);
+					return result;
+				}
 				emit({
 					status: "working",
 					steps: stepViews(plan, results, step.id),
@@ -98,7 +163,8 @@ export async function runPlan(
 							}
 						},
 					};
-					const output = await executeSkill(step.skill, step.args, skillCtx);
+					const args = interpolateStepArgs(step.args, outputs) as Record<string, unknown>;
+					const output = await executeSkill(step.skill, args, skillCtx);
 					outputs.set(step.id, output);
 					const result: StepResult = {
 						stepId: step.id,
@@ -182,7 +248,8 @@ export async function retryFailedSteps(
 					}
 				},
 			};
-			const output = await executeSkill(step.skill, step.args, skillCtx);
+			const args = interpolateStepArgs(step.args, outputs) as Record<string, unknown>;
+			const output = await executeSkill(step.skill, args, skillCtx);
 			outputs.set(step.id, output);
 			updated[i] = {
 				stepId: step.id,

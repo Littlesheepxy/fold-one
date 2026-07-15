@@ -1,6 +1,104 @@
 export { runTask, runMockTask } from "./orchestrator.js";
-export { formatThinkingText, buildResultDetail } from "./format-result.js";
-export { labelForSkill } from "./step-labels.js";
+export {
+	canUseSmartAction,
+	consumeTrialSmartAction,
+	INITIAL_TRIAL_SMART_ACTIONS,
+	normalizePlanTier,
+	remainingTrialSmartActions,
+	resolveEntitlements,
+	type Entitlements,
+	type PlanTier,
+	type UpgradeReason,
+} from "./entitlements.js";
+export {
+	buildPredictions,
+	buildSituationFingerprint,
+	clearPredictCache,
+	episodeSituationFingerprint,
+	getPredictCacheKey,
+	getPredictions,
+	needsScreenCalibration,
+	refreshPredictCache,
+	similarityScore,
+	type PredictEnrichment,
+	type PredictMode,
+	type PredictPhase,
+	type PredictResult,
+	type PredictSuggestion,
+	type SituationFingerprint,
+} from "./predict.js";
+export { generatePredictDrafts, type PredictDraftLine } from "./predict-drafts.js";
+export {
+	generateAhaGuess,
+	ruleBasedAhaReply,
+	shouldCleanSpeechLocally,
+	streamAhaGuess,
+	structureSpeechText,
+	type AhaGuessInput,
+	type AhaGuessPage,
+	type StreamAhaGuessOptions,
+	type StructuredSpeech,
+} from "@fold/ai";
+export { hasPlannerApiKey } from "@fold/ai";
+export { inferPredictSurface, surfaceActionLabel, type PredictSurface } from "./predict-surface.js";
+export { predictContextSnippet } from "./predict-fallback.js";
+export {
+	enrichContext,
+	type ContextEnrichScope,
+	type EnrichedContext,
+} from "./context-enrich.js";
+export {
+	computeFocusDwells,
+	formatDwellDuration,
+	hedgedPrefix,
+	scoreContextConfidence,
+	type ContextConfidence,
+	type ContextConfidenceLevel,
+	type FocusDwell,
+} from "@fold/context";
+export { extractEntityTokens } from "./entity-extract.js";
+export {
+	formatPlannerMemory,
+	formatTracesForPlanner,
+	retrieveSimilarTraces,
+	type EpisodeTrace,
+} from "./trace-retrieval.js";
+export {
+	anchorFromObjects,
+	primaryInformationObject,
+	resolveInformationObjects,
+	type InformationObject,
+	type InformationObjectInput,
+	type InformationObjectKind,
+} from "./information-object.js";
+export {
+	matchRoutinesForTrail,
+	mineRoutinesFromEpisodes,
+	trailTokensFromEpisode,
+	type MinedRoutine,
+} from "./routine-mining.js";
+export { recallHabitsFromUsage, startHabitRecallLoop } from "./habit-recall.js";
+export {
+	buildResultDetail,
+	buildUserVisibleSummary,
+	formatEpisodeSummaryDisplay,
+	formatThinkingText,
+	isRawPayloadText,
+	summaryFromJsonPayload,
+} from "./format-result.js";
+export { labelForSkill, labelForStep } from "./step-labels.js";
+export {
+	buildProfileImportPrompt,
+	parseProfileImportResponse,
+	type ProfileImportFields,
+} from "./profile-prompt.js";
+export {
+	buildProfileBrief,
+	buildProfileChecklist,
+	buildOnboardingDemoSentence,
+	extractProfileKeywords,
+	type OnboardingDemoSentence,
+} from "./profile-brief.js";
 export { runPlan } from "./executor.js";
 export { formatRelevantEpisodes } from "./episode-context.js";
 export { formatProbeSummary, runProbes } from "./probe-runner.js";
@@ -10,6 +108,17 @@ export {
 	type ExecutionTier,
 	type RouteDecision,
 } from "./router.js";
+export {
+	buildCapabilitySnapshot,
+	deriveExecutionFlags,
+	listCapabilityDefs,
+	normalizeExecutionMode,
+	type CapabilityConfig,
+	type CapabilityItem,
+	type CapabilitySnapshot,
+	type ExecutionMode,
+	type ExecutorItem,
+} from "./capability-catalog.js";
 export { validatePlan } from "./validator.js";
 export { buildReactAgentPlan, buildRepairBrief } from "./repair.js";
 export { isGuiIntent } from "./capability-resolver.js";

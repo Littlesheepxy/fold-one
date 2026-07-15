@@ -3,6 +3,7 @@
  */
 import type { WebSocket as WsServer } from "ws";
 import { DashscopeAsrClient } from "./dashscope.js";
+import { OmniRealtimeClient, type OmniVoiceMode } from "./omni-realtime.js";
 
 interface StartMsg {
 	type: "start";
@@ -12,6 +13,9 @@ interface StartMsg {
 	languageHints?: string[];
 	hotWords?: string[];
 	model?: string;
+	mode?: OmniVoiceMode;
+	app?: string | null;
+	windowTitle?: string | null;
 }
 
 interface FinishMsg {
@@ -28,7 +32,7 @@ export interface SessionDeps {
 }
 
 export function attachAsrSession(ws: WsServer, deps: SessionDeps) {
-	let upstream: DashscopeAsrClient | null = null;
+	let upstream: DashscopeAsrClient | OmniRealtimeClient | null = null;
 	let upstreamSendable = false;
 	const audioQueue: Buffer[] = [];
 
@@ -61,14 +65,30 @@ export function attachAsrSession(ws: WsServer, deps: SessionDeps) {
 		if (msg.type === "start") {
 			if (upstream) return send({ type: "error", message: "already started" });
 
-			upstream = new DashscopeAsrClient({
-				apiKey: deps.apiKey,
-				model: msg.model ?? deps.defaultModel,
-				sampleRate: msg.sampleRate ?? 16000,
-				format: msg.format ?? "pcm",
-				languageHints: msg.languageHints,
-				hotWords: msg.hotWords,
-			});
+			const model = msg.model ?? deps.defaultModel;
+			if (
+				model !== deps.defaultModel &&
+				model !== "qwen3.5-omni-plus-realtime"
+			) {
+				return send({ type: "error", message: "model not allowed" });
+			}
+			console.log(`[asr-proxy] session model=${model}, mode=${msg.mode ?? "structure"}`);
+			upstream = model.includes("omni")
+				? new OmniRealtimeClient({
+						apiKey: deps.apiKey,
+						model,
+						mode: msg.mode ?? "structure",
+						app: msg.app,
+						windowTitle: msg.windowTitle,
+					})
+				: new DashscopeAsrClient({
+						apiKey: deps.apiKey,
+						model,
+						sampleRate: msg.sampleRate ?? 16000,
+						format: msg.format ?? "pcm",
+						languageHints: msg.languageHints,
+						hotWords: msg.hotWords,
+					});
 
 			upstream.on("started", () => {
 				upstreamSendable = true;
@@ -77,8 +97,11 @@ export function attachAsrSession(ws: WsServer, deps: SessionDeps) {
 			});
 			upstream.on("partial", (s: { text: string }) => send({ type: "partial", text: s.text }));
 			upstream.on("final", (s: { text: string }) => send({ type: "final", text: s.text }));
-			upstream.on("done", ({ fullText }: { fullText: string }) => {
-				send({ type: "done", fullText: fullText.trim() });
+			upstream.on("done", ({ fullText, directStructured }: {
+				fullText: string;
+				directStructured?: boolean;
+			}) => {
+				send({ type: "done", fullText: fullText.trim(), directStructured: !!directStructured });
 				try {
 					ws.close();
 				} catch {

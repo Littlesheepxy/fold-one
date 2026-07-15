@@ -7,8 +7,16 @@ import { probeBinary } from "../cli/binary.js";
 import { probeLarkCli } from "../feishu/index.js";
 import { runShellDetailed } from "../shell.js";
 import { type OfficeChannelId, isOfficeChannelId, probeOfficeChannels } from "./index.js";
+import {
+	cancelAgentConnectFlow,
+	isAgentConnectTarget,
+	pollAgentConnectFlow,
+	startAgentConnectFlow,
+	activateWorkBuddyConnectFlow,
+	type AgentConnectTarget,
+} from "../agents/connect-flow.js";
 
-export type ConnectTarget = OfficeChannelId | "gmail" | "nango";
+export type ConnectTarget = OfficeChannelId | "gmail" | "nango" | AgentConnectTarget;
 
 export type ConnectFlowKind = "login" | "install";
 
@@ -21,12 +29,16 @@ export interface ConnectFlowStart {
 	authUrl?: string;
 	userCode?: string;
 	opensBrowserAutomatically?: boolean;
+	copyText?: string;
+	/** 先复制配对内容，用户确认后再跳转外部应用（WorkBuddy） */
+	copyThenOpen?: boolean;
 }
 
 export interface ConnectFlowPollResult {
 	status: "pending" | "success" | "error";
 	message?: string;
 	error?: string;
+	copyText?: string;
 }
 
 interface AuthSession {
@@ -42,9 +54,8 @@ interface AuthSession {
 
 const sessions = new Map<string, AuthSession>();
 
-const CONNECT_META: Record<
-	ConnectTarget,
-	{ title: string; installCmd?: string[]; installUrl?: string }
+const CONNECT_META: Partial<
+	Record<ConnectTarget, { title: string; installCmd?: string[]; installUrl?: string }>
 > = {
 	feishu: { title: "飞书", installCmd: ["npm", "install", "-g", "@larksuite/cli"] },
 	github: { title: "GitHub", installCmd: ["brew", "install", "gh"] },
@@ -228,6 +239,7 @@ async function startWecomLogin(session: AuthSession): Promise<ConnectFlowStart> 
 
 async function startInstall(session: AuthSession, target: ConnectTarget): Promise<ConnectFlowStart> {
 	const meta = CONNECT_META[target];
+	if (!meta) throw new Error(`未知连接: ${target}`);
 	if (!meta.installCmd && meta.installUrl) {
 		return {
 			sessionId: "",
@@ -290,6 +302,10 @@ export async function startConnectFlow(
 	target: ConnectTarget,
 	kind: ConnectFlowKind,
 ): Promise<ConnectFlowStart> {
+	if (isAgentConnectTarget(target)) {
+		return startAgentConnectFlow(target, kind);
+	}
+
 	if (kind === "login" && isOfficeChannelId(target)) {
 		const channels = await probeOfficeChannels();
 		const row = channels.find((c) => c.id === target);
@@ -321,6 +337,9 @@ export async function startConnectFlow(
 
 /** Poll connect session until CLI reports authed or child exits with error. */
 export async function pollConnectFlow(sessionId: string): Promise<ConnectFlowPollResult> {
+	const agentResult = await pollAgentConnectFlow(sessionId);
+	if (agentResult) return agentResult;
+
 	const session = sessions.get(sessionId);
 	if (!session) return { status: "error", error: "连接会话已过期" };
 
@@ -357,6 +376,7 @@ export function getConnectFlowSession(sessionId: string): Pick<AuthSession, "aut
 }
 
 export function cancelConnectFlow(sessionId: string): void {
+	cancelAgentConnectFlow(sessionId);
 	const session = sessions.get(sessionId);
 	if (!session) return;
 	session.child?.kill();
@@ -364,6 +384,7 @@ export function cancelConnectFlow(sessionId: string): void {
 }
 
 export function resolveConnectTarget(connectionId: string): ConnectTarget | null {
+	if (isAgentConnectTarget(connectionId)) return connectionId;
 	if (connectionId === "gmail" || connectionId === "nango") return connectionId;
 	if (connectionId.startsWith("office-")) {
 		const channel = connectionId.slice("office-".length);
@@ -371,3 +392,5 @@ export function resolveConnectTarget(connectionId: string): ConnectTarget | null
 	}
 	return null;
 }
+
+export { activateWorkBuddyConnectFlow };

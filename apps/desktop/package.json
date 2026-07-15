@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node scripts/clean-electron-artifacts.mjs && vite",
     "build": "node scripts/clean-electron-artifacts.mjs && vite build",
-    "rebuild:native": "electron-rebuild -f -w better-sqlite3",
+    "rebuild:native": "electron-rebuild -f -w better-sqlite3 && node scripts/prepare-whisper-addon.mjs",
+    "build:icons": "bash scripts/build-zhigeng-assets.sh",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit"
   },
   "dependencies": {
@@ -14,7 +15,9 @@
     "@fold/context": "workspace:*",
     "@fold/memory": "workspace:*",
     "@fold/runtime": "workspace:*",
+    "@fold/skills": "workspace:*",
     "@fold/voice": "workspace:*",
+    "@kutalia/whisper-node-addon": "^1.1.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@playwright/mcp": "^0.0.77",
     "better-sqlite3": "^11.8.1",

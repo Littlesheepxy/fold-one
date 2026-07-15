@@ -1,1 +1,1 @@
-export { labelForSkill } from "@fold/skills";
+export { labelForSkill, labelForStep } from "@fold/skills";

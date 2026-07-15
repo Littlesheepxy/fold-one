@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { resolveWorkBuddyMcpToken } from "./bridge.js";
+import { isWorkBuddyAppProcessRunning } from "./discover.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
@@ -8,7 +10,44 @@ export function workBuddySessionId(): string {
 
 export function workBuddyMcpUrl(gatewayUrl: string): URL {
 	const base = gatewayUrl.replace(/\/$/, "");
-	return new URL(`${base}/mcp/`);
+	return new URL(`${base}/mcp`);
+}
+
+export function workBuddyMcpAuthHeader(): string | undefined {
+	const token = resolveWorkBuddyMcpToken();
+	return token ? `Bearer ${token}` : undefined;
+}
+
+export async function probeWorkBuddyMcp(
+	gatewayUrl: string,
+): Promise<{ ok: boolean; toolCount?: number; error?: string }> {
+	const auth = workBuddyMcpAuthHeader();
+	if (!auth) {
+		return {
+			ok: false,
+			error: isWorkBuddyAppProcessRunning()
+				? "请在 WorkBuddy 中新建或打开任意对话"
+				: "请先打开 WorkBuddy 并登录账号",
+		};
+	}
+	const transport = new StreamableHTTPClientTransport(workBuddyMcpUrl(gatewayUrl), {
+		requestInit: {
+			headers: {
+				Authorization: auth,
+				"X-Work-Buddy-Session": workBuddySessionId(),
+			},
+		},
+	});
+	const client = new Client({ name: "fold", version: "0.0.1" });
+	try {
+		await client.connect(transport);
+		const tools = await client.listTools();
+		return { ok: true, toolCount: tools.tools.length };
+	} catch (error) {
+		return { ok: false, error: (error as Error).message };
+	} finally {
+		await client.close().catch(() => undefined);
+	}
 }
 
 export async function withWorkBuddyMcp<T>(
@@ -16,15 +55,15 @@ export async function withWorkBuddyMcp<T>(
 	fn: (client: Client, sessionId: string) => Promise<T>,
 ): Promise<T> {
 	const sessionId = workBuddySessionId();
+	const headers: Record<string, string> = { "X-Work-Buddy-Session": sessionId };
+	const auth = workBuddyMcpAuthHeader();
+	if (auth) headers.Authorization = auth;
 	const transport = new StreamableHTTPClientTransport(workBuddyMcpUrl(gatewayUrl), {
-		requestInit: {
-			headers: { "X-Work-Buddy-Session": sessionId },
-		},
+		requestInit: { headers },
 	});
 	const client = new Client({ name: "fold", version: "0.0.1" });
 	await client.connect(transport);
 	try {
-		await client.callTool({ name: "wb_init", arguments: { session_id: sessionId } });
 		return await fn(client, sessionId);
 	} finally {
 		await client.close();

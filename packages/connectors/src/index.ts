@@ -31,14 +31,25 @@ export {
 	type MailConnectorId,
 } from "./mail/index.js";
 export {
+	browserEvaluate,
 	connectBrowser,
 	getChromeCdpUrl,
 	getCurrentBrowserPage,
+	listChromeTabsViaAppleScript,
+	pickActiveChromeTab,
 	probeBrowserCdp,
 	withBrowserSession,
+	CHAT_PLATFORMS,
+	detectChatPlatforms,
+	getChatPlatform,
+	runChatProfileImport,
 	type BrowserCdpProbe,
 	type BrowserPageInfo,
 	type BrowserSession,
+	type ChromeTabInfo,
+	type ChatPlatform,
+	type ChatPlatformMatch,
+	type ChatProfileImportResult,
 } from "./browser/index.js";
 export {
 	browserInteract,
@@ -68,14 +79,25 @@ export {
 	type UitarsTaskResult,
 } from "./gui/index.js";
 export {
+	discoverWorkBuddyGatewayUrl,
+	discoverWorkBuddyMcpAuthHeader,
+	discoverWorkBuddyMcpTokenFromProcess,
 	executeWorkBuddyTask,
 	getWorkBuddyGatewayUrl,
 	isWorkBuddyEnabled,
 	probeWorkBuddyGateway,
+	resolveWorkBuddyMcpToken,
 	type WorkBuddyProbe,
 	type WorkBuddyRunInput,
 	type WorkBuddyRunResult,
 } from "./workbuddy/index.js";
+export { openWorkBuddyApp } from "./workbuddy/app.js";
+export {
+	beginWorkBuddyPairing,
+	getWorkBuddyPairingPhrase,
+	launchWorkBuddyPairScriptInTerminal,
+	tryPersistWorkBuddyBridge,
+} from "./workbuddy/bridge.js";
 export {
 	createNangoConnectLink,
 	countGmailUnreadViaNango,
@@ -120,6 +142,7 @@ export {
 	type PluginProbe,
 } from "./plugins/index.js";
 export {
+	activateWorkBuddyConnectFlow,
 	cancelConnectFlow,
 	getConnectFlowSession,
 	pollConnectFlow,
@@ -133,6 +156,9 @@ export {
 export {
 	captureScreenshot,
 	probeScreenCapture,
+	readFrontWindowAccessibilityText,
+	readProcessAccessibilityText,
+	type FrontWindowAccessibility,
 	type ScreenshotResult,
 	type ScreenshotTarget,
 	type ScreenCaptureProbe,
