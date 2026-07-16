@@ -1,6 +1,12 @@
 import { contextBridge, ipcRenderer } from "electron";
 
-type VoiceMode = "structure" | "reply" | "agent";
+type VoiceMode = "structure" | "reply" | "agent" | "interaction";
+type UserActionResponse = {
+	requestId?: string;
+	optionId?: string;
+	text?: string;
+	modality: "click" | "voice" | "text" | "terminal";
+};
 type VoiceSessionStart = {
 	mode: VoiceMode;
 	app?: string | null;
@@ -75,8 +81,12 @@ contextBridge.exposeInMainWorld("fold", {
 	retryTask: () => ipcRenderer.invoke("fold:retry-task") as Promise<void>,
 	undoLastInsert: () =>
 		ipcRenderer.invoke("fold:undo-last-insert") as Promise<{ ok: boolean; error?: string }>,
-	askResponse: (optionId: string) =>
-		ipcRenderer.invoke("fold:ask-response", optionId) as Promise<void>,
+	askResponse: (response: string | UserActionResponse) =>
+		ipcRenderer.invoke("fold:ask-response", response) as Promise<void>,
+	interactionVoice: (transcript: string) =>
+		ipcRenderer.invoke("fold:interaction-voice", transcript) as Promise<void>,
+	toggleInteractionVoice: () =>
+		ipcRenderer.invoke("fold:toggle-interaction-voice") as Promise<void>,
 	getConfig: () => ipcRenderer.invoke("fold:get-config") as Promise<Record<string, unknown>>,
 	getHotkeySettings: () =>
 		ipcRenderer.invoke("fold:get-hotkey-settings") as Promise<{
@@ -410,8 +420,8 @@ contextBridge.exposeInMainWorld("fold", {
 		ipcRenderer.on("fold:voice-warm", handler);
 		return () => ipcRenderer.removeListener("fold:voice-warm", handler);
 	},
-	onHotkeyUp(cb: (mode: "structure" | "reply" | "agent") => void) {
-		const handler = (_: unknown, mode?: "structure" | "reply" | "agent") => cb(mode ?? "structure");
+	onHotkeyUp(cb: (mode: VoiceMode) => void) {
+		const handler = (_: unknown, mode?: VoiceMode) => cb(mode ?? "structure");
 		ipcRenderer.on("fold:hotkey-up", handler);
 		return () => ipcRenderer.removeListener("fold:hotkey-up", handler);
 	},

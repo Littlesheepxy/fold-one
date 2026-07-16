@@ -109,6 +109,375 @@ body.fold-home-page #root {
   padding-bottom: 10px;
 }
 
+.fold-hitl-shell.fold-shell-expanded {
+  padding: 0;
+  overflow: hidden;
+  border-color: rgb(255 255 255 / 0.14);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.09), rgb(255 255 255 / 0.025)),
+    rgb(18 18 24 / 0.84);
+  box-shadow:
+    0 28px 72px rgb(0 0 0 / 0.32),
+    inset 0 1px 0 rgb(255 255 255 / 0.16);
+  backdrop-filter: blur(28px) saturate(155%);
+  -webkit-backdrop-filter: blur(28px) saturate(155%);
+}
+
+.fold-hitl-shell .fold-shell-content {
+  display: block;
+  width: 100%;
+  white-space: normal;
+}
+
+.fold-hitl {
+  width: 100%;
+  min-width: 0;
+  color: rgb(255 255 255 / 0.94);
+}
+
+.fold-hitl-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 0 18px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.08);
+}
+
+.fold-hitl-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.fold-hitl-status {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  color: rgb(255 255 255 / 0.6);
+  font-size: 11px;
+}
+
+.fold-hitl-status > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fold-hitl-status-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #f5a623;
+  box-shadow: 0 0 0 4px rgb(245 166 35 / 0.12);
+}
+
+.fold-hitl-collapse {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
+  color: rgb(255 255 255 / 0.6);
+  background: transparent;
+}
+
+.fold-hitl-collapse:hover {
+  color: rgb(255 255 255 / 0.95);
+  background: rgb(255 255 255 / 0.08);
+}
+
+.fold-hitl-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+}
+
+.fold-hitl-copy {
+  min-width: 0;
+}
+
+.fold-hitl-title {
+  margin: 0;
+  color: rgb(255 255 255 / 0.96);
+  font-size: 18px;
+  font-weight: 660;
+  line-height: 1.28;
+  letter-spacing: -0.025em;
+}
+
+.fold-hitl-message {
+  margin: 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fold-hitl-message p {
+  margin: 0;
+  color: rgb(255 255 255 / 0.62);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.fold-hitl-message p.is-lead {
+  color: rgb(255 255 255 / 0.82);
+  font-weight: 560;
+}
+
+.fold-hitl-risk {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.08);
+  color: rgb(255 255 255 / 0.55);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.fold-hitl-risk svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.fold-hitl-risk-sensitive,
+.fold-hitl-risk-external,
+.fold-hitl-risk-destructive {
+  color: rgb(255 190 92 / 0.9);
+}
+
+.fold-hitl-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fold-hitl-option-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fold-hitl-option {
+  min-height: 34px;
+  padding: 0 13px;
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 11px;
+  color: rgb(255 255 255 / 0.84);
+  background: rgb(255 255 255 / 0.045);
+  font-size: 12px;
+  font-weight: 580;
+  transition: transform 140ms ease, background-color 140ms ease, border-color 140ms ease;
+}
+
+.fold-hitl-option:disabled {
+  opacity: 0.55;
+  transform: none;
+}
+
+.fold-hitl-option:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgb(255 255 255 / 0.22);
+  background: rgb(255 255 255 / 0.09);
+}
+
+.fold-hitl-option-primary {
+  border-color: rgb(117 103 255 / 0.72);
+  color: #fff;
+  background: linear-gradient(180deg, #7568ff, #6257e8);
+  box-shadow: 0 8px 20px rgb(80 64 220 / 0.24);
+}
+
+.fold-hitl-option-primary:hover {
+  border-color: rgb(151 139 255 / 0.9);
+  background: linear-gradient(180deg, #8276ff, #6b60ee);
+}
+
+.fold-hitl-option-danger {
+  color: rgb(255 255 255 / 0.62);
+}
+
+.fold-hitl-option-danger:hover {
+  color: rgb(255 174 165 / 0.95);
+  border-color: rgb(255 110 96 / 0.25);
+  background: rgb(255 78 64 / 0.08);
+}
+
+/* 对齐 fold-input-tab：一行 模式 | 波形 | 开关 */
+.fold-hitl-voice-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  width: 100%;
+  min-height: 38px;
+  padding: 6px 8px 6px 12px;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.22);
+}
+
+.fold-hitl-voice-bar.is-listening {
+  border-color: rgb(255 255 255 / 0.16);
+  background: rgb(0 0 0 / 0.3);
+}
+
+.fold-hitl-voice-mode {
+  flex: 0 0 auto;
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgb(255 255 255 / 0.72);
+  font-size: 12px;
+  font-weight: 580;
+}
+
+.fold-hitl-voice-bar .fold-voice-wave {
+  flex: 1 1 auto;
+  justify-content: center;
+  max-width: none;
+  margin: 0 4px;
+}
+
+.fold-hitl-voice-bar .fold-input-close {
+  margin-left: 2px;
+}
+
+.fold-hitl-keyboard {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 999px;
+  color: rgb(255 255 255 / 0.48);
+  background: transparent;
+  font-size: 11px;
+}
+
+.fold-hitl-keyboard:hover {
+  color: rgb(255 255 255 / 0.82);
+  background: rgb(255 255 255 / 0.06);
+}
+
+.fold-hitl-text-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.fold-hitl-text-row input {
+  min-width: 0;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 11px;
+  outline: none;
+  color: rgb(255 255 255 / 0.9);
+  background: rgb(0 0 0 / 0.18);
+  font-size: 12px;
+}
+
+.fold-hitl-text-row input:focus {
+  border-color: rgb(126 112 255 / 0.72);
+  box-shadow: 0 0 0 3px rgb(103 92 241 / 0.12);
+}
+
+.fold-hitl-text-row button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 10px;
+  color: #fff;
+  background: #675cf1;
+}
+
+.fold-hitl-text-cancel {
+  width: auto !important;
+  padding: 0 8px;
+  color: rgb(255 255 255 / 0.55) !important;
+  background: transparent !important;
+  font-size: 11px;
+}
+
+.fold-hitl-validation {
+  margin: -4px 0 0;
+  color: rgb(255 198 92 / 0.92);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.fold-hitl-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px 12px;
+  color: rgb(255 255 255 / 0.34);
+  font-size: 10px;
+}
+
+.fold-hitl-terminal-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.fold-hitl-shell-collapsed {
+  min-height: 44px;
+  padding: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.1), rgb(255 255 255 / 0.03)),
+    rgb(14 14 20 / 0.84);
+}
+
+.fold-hitl-collapsed {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 44px;
+  gap: 9px;
+  padding: 0 12px 0 8px;
+  border: 0;
+  color: rgb(255 255 255 / 0.9);
+  background: transparent;
+}
+
+.fold-hitl-collapsed-logo {
+  flex: 0 0 auto;
+}
+
+.fold-hitl-collapsed-copy {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 580;
+}
+
+.fold-hitl-collapsed-open {
+  color: rgb(255 255 255 / 0.42);
+  font-size: 10px;
+}
+
 .fold-shell-content {
   display: flex;
   align-items: center;
@@ -3406,6 +3775,11 @@ body:has(.react-grid-item.resizing) {
 .fold-activity-state.is-success {
   border-color: #2dc66d;
   background: #2dc66d;
+}
+
+.fold-activity-state.is-recovered {
+  border-color: #e4a11b;
+  background: #e4a11b;
 }
 
 .fold-dashboard-more,

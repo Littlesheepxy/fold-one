@@ -15,7 +15,8 @@ const WARM_STREAM_TTL_MS = 5000;
 export function useVoiceHandlers() {
 	const asrRef = useRef<AsrController | null>(null);
 	const wsBaseRef = useRef(WS_BASE);
-	const voiceModeRef = useRef<"structure" | "reply" | "agent">("structure");
+	type VoiceMode = "structure" | "reply" | "agent" | "interaction";
+	const voiceModeRef = useRef<VoiceMode>("structure");
 	const warmRef = useRef<{
 		stream: Promise<MediaStream>;
 		timer: ReturnType<typeof setTimeout>;
@@ -69,7 +70,7 @@ export function useVoiceHandlers() {
 		};
 
 		const startRecording = async (session: {
-			mode: "structure" | "reply" | "agent";
+			mode: VoiceMode;
 			app?: string | null;
 			windowTitle?: string | null;
 		}) => {
@@ -105,7 +106,7 @@ export function useVoiceHandlers() {
 									wsBaseUrl: wsBaseRef.current,
 									workletPath: "/asr-pcm-worklet.js",
 									warmStream,
-									mode: session.mode,
+									mode: session.mode === "interaction" ? "agent" : session.mode,
 									app: session.app,
 									windowTitle: session.windowTitle,
 									authToken: runtime.authToken,
@@ -137,7 +138,7 @@ export function useVoiceHandlers() {
 			asrRef.current = null;
 		};
 
-		const stopRecording = async (mode: "structure" | "reply" | "agent") => {
+		const stopRecording = async (mode: VoiceMode) => {
 			const asr = asrRef.current;
 			if (!asr) {
 				await window.fold.voiceEmpty();
@@ -150,6 +151,11 @@ export function useVoiceHandlers() {
 					console.warn(
 						`[fold:asr] incomplete result discarded textLen=${result.text.trim().length}`,
 					);
+					if (mode === "interaction") {
+						// HITL 短按停麦时 ASR 常未 flush 完；不当失败，静默回到选项卡
+						await window.fold.voiceEmpty();
+						return;
+					}
 					await window.fold.voiceError(
 						result.text.trim()
 							? "这段话没有完整识别完，请再按一次重说——不会用残缺结果插入。"
@@ -158,7 +164,8 @@ export function useVoiceHandlers() {
 					return;
 				}
 				if (result.text.trim()) {
-					if (mode === "agent") await window.fold.runTask(result.text);
+					if (mode === "interaction") await window.fold.interactionVoice(result.text);
+					else if (mode === "agent") await window.fold.runTask(result.text);
 					else if (mode === "reply") await window.fold.replyVoice(result.text);
 					else {
 						await window.fold.structureVoice(result.text, {

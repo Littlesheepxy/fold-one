@@ -169,5 +169,16 @@ export type {
 	StepView,
 	TaskResult,
 	StepResult,
+	UserActionInputPolicy,
+	UserActionKind,
+	UserActionOption,
 	UserActionRequest,
+	UserActionResponse,
+	UserActionRisk,
+	UserInteractionView,
 } from "./types.js";
+export {
+	matchUserActionVoice,
+	normalizeUserActionRequest,
+	type NormalizedUserActionRequest,
+} from "./interaction.js";

@@ -43,7 +43,7 @@ export function playFoldSound(id: FoldSoundId) {
 	}
 }
 
-export type FoldVoiceMode = "structure" | "reply" | "agent" | null | undefined;
+export type FoldVoiceMode = "structure" | "reply" | "agent" | "interaction" | null | undefined;
 
 function isVoiceAssistMode(voiceMode: FoldVoiceMode): boolean {
 	return voiceMode === "structure" || voiceMode === "reply";

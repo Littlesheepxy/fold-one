@@ -16,8 +16,10 @@ import {
 	startHabitRecallLoop,
 	structureSpeechText,
 	streamAhaGuess,
+	matchUserActionVoice,
 	type FoldStateEvent,
 	type UserActionRequest,
+	type UserActionResponse,
 } from "@fold/runtime";
 import {
 	clearPredictTargetApp,
@@ -118,6 +120,12 @@ import {
 	startCodexRemotePairing,
 } from "./codex-remote-control.js";
 import { PRODUCT_NAME } from "./brand.js";
+import {
+	FileInteractionStore,
+	InteractionBroker,
+	toInteractionView,
+	type PendingInteractionRecord,
+} from "./interaction-broker.js";
 import { createZhigengAppIcon } from "./tray-icon.js";
 import {
 	appendLocalWhisperAudio,
@@ -216,7 +224,9 @@ let onboardingWindow: BrowserWindow | null = null;
 let onboardingStep: string | undefined;
 let pendingHomeSection: string | null = null;
 let isRecording = false;
-let voiceOutcome: "structure" | "reply" | "agent" = "structure";
+type VoiceOutcome = "structure" | "reply" | "agent" | "interaction";
+let voiceOutcome: VoiceOutcome = "structure";
+let interactionBroker: InteractionBroker | null = null;
 let voiceCanUseDirectStructure = false;
 /** 代回首轮：松开右 ⌘ 不结束，短按结束 */
 let replyLatched = false;
@@ -241,6 +251,8 @@ let refreshTrayMenu: (() => void) | null = null;
 let stopHabitRecall: (() => void) | null = null;
 let activeTaskPowerBlockerId: number | null = null;
 let activeTaskPowerAssertionCount = 0;
+let activeTaskAbortController: AbortController | null = null;
+let devE2eIntentStarted = false;
 
 function startTaskPowerAssertion(): void {
 	activeTaskPowerAssertionCount += 1;
@@ -288,11 +300,6 @@ function recordVoiceInteraction(
 		// Habit learning should never block voice flows.
 	}
 }
-let pendingUserAction: {
-	resolve: (optionId: string) => void;
-	reject: (error: Error) => void;
-	runContext?: Record<string, unknown>;
-} | null = null;
 let predictRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 let ahaGuessRunId = 0;
 const appIconCache = new Map<string, string>();
@@ -621,17 +628,121 @@ async function runUserAction(optionId: string, context?: Record<string, unknown>
 	}
 }
 
+function ensureInteractionBroker(): InteractionBroker {
+	if (!interactionBroker) {
+		interactionBroker = new InteractionBroker(
+			new FileInteractionStore(join(app.getPath("userData"), "interaction-state.json")),
+		);
+	}
+	return interactionBroker;
+}
+
+function interactionState(record: PendingInteractionRecord): FoldStateEvent {
+	const interaction = toInteractionView(record);
+	return {
+		status: "ask",
+		transcript: record.intent,
+		askTitle: interaction.title,
+		askMessage: interaction.message,
+		askHint: interaction.hint,
+		askOptions: interaction.options.map(({ id, label }) => ({ id, label })),
+		interaction,
+		voiceMode: interaction.listening ? "interaction" : null,
+	};
+}
+
+function emitCurrentInteraction(): PendingInteractionRecord | null {
+	const record = ensureInteractionBroker().current();
+	if (record) emitState(interactionState(record));
+	return record;
+}
+
 function requestUserAction(req: UserActionRequest): Promise<string> {
-	return new Promise((resolve, reject) => {
-		pendingUserAction = { resolve, reject, runContext: req.runContext };
+	const broker = ensureInteractionBroker();
+	const response = broker.request(req, lastIntent);
+	emitCurrentInteraction();
+	return response;
+}
+
+async function handleInteractionResponse(response: UserActionResponse): Promise<void> {
+	const broker = ensureInteractionBroker();
+	const record = broker.current();
+	if (!record) {
+		if (lastIntent && (response.optionId || response.text)) {
+			await executeTask(`${lastIntent} ${response.optionId ?? response.text}`);
+		}
+		return;
+	}
+	if (response.requestId && response.requestId !== record.id) return;
+
+	if (response.optionId === "cancel") {
+		broker.cancel("用户取消了授权");
 		emitState({
-			status: "ask",
-			transcript: lastIntent,
-			askTitle: req.title,
-			askMessage: req.message,
-			askHint: req.hint,
-			askOptions: req.options,
+			status: "idle",
+			error: null,
+			interaction: null,
+			voiceMode: null,
+			askTitle: null,
+			askMessage: null,
+			askHint: null,
+			askOptions: undefined,
+			result: "已取消",
 		});
+		return;
+	}
+
+	if (!response.optionId && response.text?.trim() && !record.request.input.acceptFreeform) {
+		broker.updatePresentation({
+			listening: false,
+			draft: response.text.trim(),
+			validationMessage: "没匹配到选项，再说一次或直接点按钮。",
+		});
+		emitCurrentInteraction();
+		return;
+	}
+
+	if (response.optionId) {
+		await runUserAction(response.optionId, record.runContext);
+	}
+	const resolution = broker.respond(response);
+	if (!resolution) return;
+	emitState({
+		status: "working",
+		interaction: null,
+		voiceMode: null,
+		askTitle: null,
+		askMessage: null,
+		askHint: null,
+		askOptions: undefined,
+	});
+
+	// A restored interaction has no live Promise. Re-enter through the product task path
+	// with the durable answer instead of silently losing the paused run.
+	if (!resolution.wasLive && resolution.record.intent) {
+		const answer = response.optionId ?? response.text?.trim() ?? "";
+		await executeTask(`${resolution.record.intent}\n已恢复的用户回答：${answer}`);
+	}
+}
+
+async function handleInteractionVoice(transcript: string): Promise<void> {
+	const broker = ensureInteractionBroker();
+	const record = broker.current();
+	if (!record) return;
+	const text = transcript.trim();
+	const matched = matchUserActionVoice(text, record.request.options);
+	if (matched) {
+		await handleInteractionResponse({
+			requestId: record.id,
+			optionId: matched.id,
+			text,
+			modality: "voice",
+		});
+		return;
+	}
+	await handleInteractionResponse({
+		requestId: record.id,
+		text,
+		modality: "voice",
 	});
 }
 
@@ -659,17 +770,24 @@ async function executeTask(intent: string) {
 		return;
 	}
 	emitState({ status: "understanding", ...clearPredictState() });
+	activeTaskAbortController?.abort();
+	const abortController = new AbortController();
+	activeTaskAbortController = abortController;
 	startTaskPowerAssertion();
 	try {
 		await runTask(lastIntent, emitState, {
 			getLiveContext: () => contextEngine.getLiveContext(),
 			requestUserAction,
 			runUserAction,
+			signal: abortController.signal,
 		});
 		if (smartAccess.usesTrial && hasPlannerApiKey()) consumeSmartActionTrial();
 	} catch (err) {
 		emitState({ status: "error", error: (err as Error).message });
 	} finally {
+		if (activeTaskAbortController === abortController) {
+			activeTaskAbortController = null;
+		}
 		stopTaskPowerAssertion();
 		void refreshPredictCacheEnriched(contextEngine.getLiveContext());
 	}
@@ -1173,6 +1291,8 @@ const IPC_HANDLE_CHANNELS = [
 	"fold:retry-task",
 	"fold:undo-last-insert",
 	"fold:ask-response",
+	"fold:interaction-voice",
+	"fold:toggle-interaction-voice",
 	"fold:dismiss",
 	"fold:voice-empty",
 	"fold:toggle-voice",
@@ -1866,19 +1986,21 @@ function registerIpc() {
 		return result;
 	});
 
-	ipcMain.handle("fold:ask-response", async (_e, optionId: string) => {
-		if (pendingUserAction) {
-			const pending = pendingUserAction;
-			pendingUserAction = null;
-			if (optionId === "cancel") {
-				pending.reject(new Error("用户取消了授权"));
-				return;
-			}
-			await runUserAction(optionId, pending.runContext);
-			pending.resolve(optionId);
-			return;
-		}
-		if (lastIntent) await executeTask(`${lastIntent} ${optionId}`);
+	ipcMain.handle("fold:ask-response", async (_e, input: string | UserActionResponse) => {
+		const response: UserActionResponse =
+			typeof input === "string"
+				? { optionId: input, modality: "click" }
+				: input;
+		await handleInteractionResponse(response);
+	});
+
+	ipcMain.handle("fold:interaction-voice", async (_e, transcript: string) => {
+		isRecording = false;
+		await handleInteractionVoice(transcript);
+	});
+
+	ipcMain.handle("fold:toggle-interaction-voice", () => {
+		toggleVoiceRecording("interaction");
 	});
 
 	ipcMain.on("fold:transcript-forward", (_e, text: string) => {
@@ -1955,9 +2077,8 @@ function registerIpc() {
 		}
 		isRecording = false;
 		replyWasRefined = false;
-		if (pendingUserAction) {
-			pendingUserAction.reject(new Error("用户取消了授权"));
-			pendingUserAction = null;
+		if (ensureInteractionBroker().current()) {
+			ensureInteractionBroker().cancel("用户取消了授权");
 		}
 		// 软关闭：只关卡片，待机继续（空 ASR / 关确认卡）
 		if (opts?.soft && isVoiceStandbyActive() && voiceTargetApp) {
@@ -1974,6 +2095,15 @@ function registerIpc() {
 
 	ipcMain.handle("fold:voice-empty", () => {
 		isRecording = false;
+		if (voiceOutcome === "interaction" && ensureInteractionBroker().current()) {
+			// 空结果静默结束听写，不刷成失败态（短按/开麦竞态很常见）
+			ensureInteractionBroker().updatePresentation({
+				listening: false,
+				validationMessage: undefined,
+			});
+			emitCurrentInteraction();
+			return { ok: true, standby: false };
+		}
 		if (isVoiceStandbyActive() && voiceTargetApp) {
 			enterVoiceStandby(voiceStandbyMode ?? "structure", {
 				placement: voiceStandbyPlacement ?? lastOverlayState.voiceTabPlacement,
@@ -1992,6 +2122,14 @@ function registerIpc() {
 	ipcMain.handle("fold:voice-error", (_e, message: string) => {
 		isRecording = false;
 		console.warn(`[fold:voice-error] ${String(message ?? "")}`);
+		if (voiceOutcome === "interaction" && ensureInteractionBroker().current()) {
+			ensureInteractionBroker().updatePresentation({
+				listening: false,
+				validationMessage: message,
+			});
+			emitCurrentInteraction();
+			return;
+		}
 		emitState({ status: "error", error: message });
 	});
 
@@ -2021,13 +2159,16 @@ function registerIpc() {
 
 registerIpc();
 
-async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
+async function startVoiceRecording(outcome: VoiceOutcome) {
 	if (isRecording) return;
 	const standbyEligible =
-		outcome !== "agent" && isVoiceStandbyActive() && Boolean(voiceTargetApp);
+		(outcome === "structure" || outcome === "reply") &&
+		isVoiceStandbyActive() &&
+		Boolean(voiceTargetApp);
 	// Capture synchronously before any async work so the exact focused field is retained.
 	// 待机复用时先不抓，避免覆盖 native 里保留的原目标输入框。
-	let insertionTarget = standbyEligible ? null : captureTextInsertionTarget();
+	let insertionTarget =
+		outcome === "interaction" || standbyEligible ? null : captureTextInsertionTarget();
 	voiceOutcome = outcome;
 	voiceCanUseDirectStructure =
 		outcome === "structure" && resolveAsrRuntime().provider === "dashscope";
@@ -2042,6 +2183,20 @@ async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 			app: cachedCtx.activeApp,
 			windowTitle: cachedCtx.activeWindow,
 		});
+	}
+	if (outcome === "interaction") {
+		const broker = ensureInteractionBroker();
+		if (!broker.current()?.request.input.allowVoice) {
+			isRecording = false;
+			overlayWindow?.webContents.send("fold:hotkey-cancel");
+			return;
+		}
+		broker.updatePresentation({
+			listening: true,
+			validationMessage: undefined,
+		});
+		emitCurrentInteraction();
+		return;
 	}
 	await contextEngine.refreshActiveApp();
 	const ctx = contextEngine.getLiveContext();
@@ -2178,7 +2333,7 @@ function stopVoiceRecording() {
 	overlayWindow?.webContents.send("fold:hotkey-up", voiceOutcome);
 }
 
-function toggleVoiceRecording(outcome: "structure" | "reply" | "agent" = "structure") {
+function toggleVoiceRecording(outcome: VoiceOutcome = "structure") {
 	if (isRecording) stopVoiceRecording();
 	else startVoiceRecording(outcome);
 }
@@ -2192,9 +2347,23 @@ function cancelActiveSession() {
 	replyRefineHold = false;
 	voiceCanUseDirectStructure = false;
 	if (isRecording) {
+		const canceledOutcome = voiceOutcome;
 		isRecording = false;
 		overlayWindow?.webContents.send("fold:hotkey-cancel");
+		if (canceledOutcome === "interaction") {
+			ensureInteractionBroker().updatePresentation({ listening: false });
+			emitCurrentInteraction();
+			return;
+		}
 		exitVoiceStandby();
+		return;
+	}
+	if (activeTaskAbortController && !activeTaskAbortController.signal.aborted) {
+		activeTaskAbortController.abort();
+		if (ensureInteractionBroker().current()) {
+			ensureInteractionBroker().cancel("任务已取消");
+		}
+		emitState({ status: "error", error: "任务已取消" });
 		return;
 	}
 	if (isVoiceStandbyActive() || lastOverlayState.status === "predict") {
@@ -2207,6 +2376,10 @@ function registerHotkeys() {
 		{
 		onAgentToggle: () => {
 			if (isOnboardingHotkeyTestStep()) return;
+			if (ensureInteractionBroker().current()) {
+				toggleVoiceRecording("interaction");
+				return;
+			}
 			toggleVoiceRecording("agent");
 		},
 		onTriggerDown: () => {
@@ -2217,6 +2390,10 @@ function registerHotkeys() {
 		},
 		onStructureToggle: () => {
 			if (isOnboardingHotkeyTestStep()) return;
+			if (ensureInteractionBroker().current()) {
+				toggleVoiceRecording("interaction");
+				return;
+			}
 			if (isRecording && voiceOutcome === "reply" && replyLatched) {
 				stopVoiceRecording();
 				return;
@@ -2259,7 +2436,12 @@ function registerHotkeys() {
 
 function maybeShowWeeklyRecap() {
 	if (!shouldShowWeeklyRecap()) return;
-	if (isRecording || lastOverlayState.status === "predict" || lastOverlayState.status === "listening") {
+	if (
+		isRecording ||
+		lastOverlayState.status === "predict" ||
+		lastOverlayState.status === "listening" ||
+		lastOverlayState.status === "ask"
+	) {
 		return;
 	}
 	const recap = buildWeeklyRecap();
@@ -2283,9 +2465,48 @@ app.whenReady().then(() => {
 	hydrateContextFromDb();
 	stopHabitRecall = startHabitRecallLoop(() => recallHabitsFromUsage());
 	startMemoryConsolidationLoop();
+	const restoredInteraction = ensureInteractionBroker().current();
+	if (restoredInteraction) {
+		lastIntent = restoredInteraction.intent;
+		lastOverlayState = {
+			...lastOverlayState,
+			...interactionState(restoredInteraction),
+		};
+	}
 	createOverlayWindow();
 	registerHotkeys();
 	void refreshPredictCacheEnriched(contextEngine.getLiveContext());
+
+	// Development-only product E2E entry. This deliberately enters through
+	// executeTask (the same IPC/voice path), never by calling runtime/connectors directly.
+	const devE2eIntent = process.env.VITE_DEV_SERVER_URL
+		? process.env.FOLD_E2E_INTENT?.trim()
+		: undefined;
+	if (devE2eIntent && !devE2eIntentStarted) {
+		devE2eIntentStarted = true;
+		setTimeout(() => void executeTask(devE2eIntent), 1_500);
+	}
+	if (process.env.VITE_DEV_SERVER_URL && process.env.FOLD_E2E_HITL === "1") {
+		lastIntent = "发送飞书 E2E 结果到产品讨论群";
+		setTimeout(() => {
+			void requestUserAction({
+				title: "发送飞书消息前，请确认",
+				message: "产品讨论群\nE2E 已通过，日历打包路径还需处理。",
+				hint: "将向外部发送消息",
+				kind: "confirm",
+				risk: "external",
+				options: [
+					{ id: "allow-once", label: "允许这一次", tone: "primary" },
+					{ id: "edit", label: "编辑后发送" },
+					{ id: "cancel", label: "取消任务", tone: "danger" },
+				],
+			}).then((choice) => {
+				emitState({ status: "done", result: `已记录 HITL 选择：${choice}` });
+			}).catch((error: Error) => {
+				emitState({ status: "error", error: error.message });
+			});
+		}, 1_200);
+	}
 
 	// 启动后错开 onboarding：若本周该看回顾，弹一张完成态卡片
 	setTimeout(() => {
