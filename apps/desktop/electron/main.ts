@@ -222,6 +222,8 @@ let voiceStandbyUntil: number | null = null;
 let voiceStandbyTimer: ReturnType<typeof setTimeout> | null = null;
 let voiceStandbyMode: "structure" | "reply" | null = null;
 let voiceStandbyPlacement: { left: number; top: number } | null = null;
+/** 进待机时的 ctx.activeApp 快照；唤起时同源比对，判断焦点是否已切到别的真实 App */
+let voiceStandbyActiveApp: string | null = null;
 let lastIntent = "";
 let lastReplyTranscript = "";
 /** 代回卡片上做过语音 refine 后再插入 → 记 edited 而非 accept */
@@ -710,6 +712,7 @@ function exitVoiceStandby(extra: Partial<FoldStateEvent> = {}) {
 	voiceStandbyUntil = null;
 	voiceStandbyMode = null;
 	voiceStandbyPlacement = null;
+	voiceStandbyActiveApp = null;
 	voiceTargetApp = null;
 	voiceReplyScreenshotPath = null;
 	clearPredictTargetApp();
@@ -736,6 +739,7 @@ function enterVoiceStandby(
 	clearVoiceStandbyTimer();
 	voiceStandbyMode = mode;
 	voiceStandbyUntil = Date.now() + secs * 1000;
+	voiceStandbyActiveApp = contextEngine.getLiveContext().activeApp ?? null;
 	voiceStandbyPlacement =
 		opts?.placement ?? lastOverlayState.voiceTabPlacement ?? voiceStandbyPlacement;
 	if (voiceTargetApp) setPredictTargetApp(voiceTargetApp);
@@ -2009,15 +2013,33 @@ registerIpc();
 
 async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 	if (isRecording) return;
-	const standbyReuse =
+	const standbyEligible =
 		outcome !== "agent" && isVoiceStandbyActive() && Boolean(voiceTargetApp);
 	// Capture synchronously before any async work so the exact focused field is retained.
-	const insertionTarget = standbyReuse ? null : captureTextInsertionTarget();
+	// 待机复用时先不抓，避免覆盖 native 里保留的原目标输入框。
+	let insertionTarget = standbyEligible ? null : captureTextInsertionTarget();
 	await contextEngine.refreshActiveApp();
 	voiceOutcome = outcome;
 	voiceCanUseDirectStructure =
 		outcome === "structure" && resolveAsrRuntime().provider === "dashscope";
 	const ctx = contextEngine.getLiveContext();
+	// 待机复用仅当焦点没有主动切到别的真实 App。与进待机时的快照同源比对
+	// （都取 ContextEngine.activeApp，ignoreApps 已滤掉知更自己），
+	// 切走了就跟随当前光标重新锁定（Typeless 语义）。
+	// ponytail: 同 App 内换输入框仍复用旧 target，粒度到 App 为止。
+	let standbyReuse = standbyEligible;
+	if (
+		standbyEligible &&
+		voiceStandbyActiveApp &&
+		ctx.activeApp &&
+		ctx.activeApp !== voiceStandbyActiveApp
+	) {
+		standbyReuse = false;
+		insertionTarget = captureTextInsertionTarget();
+		console.log(
+			`[fold:standby] focus moved ${voiceStandbyActiveApp} -> ${ctx.activeApp}, abandon reuse`,
+		);
+	}
 	if (!standbyReuse) {
 		voiceTargetApp = insertionTarget?.appName ?? ctx.activeApp ?? null;
 	}
