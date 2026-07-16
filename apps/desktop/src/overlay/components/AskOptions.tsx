@@ -46,7 +46,7 @@ export function AskOptions({
 	onToggleVoice,
 	onCollapse,
 }: Props) {
-	const [textOpen, setTextOpen] = useState(false);
+	const [inputMode, setInputMode] = useState<"voice" | "text">("voice");
 	const [text, setText] = useState("");
 	const [busy, setBusy] = useState(false);
 	const inputRef = useRef<HTMLInputElement>(null);
@@ -71,13 +71,17 @@ export function AskOptions({
 
 	useEffect(() => {
 		setText(interaction?.draft ?? "");
-		setTextOpen(Boolean(interaction?.draft) || !inputPolicy.allowVoice);
+		setInputMode(
+			interaction?.draft || !inputPolicy.allowVoice || inputPolicy.primary === "secure"
+				? "text"
+				: "voice",
+		);
 		setBusy(false);
-	}, [requestId, interaction?.draft, inputPolicy.allowVoice]);
+	}, [requestId, interaction?.draft, inputPolicy.allowVoice, inputPolicy.primary]);
 
 	useEffect(() => {
-		if (textOpen) inputRef.current?.focus();
-	}, [textOpen]);
+		if (inputMode === "text") inputRef.current?.focus();
+	}, [inputMode]);
 
 	const respond = (response: UserActionResponse) => {
 		if (busy) return;
@@ -103,8 +107,8 @@ export function AskOptions({
 		<section className="fold-hitl" aria-labelledby="fold-hitl-title">
 			<header className="fold-hitl-header">
 				<div className="fold-hitl-brand">
-					<ZhigengLogoMark size={22} mono />
-					<span>Fold</span>
+					<ZhigengLogoMark size={30} mono />
+					<span>知更</span>
 				</div>
 				<div className="fold-hitl-status">
 					<span className="fold-hitl-status-dot" aria-hidden="true" />
@@ -165,27 +169,29 @@ export function AskOptions({
 					</div>
 				) : null}
 
-				{inputPolicy.allowVoice ? (
-					<div className={`fold-hitl-voice-bar ${listening ? "is-listening" : ""}`}>
-						<span className="fold-hitl-voice-mode">{listening ? "回答中" : "语音"}</span>
-						<span className="fold-input-separator" aria-hidden="true" />
-						<VoiceWave level={listening ? voiceLevel : 0} active={listening} />
-						<button
-							type="button"
-							className="fold-input-close"
-							onClick={onToggleVoice}
-							disabled={busy}
-							aria-pressed={listening}
-							aria-label={listening ? "结束并发送" : "开始语音回答"}
-							title={listening ? "结束并发送（右⌘）" : "语音回答（右⌘）"}
-						>
-							{listening ? <X size={14} strokeWidth={2.2} /> : <Mic size={14} strokeWidth={2.2} />}
-						</button>
-					</div>
-				) : null}
-
-				{inputPolicy.allowText ? (
-					textOpen ? (
+				<div className="fold-hitl-input">
+					{inputMode === "voice" && inputPolicy.allowVoice ? (
+						<div className={`fold-hitl-voice-bar ${listening ? "is-listening" : ""}`}>
+							<span className="fold-hitl-voice-mode">{listening ? "回答中" : "语音"}</span>
+							<span className="fold-input-separator" aria-hidden="true" />
+							{listening ? (
+								<VoiceWave level={voiceLevel} active />
+							) : (
+								<span className="fold-hitl-voice-hint">按右⌘开始</span>
+							)}
+							<button
+								type="button"
+								className="fold-input-close"
+								onClick={onToggleVoice}
+								disabled={busy}
+								aria-pressed={listening}
+								aria-label={listening ? "结束并发送" : "开始语音回答"}
+								title={listening ? "再按右⌘结束并发送" : "按右⌘开始语音回答"}
+							>
+								{listening ? <X size={14} strokeWidth={2.2} /> : <Mic size={14} strokeWidth={2.2} />}
+							</button>
+						</div>
+					) : inputPolicy.allowText ? (
 						<div className="fold-hitl-text-row">
 							<input
 								ref={inputRef}
@@ -209,26 +215,21 @@ export function AskOptions({
 							>
 								<Send size={14} />
 							</button>
-							<button
-								type="button"
-								className="fold-hitl-text-cancel"
-								onClick={() => setTextOpen(false)}
-							>
-								收起
-							</button>
 						</div>
-					) : (
+					) : null}
+
+					{inputPolicy.allowVoice && inputPolicy.allowText ? (
 						<button
 							type="button"
-							className="fold-hitl-keyboard"
-							onClick={() => setTextOpen(true)}
-							disabled={listening}
+							className="fold-hitl-input-switch"
+							onClick={() => setInputMode(inputMode === "voice" ? "text" : "voice")}
+							disabled={busy || listening}
 						>
-							<Keyboard size={13} />
-							键盘输入
+							{inputMode === "voice" ? <Keyboard size={13} /> : <Mic size={13} />}
+							{inputMode === "voice" ? "键盘" : "语音"}
 						</button>
-					)
-				) : null}
+					) : null}
+				</div>
 
 				{interaction?.validationMessage ? (
 					<p className="fold-hitl-validation">{interaction.validationMessage}</p>

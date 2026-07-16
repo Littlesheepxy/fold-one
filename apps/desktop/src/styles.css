@@ -141,7 +141,7 @@ body.fold-home-page #root {
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  min-height: 56px;
+  min-height: 62px;
   padding: 0 18px;
   border-bottom: 1px solid rgb(255 255 255 / 0.08);
 }
@@ -149,9 +149,9 @@ body.fold-home-page #root {
 .fold-hitl-brand {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  font-size: 15px;
-  font-weight: 650;
+  gap: 9px;
+  font-size: 17px;
+  font-weight: 680;
   letter-spacing: -0.01em;
 }
 
@@ -313,7 +313,14 @@ body.fold-home-page #root {
   background: rgb(255 78 64 / 0.08);
 }
 
-/* 对齐 fold-input-tab：一行 模式 | 波形 | 开关 */
+/* 与悬浮圆圈展开态共用语义：模式 | 波形/提示 | 开关 */
+.fold-hitl-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
 .fold-hitl-voice-bar {
   display: inline-flex;
   align-items: center;
@@ -349,31 +356,45 @@ body.fold-home-page #root {
   margin: 0 4px;
 }
 
+.fold-hitl-voice-hint {
+  flex: 1 1 auto;
+  color: rgb(255 255 255 / 0.42);
+  font-size: 11px;
+  text-align: center;
+  white-space: nowrap;
+}
+
 .fold-hitl-voice-bar .fold-input-close {
   margin-left: 2px;
 }
 
-.fold-hitl-keyboard {
+.fold-hitl-input-switch {
   display: inline-flex;
-  align-self: flex-start;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 4px 10px;
+  min-width: 58px;
+  height: 38px;
+  padding: 0 10px;
   border: 0;
   border-radius: 999px;
-  color: rgb(255 255 255 / 0.48);
+  color: rgb(255 255 255 / 0.56);
   background: transparent;
   font-size: 11px;
 }
 
-.fold-hitl-keyboard:hover {
+.fold-hitl-input-switch:hover:not(:disabled) {
   color: rgb(255 255 255 / 0.82);
   background: rgb(255 255 255 / 0.06);
 }
 
+.fold-hitl-input-switch:disabled {
+  opacity: 0.35;
+}
+
 .fold-hitl-text-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 32px auto;
+  grid-template-columns: minmax(0, 1fr) 34px;
   gap: 6px;
   align-items: center;
 }
@@ -404,14 +425,6 @@ body.fold-home-page #root {
   border-radius: 10px;
   color: #fff;
   background: #675cf1;
-}
-
-.fold-hitl-text-cancel {
-  width: auto !important;
-  padding: 0 8px;
-  color: rgb(255 255 255 / 0.55) !important;
-  background: transparent !important;
-  font-size: 11px;
 }
 
 .fold-hitl-validation {
