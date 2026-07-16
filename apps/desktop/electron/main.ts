@@ -701,7 +701,8 @@ function clearPredictState(): Partial<FoldStateEvent> {
 function voiceStandbySeconds(): number {
 	const n = loadConfig().voiceStandbySeconds;
 	if (typeof n === "number" && Number.isFinite(n)) return Math.max(0, Math.min(60, Math.round(n)));
-	return 8;
+	// Mac 默认关：全局热键重进成本低，待机复用易插错窗；代码/文档留给 iOS。要开：config.voiceStandbySeconds=8
+	return 0;
 }
 
 function isVoiceStandbyActive(): boolean {
