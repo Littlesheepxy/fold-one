@@ -209,6 +209,20 @@ export function ProfileSection({
 										{entity.value.commitment && <em>{entity.value.commitment}</em>}
 										<small className="fold-memory-person-date">最近 · {entity.value.lastSeenDate}</small>
 									</div>
+									<button
+										type="button"
+										className="fold-memory-forget-btn"
+										title="忘掉此人"
+										onClick={() => {
+											void window.fold.deactivateMemory(entity.id).then((r) => {
+												if (r.ok) {
+													setMemoryEntities((prev) => prev.filter((e) => e.id !== entity.id));
+												}
+											});
+										}}
+									>
+										忘掉
+									</button>
 								</li>
 							))}
 						</ul>
@@ -250,6 +264,20 @@ export function ProfileSection({
 										<small title={entity.value.filePaths[0]}>{entity.value.filePaths[0]}</small>
 									)}
 									<small>活跃 · {entity.value.lastActiveDate}</small>
+									<button
+										type="button"
+										className="fold-memory-forget-btn"
+										title="忘掉此项目"
+										onClick={() => {
+											void window.fold.deactivateMemory(entity.id).then((r) => {
+												if (r.ok) {
+													setMemoryEntities((prev) => prev.filter((e) => e.id !== entity.id));
+												}
+											});
+										}}
+									>
+										忘掉
+									</button>
 								</article>
 							))}
 						</div>
@@ -324,7 +352,29 @@ export function ProfileSection({
 						{storedProfile?.preferredTools?.length ? <div><strong>常用工具</strong><span>{storedProfile.preferredTools.join("、")}</span></div> : null}
 						{storedProfile?.workPatterns?.length ? <div><strong>工作方式</strong><span>{storedProfile.workPatterns.join("、")}</span></div> : null}
 						{storedProfile?.communicationStyle && <div><strong>沟通风格</strong><span>{storedProfile.communicationStyle}</span></div>}
-						{storedProfile?.constraints?.length ? <div><strong>边界与约束</strong><span>{storedProfile.constraints.join("、")}</span></div> : null}
+						{storedProfile?.constraints?.length ? (
+							<div>
+								<strong>边界与约束</strong>
+								<ul className="fold-memory-constraint-list">
+									{storedProfile.constraints.map((c) => (
+										<li key={c}>
+											<span>{c}</span>
+											<button
+												type="button"
+												className="fold-memory-forget-btn"
+												onClick={() => {
+													void window.fold.removeProfileConstraint(c).then((r) => {
+														if (r.ok) reloadProfile();
+													});
+												}}
+											>
+												忘掉
+											</button>
+										</li>
+									))}
+								</ul>
+							</div>
+						) : null}
 						<div>
 							<strong>任务记录</strong>
 							<span>{stats.total} 次，{stats.success} 次成功{stats.partial > 0 ? `，${stats.partial} 次部分完成` : ""}</span>

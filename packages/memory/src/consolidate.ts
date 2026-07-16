@@ -616,41 +616,59 @@ export interface EntityBriefOptions {
 	projectLimit?: number;
 }
 
-/** 纯函数核心：按「是否命中当前情境」排序，其次按最近活跃时间；供自检和真实查询共用。 */
+/** 纯函数核心：按「是否命中当前情境」排序，其次按最近活跃；超过 30 天未见的降权。 */
 export function formatEntityBriefFromRecords(
 	records: MemoryEntityRecord[],
 	opts: EntityBriefOptions = {},
 ): string {
 	const { matchText, personLimit = 3, projectLimit = 2 } = opts;
 	const needle = matchText?.trim();
+	const STALE_DAYS = 30;
 
-	function rank<T extends { updatedAt: number; value: { name: string } }>(list: T[]): T[] {
+	function daysSince(dateKey?: string): number {
+		if (!dateKey) return 999;
+		const t = Date.parse(dateKey.length <= 10 ? `${dateKey}T12:00:00` : dateKey);
+		if (!Number.isFinite(t)) return 999;
+		return (Date.now() - t) / 86_400_000;
+	}
+
+	function freshness(r: MemoryEntityRecord): number {
+		// 越大越新：未过期 = 2，过期 = 0；命中情境时过期仍可排前（靠 hit）
+		const dateKey =
+			r.type === "entity.person" ? r.value.lastSeenDate : r.value.lastActiveDate;
+		return daysSince(dateKey) <= STALE_DAYS ? 2 : 0;
+	}
+
+	function rank(list: MemoryEntityRecord[]): MemoryEntityRecord[] {
 		return [...list].sort((a, b) => {
 			const aHit = needle && needle.includes(a.value.name) ? 1 : 0;
 			const bHit = needle && needle.includes(b.value.name) ? 1 : 0;
 			if (aHit !== bHit) return bHit - aHit;
+			const aFresh = freshness(a);
+			const bFresh = freshness(b);
+			if (aFresh !== bFresh) return bFresh - aFresh;
 			return b.updatedAt - a.updatedAt;
 		});
 	}
 
 	const people = rank(
-		records.filter((r): r is MemoryEntityRecord & { type: "entity.person" } => r.type === "entity.person"),
-	).slice(0, personLimit);
+		records.filter((r): r is MemoryEntityRecord & { type: "entity.person"; value: PersonMemoryValue } => r.type === "entity.person"),
+	) as Array<MemoryEntityRecord & { type: "entity.person"; value: PersonMemoryValue }>;
 	const projects = rank(
-		records.filter((r): r is MemoryEntityRecord & { type: "entity.project" } => r.type === "entity.project"),
-	).slice(0, projectLimit);
+		records.filter((r): r is MemoryEntityRecord & { type: "entity.project"; value: ProjectMemoryValue } => r.type === "entity.project"),
+	) as Array<MemoryEntityRecord & { type: "entity.project"; value: ProjectMemoryValue }>;
 
 	const lines: string[] = [];
 	if (people.length) {
 		lines.push("长期记忆·相关人物：");
-		for (const p of people) {
+		for (const p of people.slice(0, personLimit)) {
 			const bits = [p.value.role, p.value.commitment].filter(Boolean).join("；");
 			lines.push(`  - ${p.value.name}${bits ? `（${bits}）` : ""}`);
 		}
 	}
 	if (projects.length) {
 		lines.push("长期记忆·相关项目：");
-		for (const proj of projects) {
+		for (const proj of projects.slice(0, projectLimit)) {
 			const bits = [
 				proj.value.status ? `状态：${proj.value.status}` : null,
 				proj.value.nextStep ? `下一步：${proj.value.nextStep}` : null,
@@ -738,4 +756,26 @@ export function runConsolidateSelfCheck(): void {
 	const matched = formatEntityBriefFromRecords(records, { matchText: "刚才跟 Jason 聊了报价", personLimit: 1 });
 	console.assert(matched.includes("Jason") && !matched.includes("Amy"), "entity brief match priority");
 	console.assert(formatEntityBriefFromRecords(records, { projectLimit: 1 }).includes("知更 iOS"), "entity brief project");
+
+	// 超过 30 天未见：即使 updatedAt 更高，也应让位于近期人物
+	const staleRecords: MemoryEntityRecord[] = [
+		{
+			id: "old",
+			type: "entity.person",
+			key: "old",
+			value: { name: "OldFriend", episodeIds: [], lastSeenDate: "2025-01-01" },
+			confidence: 0.9,
+			updatedAt: 9999,
+		},
+		{
+			id: "new",
+			type: "entity.person",
+			key: "new",
+			value: { name: "NewFriend", episodeIds: [], lastSeenDate: "2026-07-14" },
+			confidence: 0.7,
+			updatedAt: 1,
+		},
+	];
+	const demoted = formatEntityBriefFromRecords(staleRecords, { personLimit: 1 });
+	console.assert(demoted.includes("NewFriend") && !demoted.includes("OldFriend"), "stale entity demoted");
 }

@@ -119,6 +119,10 @@ contextBridge.exposeInMainWorld("fold", {
 	listEpisodes: () => ipcRenderer.invoke("fold:list-episodes") as Promise<Record<string, unknown>[]>,
 	listMemoryEntities: () =>
 		ipcRenderer.invoke("fold:list-memory-entities") as Promise<Record<string, unknown>[]>,
+	deactivateMemory: (id: string) =>
+		ipcRenderer.invoke("fold:deactivate-memory", id) as Promise<{ ok: boolean }>,
+	removeProfileConstraint: (text: string) =>
+		ipcRenderer.invoke("fold:remove-profile-constraint", text) as Promise<{ ok: boolean }>,
 	runMemoryConsolidation: () =>
 		ipcRenderer.invoke("fold:run-memory-consolidation") as Promise<{ ok: boolean; dates: string[] }>,
 	codexRemoteStatus: () =>

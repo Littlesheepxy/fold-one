@@ -102,6 +102,37 @@ export function listActiveMemories(type?: string, dataDir?: string): MemoryRecor
 	return rows.map(mapMemoryRow);
 }
 
+/** 软删除：active=0，不再注入 prompt / 列表。 */
+export function deactivateMemory(id: string, dataDir?: string): boolean {
+	const trimmed = id.trim();
+	if (!trimmed) return false;
+	const result = getDb(dataDir)
+		.prepare(`UPDATE memories SET active = 0, updated_at = ? WHERE id = ? AND active = 1`)
+		.run(Date.now(), trimmed);
+	return result.changes > 0;
+}
+
+/** 从画像约束里删掉一条（用户纠正误学）。 */
+export function removeProfileConstraint(constraint: string, dataDir?: string): boolean {
+	const text = constraint.trim();
+	if (!text) return false;
+	const existing = loadProfileMemories(dataDir);
+	const prev = existing?.constraints ?? [];
+	const next = prev.filter((c) => c !== text);
+	if (next.length === prev.length) return false;
+	upsertMemory(
+		{
+			type: "preference",
+			key: `${PROFILE_PREFIX}constraints`,
+			value: JSON.stringify(next),
+			confidence: 0.9,
+			source: "user-edit",
+		},
+		dataDir,
+	);
+	return true;
+}
+
 export function saveProfileMemories(profile: UserProfileData, source: string, dataDir?: string): void {
 	const now = Date.now();
 	const entries: Array<[string, string]> = [

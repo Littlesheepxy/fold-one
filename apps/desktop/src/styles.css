@@ -650,6 +650,16 @@ body.fold-home-page #root {
   color: rgb(255 255 255 / 0.75);
 }
 
+.fold-predict-card-memory-refs {
+  margin: 0 0 6px;
+  font-size: 10px;
+  line-height: 1.35;
+  color: rgb(255 255 255 / 0.38);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .fold-predict-card-link {
   border: 0;
   background: transparent;
@@ -5081,9 +5091,49 @@ button.fold-connection-chip-main.needs-action:hover:not(:disabled) {
   display: flex;
   align-items: flex-start;
   gap: 12px;
+  position: relative;
   padding: 12px;
   border-radius: 14px;
   background: rgb(0 0 0 / 0.035);
+}
+
+.fold-memory-forget-btn {
+  appearance: none;
+  margin-left: auto;
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: #86868b;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+.fold-memory-forget-btn:hover {
+  color: #ff3b30;
+  background: rgb(255 59 48 / 0.08);
+}
+
+.fold-memory-constraint-list {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.fold-memory-constraint-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  color: #3a3a3c;
+}
+
+.fold-memory-project-card .fold-memory-forget-btn {
+  margin-top: 6px;
+  margin-left: 0;
 }
 
 .fold-memory-person-avatar {

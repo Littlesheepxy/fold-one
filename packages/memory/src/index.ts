@@ -26,8 +26,10 @@ export {
 	type ProductEventName,
 } from "./product-events.js";
 export {
+	deactivateMemory,
 	loadProfileMemories,
 	listActiveMemories,
+	removeProfileConstraint,
 	saveProfileMemories,
 	upsertMemory,
 	type UserProfileData,

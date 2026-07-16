@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ContextEngine, isClipboardRecallIntent, resolveClipboardRecall, type ContextEvent } from "@fold/context";
 import { captureScreenshot, createNangoConnectLink, openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal, openOfficeSetupInTerminal, openWorkBuddyApp, activateAgentConnectFlow, cancelConnectFlow, pollConnectFlow, resolveConnectTarget, startConnectFlow } from "@fold/connectors";
-import { saveContextEvent, listContextEvents, saveVoiceInteraction, listMemoryEntities, saveProductEvent } from "@fold/memory";
+import { saveContextEvent, listContextEvents, saveVoiceInteraction, listMemoryEntities, saveProductEvent, deactivateMemory, removeProfileConstraint } from "@fold/memory";
 import {
 	hasPlannerApiKey,
 	buildWeeklyRecap,
@@ -673,6 +673,7 @@ function clearPredictState(): Partial<FoldStateEvent> {
 		predictSuggestions: undefined,
 		predictDrafts: undefined,
 		predictSelectedIntent: null,
+		predictMemoryRefs: undefined,
 		predictDraftsLoading: false,
 		predictCursor: null,
 		contextPageUrl: null,
@@ -707,6 +708,7 @@ function emitPredictResult(result: Awaited<ReturnType<typeof resolveReplyPredict
 		predictAnchor: result.anchor,
 		predictSuggestions: result.suggestions,
 		predictDrafts: result.drafts,
+		predictMemoryRefs: result.memoryRefs,
 		predictCursor: getCursorInOverlay(),
 	});
 }
@@ -751,6 +753,7 @@ function showReplyPredictions() {
 			predictAnchor: result.anchor,
 			predictSuggestions: result.suggestions,
 			predictDrafts: result.drafts,
+			predictMemoryRefs: result.memoryRefs,
 			predictCursor: getCursorInOverlay(),
 			voiceTabPlacement: placement,
 			contextAppName: app,
@@ -1013,6 +1016,7 @@ async function replyVoiceTranscript(transcript: string) {
 			predictAnchor: sceneTitle,
 			predictSelectedIntent: text,
 			predictDrafts: card.drafts,
+			predictMemoryRefs: card.memoryRefs,
 			predictDraftsLoading: false,
 			predictRefining: false,
 			predictCursor: getCursorInOverlay(),
@@ -1376,6 +1380,14 @@ function registerIpc() {
 	ipcMain.handle("fold:list-episodes", () => listEpisodesForHome(50));
 
 	ipcMain.handle("fold:list-memory-entities", () => listMemoryEntities());
+	ipcMain.handle("fold:deactivate-memory", (_e, id: string) => {
+		const ok = deactivateMemory(String(id ?? ""));
+		return { ok };
+	});
+	ipcMain.handle("fold:remove-profile-constraint", (_e, text: string) => {
+		const ok = removeProfileConstraint(String(text ?? ""));
+		return { ok };
+	});
 
 	ipcMain.handle("fold:run-memory-consolidation", async () => triggerMemoryConsolidationNow());
 

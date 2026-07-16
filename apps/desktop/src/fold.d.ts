@@ -96,6 +96,8 @@ interface FoldApi {
 	getFirstAppIcon(appNames: string[]): Promise<string | null>;
 	listEpisodes(): Promise<EpisodeSummary[]>;
 	listMemoryEntities(): Promise<MemoryEntityRecord[]>;
+	deactivateMemory(id: string): Promise<{ ok: boolean }>;
+	removeProfileConstraint(text: string): Promise<{ ok: boolean }>;
 	runMemoryConsolidation(): Promise<{ ok: boolean; dates: string[] }>;
 	codexRemoteStatus(): Promise<{
 		status: "disabled" | "connecting" | "connected" | "errored" | "unknown";

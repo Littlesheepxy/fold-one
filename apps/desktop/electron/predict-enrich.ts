@@ -1,6 +1,12 @@
 import { captureScreenshot } from "@fold/connectors";
 import { createEmptyContext, type LiveContext } from "@fold/context";
-import { formatEntityBrief, listProductEvents, saveProductEvent } from "@fold/memory";
+import {
+	formatEntityBrief,
+	listMemoryEntities,
+	listProductEvents,
+	loadProfileMemories,
+	saveProductEvent,
+} from "@fold/memory";
 import {
 	buildPredictions,
 	buildProfileBrief,
@@ -111,6 +117,26 @@ function draftInputFromEnriched(
 		profileBrief: currentProfileBrief(),
 		...extra,
 	};
+}
+
+/** 给用户看的「参考了」短标签（非 prompt）。 */
+function collectMemoryRefs(matchText?: string): string[] {
+	const refs: string[] = [];
+	const profile = loadProfileMemories();
+	if (profile?.communicationStyle?.trim()) {
+		refs.push(profile.communicationStyle.trim().slice(0, 20));
+	} else if (profile?.consolidatedHabits?.[0]?.trim()) {
+		refs.push(profile.consolidatedHabits[0]!.trim().slice(0, 20));
+	}
+	const entities = listMemoryEntities();
+	const matched = matchText?.trim()
+		? entities.filter((e) => matchText.includes(e.value.name))
+		: [];
+	for (const e of (matched.length ? matched : entities).slice(0, 3)) {
+		refs.push(e.value.name);
+	}
+	if (formatRecentRejectBrief()) refs.push("近期拒绝偏好");
+	return [...new Set(refs.filter(Boolean))].slice(0, 4);
 }
 
 function attachTraceReasons(
@@ -320,6 +346,7 @@ export async function resolveReplyPredictions(
 			},
 		],
 		drafts,
+		memoryRefs: collectMemoryRefs(enriched.screenSnippet),
 		topConfidence: 0.88,
 		computedAt: Date.now(),
 	};
@@ -403,6 +430,7 @@ export async function resolveReplyVoiceCard(
 	subtitle: string | null;
 	appName: string | null;
 	appPath: string | null;
+	memoryRefs: string[];
 }> {
 	const { enriched, screenshotPath } = await enrichForReply(
 		ctx,
@@ -432,6 +460,7 @@ export async function resolveReplyVoiceCard(
 		subtitle,
 		appName,
 		appPath: ctx.activeAppPath ?? null,
+		memoryRefs: collectMemoryRefs(enriched.screenSnippet),
 	};
 }
 

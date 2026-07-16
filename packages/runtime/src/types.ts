@@ -66,6 +66,8 @@ export interface FoldStateEvent {
 	predictAnchor?: string | null;
 	predictSuggestions?: PredictSuggestion[];
 	predictDrafts?: PredictDraftLine[];
+	/** 代回卡：本次参考了哪些记忆 */
+	predictMemoryRefs?: string[];
 	predictSelectedIntent?: string | null;
 	predictDraftsLoading?: boolean;
 	predictCursor?: { x: number; y: number } | null;
