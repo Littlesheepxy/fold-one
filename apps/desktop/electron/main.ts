@@ -2018,10 +2018,22 @@ async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 	// Capture synchronously before any async work so the exact focused field is retained.
 	// 待机复用时先不抓，避免覆盖 native 里保留的原目标输入框。
 	let insertionTarget = standbyEligible ? null : captureTextInsertionTarget();
-	await contextEngine.refreshActiveApp();
 	voiceOutcome = outcome;
 	voiceCanUseDirectStructure =
 		outcome === "structure" && resolveAsrRuntime().provider === "dashscope";
+	isRecording = true;
+	// 立刻让渲染层开麦（音频进本地预缓冲），截图/定位等上下文工作并行进行，
+	// 否则串行等下来首音节全部丢失。app/windowTitle 用缓存值即可，仅供 ASR 语境提示。
+	createOverlayWindow();
+	{
+		const cachedCtx = contextEngine.getLiveContext();
+		overlayWindow?.webContents.send("fold:hotkey-down", {
+			mode: outcome,
+			app: cachedCtx.activeApp,
+			windowTitle: cachedCtx.activeWindow,
+		});
+	}
+	await contextEngine.refreshActiveApp();
 	const ctx = contextEngine.getLiveContext();
 	// 待机复用仅当焦点没有主动切到别的真实 App。与进待机时的快照同源比对
 	// （都取 ContextEngine.activeApp，ignoreApps 已滤掉知更自己），
@@ -2045,7 +2057,6 @@ async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 	}
 	clearVoiceStandbyTimer();
 	voiceStandbyUntil = null;
-	isRecording = true;
 
 	// 代回必须在 raise overlay 之前截聊天窗：松手时 frontmost 常是 Electron，
 	// 全屏回退又会落到主屏上一次微信会话。
@@ -2067,8 +2078,6 @@ async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 	} else {
 		voiceReplyScreenshotPath = null;
 	}
-
-	createOverlayWindow();
 
 	const isOnboardingVoiceDemo =
 		(outcome === "structure" && isOnboardingVoiceLiveStep()) ||
@@ -2097,11 +2106,6 @@ async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 			contextPageLabel: null,
 		});
 		if (outcome === "structure") sendOnboardingVoiceEvent({ phase: "listening" });
-		overlayWindow?.webContents.send("fold:hotkey-down", {
-			mode: outcome,
-			app: voiceTargetApp,
-			windowTitle: onboardingVoiceWindowTitle,
-		});
 		return;
 	}
 
@@ -2118,11 +2122,6 @@ async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 		predictRefining: false,
 		...clearPredictState(),
 		...buildVoiceOverlayContext(ctx),
-	});
-	overlayWindow?.webContents.send("fold:hotkey-down", {
-		mode: outcome,
-		app: ctx.activeApp,
-		windowTitle: ctx.activeWindow,
 	});
 }
 

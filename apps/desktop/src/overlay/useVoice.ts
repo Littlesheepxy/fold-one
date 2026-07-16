@@ -68,6 +68,8 @@ export function useVoiceHandlers() {
 						void window.fold.voiceError(err.message);
 					},
 				});
+				// start() resolve = 麦克风已在采集（预缓冲兜底），此刻提示音才是真实的"可以说了"
+				playFoldSound("voiceStart");
 			} catch (err) {
 				asrRef.current?.cancel();
 				asrRef.current = null;
@@ -109,7 +111,6 @@ export function useVoiceHandlers() {
 		const unsubs = [
 			window.fold.onHotkeyDown((session) => {
 				voiceModeRef.current = session.mode;
-				playFoldSound("voiceStart");
 				void startRecording(session);
 			}),
 			window.fold.onHotkeyUp((mode) => {

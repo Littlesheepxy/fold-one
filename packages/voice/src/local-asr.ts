@@ -41,7 +41,14 @@ export function createLocalAsr(
 		async start(opts) {
 			cancelled = false;
 			try {
-				await config.transport.start();
+				// transport 启动与开麦并行；未就绪前缓冲，杜绝丢首音节
+				let transportReady = false;
+				const preBuffer: ArrayBuffer[] = [];
+				const transportStarted = config.transport.start().then(() => {
+					transportReady = true;
+					for (const chunk of preBuffer) config.transport.sendAudio(chunk);
+					preBuffer.length = 0;
+				});
 				mediaStream = await navigator.mediaDevices.getUserMedia({
 					audio: {
 						channelCount: 1,
@@ -62,10 +69,12 @@ export function createLocalAsr(
 					levelCb?.(pcm16AudioLevel(new Uint8Array(chunk.buffer)));
 					const payload = new ArrayBuffer(chunk.byteLength);
 					new Int16Array(payload).set(chunk);
-					config.transport.sendAudio(payload);
+					if (transportReady) config.transport.sendAudio(payload);
+					else preBuffer.push(payload);
 				};
 				sourceNode = audioCtx.createMediaStreamSource(mediaStream);
 				sourceNode.connect(workletNode);
+				await transportStarted;
 				opts.onPartial("");
 			} catch (error) {
 				const reason = error instanceof Error ? error : new Error(String(error));

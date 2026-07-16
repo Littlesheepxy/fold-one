@@ -27,6 +27,13 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 	let levelCb: ((level: number) => void) | null = null;
 	let onPartialCb: ((text: string) => void) | null = null;
 	let onErrorCb: ((err: Error) => void) | null = null;
+	/** 云端会话 ready 前的预缓冲：开麦即采集，杜绝丢首音节 */
+	let sessionReady = false;
+	let finishRequested = false;
+	let preBufferBytes = 0;
+	const preBuffer: ArrayBuffer[] = [];
+	// ponytail: 上限 ~10s（16kHz mono PCM16），超出丢最旧；会话建立正常只需几百毫秒
+	const PRE_BUFFER_MAX_BYTES = 320_000;
 
 	let resolveDone!: (r: VoiceResult) => void;
 	let rejectDone!: (e: Error) => void;
@@ -75,16 +82,33 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 	};
 
 	const hookWorklet = () => {
-		if (aborted || !audioCtx || !mediaStream) return;
+		if (aborted || !audioCtx || !mediaStream || workletNode) return;
 		workletNode = new AudioWorkletNode(audioCtx, "pcm-worklet");
 		workletNode.port.onmessage = (e: MessageEvent<Int16Array>) => {
-			if (aborted || ws?.readyState !== WebSocket.OPEN) return;
+			if (aborted) return;
 			const buf = e.data;
 			if (levelCb) levelCb(pcm16AudioLevel(new Uint8Array(buf.buffer)));
-			ws.send(buf.buffer);
+			if (sessionReady && ws?.readyState === WebSocket.OPEN) {
+				ws.send(buf.buffer);
+				return;
+			}
+			// 会话未就绪：本地缓冲，ready 后 flush
+			preBuffer.push(buf.buffer as ArrayBuffer);
+			preBufferBytes += buf.buffer.byteLength;
+			while (preBufferBytes > PRE_BUFFER_MAX_BYTES && preBuffer.length > 0) {
+				const dropped = preBuffer.shift();
+				if (dropped) preBufferBytes -= dropped.byteLength;
+			}
 		};
 		sourceNode = audioCtx.createMediaStreamSource(mediaStream);
 		sourceNode.connect(workletNode);
+	};
+
+	const flushPreBuffer = () => {
+		if (ws?.readyState !== WebSocket.OPEN) return;
+		for (const chunk of preBuffer) ws.send(chunk);
+		preBuffer.length = 0;
+		preBufferBytes = 0;
 	};
 
 	const startSession = async (opts: {
@@ -98,21 +122,10 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 		resolved = false;
 		lastFullText = "";
 		directStructured = false;
+		sessionReady = false;
+		finishRequested = false;
 
-		mediaStream = await navigator.mediaDevices.getUserMedia({
-			audio: {
-				channelCount: 1,
-				echoCancellation: true,
-				noiseSuppression: true,
-				autoGainControl: true,
-			},
-		});
-
-		audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)({
-			sampleRate: 16000,
-		});
-		await audioCtx.audioWorklet.addModule(workletPath);
-
+		// WS 握手与开麦并行；开麦后立即采集进缓冲，不等云端 ready
 		ws = new WebSocket(`${wsBase}/asr/stream`);
 		ws.binaryType = "arraybuffer";
 
@@ -148,7 +161,16 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 			}
 			switch (msg.type) {
 				case "ready":
-					hookWorklet();
+					sessionReady = true;
+					flushPreBuffer();
+					// 用户在 ready 前就松手：补送缓冲后立刻收尾
+					if (finishRequested && ws?.readyState === WebSocket.OPEN) {
+						try {
+							ws.send(JSON.stringify({ type: "finish" }));
+						} catch {
+							/* ignore */
+						}
+					}
 					break;
 				case "partial":
 					lastFullText = msg.text ?? "";
@@ -169,6 +191,21 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 		ws.onclose = () => {
 			if (!resolved) finalize({ text: lastFullText, directStructured });
 		};
+
+		mediaStream = await navigator.mediaDevices.getUserMedia({
+			audio: {
+				channelCount: 1,
+				echoCancellation: true,
+				noiseSuppression: true,
+				autoGainControl: true,
+			},
+		});
+
+		audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)({
+			sampleRate: 16000,
+		});
+		await audioCtx.audioWorklet.addModule(workletPath);
+		hookWorklet();
 	};
 
 	return {
@@ -185,7 +222,9 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 			finalize({ text: "", directStructured: false });
 		},
 		async stop() {
-			if (ws?.readyState === WebSocket.OPEN) {
+			finishRequested = true;
+			// 会话未 ready 时不能直接 finish，否则缓冲里的音频没送出去；ready 回调会补发
+			if (sessionReady && ws?.readyState === WebSocket.OPEN) {
 				try {
 					ws.send(JSON.stringify({ type: "finish" }));
 				} catch {
