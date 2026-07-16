@@ -271,7 +271,8 @@ interface FoldApi {
 		height: number;
 	}>;
 	getOverlayState(): Promise<FoldStateEvent>;
-	dismiss(opts?: { skipFeedback?: boolean }): Promise<void>;
+	dismiss(opts?: { skipFeedback?: boolean; soft?: boolean }): Promise<void>;
+	voiceEmpty(): Promise<{ ok: boolean; standby: boolean }>;
 	toggleVoice(): Promise<void>;
 	voiceError(message: string): Promise<void>;
 	openSettings(section?: string): Promise<void>;

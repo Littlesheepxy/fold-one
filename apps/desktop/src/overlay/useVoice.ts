@@ -83,7 +83,7 @@ export function useVoiceHandlers() {
 		const stopRecording = async (mode: "structure" | "reply" | "agent") => {
 			const asr = asrRef.current;
 			if (!asr) {
-				await window.fold.dismiss();
+				await window.fold.voiceEmpty();
 				return;
 			}
 			try {
@@ -98,7 +98,7 @@ export function useVoiceHandlers() {
 						});
 					}
 				} else {
-					await window.fold.dismiss();
+					await window.fold.voiceEmpty();
 				}
 			} catch (err) {
 				asrRef.current = null;

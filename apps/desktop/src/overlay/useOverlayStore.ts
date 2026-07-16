@@ -45,6 +45,7 @@ export const useOverlayStore = create<OverlayStore>((set) => ({
 	voiceHint: null,
 	widgetDisplayBounds: null,
 	structureDraftOpen: false,
+	voiceStandbyUntil: null,
 	voiceLevel: 0,
 	setState: (partial) => set((s) => ({ ...s, ...partial })),
 	setVoiceLevel: (level) => set({ voiceLevel: level }),
@@ -86,6 +87,7 @@ export const useOverlayStore = create<OverlayStore>((set) => ({
 			voiceHint: null,
 			widgetDisplayBounds: null,
 			structureDraftOpen: false,
+			voiceStandbyUntil: null,
 			voiceLevel: 0,
 		}),
 }));
