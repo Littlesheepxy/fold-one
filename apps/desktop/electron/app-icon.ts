@@ -1,7 +1,4 @@
-import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { nativeImage } from "electron";
 
@@ -14,6 +11,13 @@ const KNOWN_APP_PATHS: Record<string, string> = {
 	Mail: "/System/Applications/Mail.app",
 	"Microsoft Edge": "/Applications/Microsoft Edge.app",
 	Slack: "/Applications/Slack.app",
+	Lark: "/Applications/Lark.app",
+	Feishu: "/Applications/Lark.app",
+	飞书: "/Applications/Lark.app",
+	DingTalk: "/Applications/DingTalk.app",
+	钉钉: "/Applications/钉钉.app",
+	WeCom: "/Applications/WeCom.app",
+	企业微信: "/Applications/企业微信.app",
 	WeChat: "/Applications/WeChat.app",
 	"微信": "/Applications/WeChat.app",
 	Electron: "/Applications/Electron.app",
@@ -43,25 +47,38 @@ export function resolveAppIconTarget(appPath?: string | null, appName?: string |
 	return null;
 }
 
-const convertedPngCache = new Map<string, string>();
+const ICNS_PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
-function icnsToPngPath(icnsPath: string): string | null {
-	const cached = convertedPngCache.get(icnsPath);
-	if (cached && existsSync(cached)) return cached;
-
-	const hash = createHash("md5").update(icnsPath).digest("hex");
-	const pngPath = join(tmpdir(), `fold-icon-${hash}.png`);
-	if (!existsSync(pngPath)) {
-		try {
-			execFileSync("sips", ["-s", "format", "png", icnsPath, "--out", pngPath], {
-				stdio: "pipe",
-			});
-		} catch {
-			return null;
-		}
+/**
+ * nativeImage.createFromPath() 在 Electron 34 上无法解析 .icns（返回空图），之前用 `sips` 转 PNG 兜底，
+ * 但 `sips` 需要 fork 子进程——桌面端自带的文件监听器（chokidar，watch 用户 Desktop/Downloads）在文件
+ * 较多时会长期占用 1w+ 个 fd，一旦超过 macOS posix_spawn 的 fd 上限就会让所有子进程调用（不只是 sips）
+ * 静默失败（EBADF）。.icns 本质是简单的 TLV 容器，现代应用几乎都直接内嵌 PNG，直接解析取最大的 PNG
+ * 分片即可拿到图标，完全不需要 fork 子进程。
+ * ponytail: 只认 PNG 分片；2012 年前那批用原始 ARGB/RLE 编码的老 icns 会解析不到图，回退到字母占位，
+ * 升级路径是需要时再补一个 ARGB 解码分支。
+ */
+function extractLargestPngFromIcns(icnsPath: string): Buffer | null {
+	let buf: Buffer;
+	try {
+		buf = readFileSync(icnsPath);
+	} catch {
+		return null;
 	}
-	convertedPngCache.set(icnsPath, pngPath);
-	return pngPath;
+	if (buf.length < 8 || buf.toString("ascii", 0, 4) !== "icns") return null;
+
+	let best: Buffer | null = null;
+	let offset = 8;
+	while (offset + 8 <= buf.length) {
+		const chunkLength = buf.readUInt32BE(offset + 4);
+		if (chunkLength < 8 || offset + chunkLength > buf.length) break;
+		const data = buf.subarray(offset + 8, offset + chunkLength);
+		if (data.length > 8 && data.subarray(0, 8).equals(ICNS_PNG_SIGNATURE)) {
+			if (!best || data.length > best.length) best = data;
+		}
+		offset += chunkLength;
+	}
+	return best;
 }
 
 function loadAppIconImage(iconPath: string) {
@@ -69,9 +86,9 @@ function loadAppIconImage(iconPath: string) {
 	if (!direct.isEmpty()) return direct;
 	if (!iconPath.endsWith(".icns")) return direct;
 
-	const pngPath = icnsToPngPath(iconPath);
-	if (!pngPath) return nativeImage.createEmpty();
-	return nativeImage.createFromBuffer(readFileSync(pngPath));
+	const png = extractLargestPngFromIcns(iconPath);
+	if (!png) return nativeImage.createEmpty();
+	return nativeImage.createFromBuffer(png);
 }
 
 function resolveAppIconPath(appPath: string): string | null {
@@ -104,6 +121,14 @@ function resolveAppIconPath(appPath: string): string | null {
 		join(resources, "app.icns"),
 	]) {
 		if (existsSync(candidate)) return candidate;
+	}
+	return null;
+}
+
+export function getFirstAppIconDataUrl(appNames: string[]): string | null {
+	for (const name of appNames) {
+		const dataUrl = getAppIconDataUrl("", name);
+		if (dataUrl) return dataUrl;
 	}
 	return null;
 }

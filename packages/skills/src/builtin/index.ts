@@ -1,6 +1,7 @@
+import { existsSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, extname } from "node:path";
+import { basename, join, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	countMailUnread,
@@ -11,7 +12,33 @@ import {
 	runPython,
 } from "@fold/connectors";
 import type { SkillContext } from "../types.js";
+import { resolveClipboardRecall } from "@fold/context";
 import { extractPdfWithZhipuOcr, hasUsefulPdfFields } from "./zhipu-ocr.js";
+
+/** Vite dev 下 import.meta.url 可能是 http://…/@fs/…，不能直接 fileURLToPath。 */
+function resolveSkillScript(relativeFromBuiltin: string): string {
+	const url = new URL(relativeFromBuiltin, import.meta.url);
+	const candidates: string[] = [];
+	if (url.protocol === "file:") candidates.push(fileURLToPath(url));
+	else if (url.pathname.startsWith("/@fs/")) {
+		candidates.push(decodeURIComponent(url.pathname.slice("/@fs".length)));
+	}
+	candidates.push(join(process.cwd(), "packages/skills/scripts", basename(relativeFromBuiltin)));
+	for (const p of candidates) {
+		if (p && existsSync(p)) return p;
+	}
+	throw new Error(`Skill script not found: ${basename(relativeFromBuiltin)}`);
+}
+
+function normalizeLocalPath(path: string): string {
+	const trimmed = path.trim();
+	if (!trimmed.startsWith("file://")) return trimmed;
+	try {
+		return fileURLToPath(new URL(trimmed));
+	} catch {
+		return decodeURIComponent(trimmed.replace(/^file:\/\//, ""));
+	}
+}
 
 function parseSince(since?: string): number {
 	if (!since) return 30 * 60 * 1000;
@@ -67,10 +94,11 @@ export async function pdfExtract(args: Record<string, unknown>, ctx: SkillContex
 		}
 	}
 	if (!path) throw new Error("pdf.extract: path required");
+	path = normalizeLocalPath(path);
 
 	ctx.emit({ type: "progress", message: "Reading PDF" });
 
-	const scriptPath = fileURLToPath(new URL("../../scripts/extract_pdf.py", import.meta.url));
+	const scriptPath = resolveSkillScript("../../scripts/extract_pdf.py");
 	const stdout = await runPython(scriptPath, [path]);
 	const parsed = JSON.parse(stdout) as Record<string, unknown>;
 	if (hasUsefulPdfFields(parsed)) return parsed;
@@ -141,4 +169,10 @@ export async function clipboardRead(_args: Record<string, unknown>, _ctx: SkillC
 	const { runShell } = await import("@fold/connectors");
 	const text = await runShell("pbpaste", []);
 	return { text: text.trim() };
+}
+
+export async function clipboardRecall(args: Record<string, unknown>, ctx: SkillContext) {
+	const query = String(args.query ?? args.intent ?? "").trim();
+	ctx.emit({ type: "progress", message: "正在查找复制记录…" });
+	return resolveClipboardRecall(query, ctx.liveContext.recentClipboards ?? []);
 }

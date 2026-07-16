@@ -1,14 +1,23 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createNangoConnectLink, probeNango } from "../nango/index.js";
+import { probeBrowserCdp } from "../browser/cdp.js";
 import { probeGmailCli } from "../mail/index.js";
 import { extractJsonPayload } from "../cli/binary.js";
 import { probeBinary } from "../cli/binary.js";
 import { probeLarkCli } from "../feishu/index.js";
 import { runShellDetailed } from "../shell.js";
 import { type OfficeChannelId, isOfficeChannelId, probeOfficeChannels } from "./index.js";
+import {
+	cancelAgentConnectFlow,
+	isAgentConnectTarget,
+	pollAgentConnectFlow,
+	startAgentConnectFlow,
+	activateAgentConnectFlow,
+	type AgentConnectTarget,
+} from "../agents/connect-flow.js";
 
-export type ConnectTarget = OfficeChannelId | "gmail" | "nango";
+export type ConnectTarget = OfficeChannelId | "gmail" | "nango" | AgentConnectTarget;
 
 export type ConnectFlowKind = "login" | "install";
 
@@ -21,12 +30,19 @@ export interface ConnectFlowStart {
 	authUrl?: string;
 	userCode?: string;
 	opensBrowserAutomatically?: boolean;
+	copyText?: string;
+	/** 先复制配对内容，用户确认后再跳转外部应用（WorkBuddy） */
+	copyThenOpen?: boolean;
+	/** Wait for an explicit user click before opening Terminal or another app. */
+	requiresAction?: boolean;
+	actionLabel?: string;
 }
 
 export interface ConnectFlowPollResult {
 	status: "pending" | "success" | "error";
 	message?: string;
 	error?: string;
+	copyText?: string;
 }
 
 interface AuthSession {
@@ -42,9 +58,8 @@ interface AuthSession {
 
 const sessions = new Map<string, AuthSession>();
 
-const CONNECT_META: Record<
-	ConnectTarget,
-	{ title: string; installCmd?: string[]; installUrl?: string }
+const CONNECT_META: Partial<
+	Record<ConnectTarget, { title: string; installCmd?: string[]; installUrl?: string }>
 > = {
 	feishu: { title: "飞书", installCmd: ["npm", "install", "-g", "@larksuite/cli"] },
 	github: { title: "GitHub", installCmd: ["brew", "install", "gh"] },
@@ -93,6 +108,7 @@ async function startFeishuLogin(session: AuthSession): Promise<ConnectFlowStart>
 		throw new Error(payload?.error?.message ?? "无法启动飞书授权");
 	}
 	session.authUrl = payload.verification_url;
+	session.opensBrowserAutomatically = true;
 	session.child = spawnDetached("lark-cli", [
 		"auth",
 		"login",
@@ -105,8 +121,9 @@ async function startFeishuLogin(session: AuthSession): Promise<ConnectFlowStart>
 		target: "feishu",
 		kind: "login",
 		title: "连接飞书",
-		message: "在浏览器完成授权后，Fold 会自动检测连接状态。",
+		message: "已打开飞书授权页。完成授权后，知更会自动连接。",
 		authUrl: payload.verification_url,
+		opensBrowserAutomatically: true,
 	};
 }
 
@@ -177,15 +194,41 @@ async function startDingtalkLogin(session: AuthSession): Promise<ConnectFlowStar
 }
 
 async function startGmailLogin(session: AuthSession): Promise<ConnectFlowStart> {
-	session.child = spawnDetached("gog", ["auth", "add"]);
+	const nango = await probeNango();
+	if (nango.configured) {
+		const link = await createNangoConnectLink(["google-mail"]);
+		session.authUrl = link;
+		session.opensBrowserAutomatically = true;
+		session.isAuthed = async () => {
+			const probe = await probeNango();
+			return probe.connections.some((connection) => connection.providerConfigKey === "google-mail");
+		};
+		return {
+			sessionId: "",
+			target: "gmail",
+			kind: "login",
+			title: "连接 Gmail",
+			message: "在浏览器选择 Google 账号并完成授权，知更会自动连接。",
+			authUrl: link,
+			opensBrowserAutomatically: true,
+		};
+	}
+
+	const gmailUrl = "https://mail.google.com/mail/u/0/#inbox";
+	session.authUrl = gmailUrl;
 	session.opensBrowserAutomatically = true;
-	session.isAuthed = async () => (await probeGmailCli()).available;
+	session.isAuthed = async () => {
+		if ((await probeGmailCli()).available) return true;
+		const browser = await probeBrowserCdp();
+		return Boolean(browser.connected && /mail\.google\.com/i.test(browser.mailUrl ?? ""));
+	};
 	return {
 		sessionId: "",
 		target: "gmail",
 		kind: "login",
-		title: "连接 Google",
-		message: "已在浏览器打开 Google 授权页，完成后会自动回到 Fold。",
+		title: "连接 Gmail",
+		message: "已打开 Gmail。登录后保持收件箱页面打开，知更会自动连接。",
+		authUrl: gmailUrl,
 		opensBrowserAutomatically: true,
 	};
 }
@@ -228,6 +271,7 @@ async function startWecomLogin(session: AuthSession): Promise<ConnectFlowStart> 
 
 async function startInstall(session: AuthSession, target: ConnectTarget): Promise<ConnectFlowStart> {
 	const meta = CONNECT_META[target];
+	if (!meta) throw new Error(`未知连接: ${target}`);
 	if (!meta.installCmd && meta.installUrl) {
 		return {
 			sessionId: "",
@@ -260,7 +304,7 @@ async function startInstall(session: AuthSession, target: ConnectTarget): Promis
 		target,
 		kind: "install",
 		title: `安装 ${meta.title}`,
-		message: "正在后台安装 CLI，请稍候…",
+		message: "正在准备连接组件，请稍候…",
 	};
 }
 
@@ -290,6 +334,12 @@ export async function startConnectFlow(
 	target: ConnectTarget,
 	kind: ConnectFlowKind,
 ): Promise<ConnectFlowStart> {
+	if (isAgentConnectTarget(target)) {
+		return startAgentConnectFlow(target, kind);
+	}
+	// Gmail always has a browser-first path; ordinary users never need a CLI install step.
+	if (target === "gmail") kind = "login";
+
 	if (kind === "login" && isOfficeChannelId(target)) {
 		const channels = await probeOfficeChannels();
 		const row = channels.find((c) => c.id === target);
@@ -321,6 +371,9 @@ export async function startConnectFlow(
 
 /** Poll connect session until CLI reports authed or child exits with error. */
 export async function pollConnectFlow(sessionId: string): Promise<ConnectFlowPollResult> {
+	const agentResult = await pollAgentConnectFlow(sessionId);
+	if (agentResult) return agentResult;
+
 	const session = sessions.get(sessionId);
 	if (!session) return { status: "error", error: "连接会话已过期" };
 
@@ -357,6 +410,7 @@ export function getConnectFlowSession(sessionId: string): Pick<AuthSession, "aut
 }
 
 export function cancelConnectFlow(sessionId: string): void {
+	cancelAgentConnectFlow(sessionId);
 	const session = sessions.get(sessionId);
 	if (!session) return;
 	session.child?.kill();
@@ -364,6 +418,7 @@ export function cancelConnectFlow(sessionId: string): void {
 }
 
 export function resolveConnectTarget(connectionId: string): ConnectTarget | null {
+	if (isAgentConnectTarget(connectionId)) return connectionId;
 	if (connectionId === "gmail" || connectionId === "nango") return connectionId;
 	if (connectionId.startsWith("office-")) {
 		const channel = connectionId.slice("office-".length);
@@ -371,3 +426,5 @@ export function resolveConnectTarget(connectionId: string): ConnectTarget | null
 	}
 	return null;
 }
+
+export { activateAgentConnectFlow };

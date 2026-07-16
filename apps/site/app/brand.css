@@ -1,0 +1,1103 @@
+/* 知更 2026：暖白、墨色与只在“理解发生”时出现的雾。 */
+
+:root {
+	--zg-paper: #ffffff;
+	--zg-paper-deep: #f7f7f5;
+	--zg-ink: #171818;
+	--zg-muted: #6f716e;
+	--zg-line: rgb(35 37 36 / 0.1);
+	--zg-brand: #7888e8;
+	--zg-brand-deep: #5969c8;
+	--zg-brand-soft: #f1f1fb;
+	--zg-warm-soft: #f6f2eb;
+}
+
+body {
+	background:
+		radial-gradient(circle at 10% 18%, rgb(210 229 242 / 0.12), transparent 28rem),
+		radial-gradient(circle at 90% 32%, rgb(226 217 240 / 0.1), transparent 30rem),
+		#ffffff;
+}
+
+.zg-page {
+	padding-bottom: 0;
+}
+
+.zg-nav {
+	padding-top: 18px;
+	padding-bottom: 18px;
+}
+
+.zg-nav-links {
+	font-size: 14px;
+	font-weight: 560;
+	letter-spacing: 0.01em;
+}
+
+.zg-nav-links a {
+	position: relative;
+}
+
+.zg-nav-links a::after {
+	content: "";
+	position: absolute;
+	right: 0;
+	bottom: -7px;
+	left: 0;
+	height: 1px;
+	background: var(--zg-ink);
+	transform: scaleX(0);
+	transition: transform 180ms ease;
+}
+
+.zg-nav-links a:hover::after {
+	transform: scaleX(1);
+}
+
+.zg-nav-cta,
+.zg-primary {
+	min-height: 48px;
+	padding: 0 22px;
+	background: #1c1c1b;
+	box-shadow: 0 12px 30px rgb(28 28 27 / 0.14);
+	transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.zg-nav-cta:hover,
+.zg-primary:hover {
+	transform: translateY(-2px);
+	box-shadow: 0 16px 36px rgb(28 28 27 / 0.2);
+}
+
+.zg-hero {
+	margin-top: 30px;
+}
+
+.zg-hero-copy {
+	min-height: 410px;
+}
+
+.zg-hero h1 {
+	font-size: clamp(50px, 5.7vw, 76px);
+	font-weight: 560;
+	letter-spacing: -0.035em;
+}
+
+.zg-hero-brand,
+.zg-highlight {
+	font-weight: 760;
+}
+
+.zg-hero-message strong {
+	font-weight: 610;
+}
+
+.zg-hero-product {
+	position: relative;
+	display: grid;
+	grid-template-columns: 1fr auto 1fr;
+	align-items: center;
+	gap: 22px;
+	width: min(100%, 980px);
+	min-height: 210px;
+	margin: 10px auto 0;
+	padding: 42px 48px;
+	overflow: hidden;
+	border: 1px solid rgb(255 255 255 / 0.72);
+	border-radius: 38px;
+	background:
+		linear-gradient(112deg, rgb(255 255 255 / 0.78), rgb(248 247 244 / 0.6)),
+		url("/brand/fold-home-mist-bg.webp") center / cover;
+	box-shadow:
+		0 30px 90px rgb(48 48 45 / 0.08),
+		inset 0 1px 0 rgb(255 255 255 / 0.9);
+	isolation: isolate;
+}
+
+.zg-hero-product-mist {
+	position: absolute;
+	inset: -50%;
+	z-index: -1;
+	background:
+		radial-gradient(circle at 38% 50%, rgb(174 216 239 / 0.32), transparent 27%),
+		radial-gradient(circle at 67% 45%, rgb(199 184 234 / 0.28), transparent 30%);
+	filter: blur(24px);
+}
+
+.zg-hero-utterance,
+.zg-hero-result {
+	margin: 0;
+	padding: 20px 22px;
+	border: 1px solid rgb(255 255 255 / 0.8);
+	border-radius: 20px;
+	background: rgb(255 255 255 / 0.7);
+	box-shadow: 0 14px 34px rgb(48 53 59 / 0.07);
+	font-size: 15px;
+	line-height: 1.7;
+}
+
+.zg-hero-utterance {
+	color: #777a78;
+	text-decoration-color: rgb(102 105 102 / 0.5);
+}
+
+.zg-hero-result {
+	color: #252726;
+	font-weight: 600;
+}
+
+.zg-hero-pill {
+	position: relative;
+	z-index: 2;
+}
+
+.zg-feature {
+	gap: clamp(48px, 7vw, 92px);
+	min-height: 720px;
+	margin-top: 160px;
+}
+
+.zg-feature-panel {
+	width: min(100%, 1280px);
+	padding: clamp(48px, 6vw, 80px);
+	border-color: rgb(255 255 255 / 0.65);
+	border-radius: 48px;
+}
+
+.zg-feature--soft {
+	background:
+		radial-gradient(circle at 22% 34%, rgb(195 220 238 / 0.38), transparent 32%),
+		radial-gradient(circle at 82% 60%, rgb(209 196 233 / 0.32), transparent 35%),
+		rgb(246 246 244 / 0.82);
+}
+
+.zg-feature--warm {
+	background:
+		radial-gradient(circle at 18% 35%, rgb(229 213 192 / 0.36), transparent 31%),
+		radial-gradient(circle at 83% 56%, rgb(202 215 233 / 0.28), transparent 34%),
+		rgb(247 245 241 / 0.84);
+}
+
+.zg-feature-index,
+.zg-agent .zg-feature-index {
+	padding: 0;
+	border-radius: 0;
+	color: #777b78;
+	background: transparent;
+	font-size: 12px;
+	font-weight: 650;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+}
+
+.zg-feature-copy h2,
+.zg-agent h2 {
+	margin-top: 20px;
+	font-size: clamp(40px, 4.5vw, 60px);
+	font-weight: 620;
+	letter-spacing: -0.035em;
+	line-height: 1.09;
+}
+
+.zg-feature-copy > p,
+.zg-agent-head > p {
+	margin-top: 22px;
+	color: var(--zg-muted);
+	font-size: 17px;
+	font-weight: 440;
+	line-height: 1.85;
+}
+
+.zg-demo-card {
+	border-color: rgb(35 37 36 / 0.08);
+	border-radius: 30px;
+	background: rgb(255 255 255 / 0.78);
+	box-shadow:
+		0 30px 80px rgb(48 53 59 / 0.09),
+		inset 0 1px 0 rgb(255 255 255 / 0.9);
+	backdrop-filter: blur(18px);
+}
+
+.zg-demo-chrome {
+	font-size: 11px;
+	font-weight: 560;
+	letter-spacing: 0.06em;
+}
+
+.zg-demo-footnote {
+	display: none;
+}
+
+.zg-reply-demo .zg-demo-footnote {
+	display: block;
+}
+
+.zg-speak-raw {
+	min-height: 144px;
+	font-size: clamp(21px, 2.1vw, 27px);
+	line-height: 1.82;
+}
+
+.zg-speak-compose {
+	border-color: rgb(35 37 36 / 0.08);
+	background: rgb(249 249 248 / 0.88);
+}
+
+.zg-context-chips {
+	gap: 9px;
+}
+
+.zg-context-chips > span {
+	border-color: rgb(35 37 36 / 0.08);
+	background: rgb(255 255 255 / 0.72);
+	box-shadow: 0 8px 24px rgb(65 68 67 / 0.05);
+}
+
+.zg-privacy {
+	border-color: rgb(89 107 212 / 0.12);
+	background: linear-gradient(180deg, rgb(245 246 252 / 0.9), rgb(255 255 255 / 0.82));
+}
+
+.zg-context-processing {
+	color: var(--zg-brand-deep);
+	background: rgb(240 241 250 / 0.8);
+}
+
+.zg-reply-tabs {
+	padding: 4px;
+	background: rgb(239 239 236 / 0.72);
+}
+
+.zg-reply-tabs button {
+	font-weight: 560;
+}
+
+.zg-agent {
+	min-height: 760px;
+	margin-top: 170px;
+	padding: clamp(56px, 7vw, 96px);
+	border: 1px solid rgb(35 37 36 / 0.08);
+	border-radius: 48px;
+	color: var(--zg-ink);
+	background:
+		radial-gradient(circle at 78% 18%, rgb(201 193 232 / 0.28), transparent 30%),
+		radial-gradient(circle at 18% 76%, rgb(187 219 235 / 0.26), transparent 34%),
+		rgb(249 249 247 / 0.92);
+	box-shadow:
+		0 34px 90px rgb(48 53 59 / 0.08),
+		inset 0 1px 0 rgb(255 255 255 / 0.95);
+}
+
+.zg-agent-head .zg-feature-index {
+	color: #777b78;
+	background: transparent;
+}
+
+.zg-agent-head h2 {
+	color: var(--zg-ink);
+}
+
+.zg-agent-head p {
+	max-width: 700px;
+	margin-right: auto;
+	margin-left: auto;
+	color: var(--zg-muted);
+}
+
+.zg-agent-command {
+	max-width: 820px;
+	border-color: rgb(35 37 36 / 0.09);
+	background: rgb(255 255 255 / 0.8);
+	box-shadow: 0 16px 44px rgb(58 62 65 / 0.07);
+}
+
+.zg-agent-command svg {
+	color: var(--zg-brand-deep);
+}
+
+.zg-agent-decision {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 18px;
+	width: min(100%, 820px);
+	margin: 18px auto 0;
+	padding: 0 8px;
+	color: #858985;
+	font-size: 12px;
+}
+
+.zg-agent-decision strong {
+	color: #434643;
+	font-size: 13px;
+	font-weight: 620;
+}
+
+.zg-agent-routes {
+	display: grid;
+	grid-template-columns: repeat(4, 1fr);
+	gap: 12px;
+	width: min(100%, 820px);
+	margin: 24px auto 0;
+	padding: 0;
+	list-style: none;
+}
+
+.zg-agent-routes li {
+	position: relative;
+	display: grid;
+	grid-template-columns: auto 1fr auto;
+	gap: 12px;
+	align-items: center;
+	min-width: 0;
+	padding: 18px;
+	border: 1px solid rgb(35 37 36 / 0.08);
+	border-radius: 20px;
+	background: rgb(255 255 255 / 0.66);
+	box-shadow: 0 10px 30px rgb(58 62 65 / 0.04);
+	text-align: left;
+	transition:
+		transform 280ms ease,
+		border-color 280ms ease,
+		background-color 280ms ease,
+		box-shadow 280ms ease;
+}
+
+.zg-agent-routes li.is-selected {
+	border-color: rgb(89 105 200 / 0.32);
+	background: #ffffff;
+	box-shadow:
+		0 16px 40px rgb(89 105 200 / 0.12),
+		0 0 0 3px rgb(89 105 200 / 0.06);
+	transform: translateY(-5px);
+}
+
+.zg-agent-routes li > svg {
+	color: var(--zg-brand-deep);
+}
+
+.zg-agent-mark {
+	display: grid;
+	place-items: center;
+	width: 34px;
+	height: 34px;
+	overflow: hidden;
+	border: 1px solid rgb(35 37 36 / 0.09);
+	border-radius: 11px;
+	background: #ffffff;
+}
+
+.zg-agent-mark img {
+	width: 20px;
+	height: 20px;
+	object-fit: contain;
+}
+
+.zg-agent-mark.is-zhigeng {
+	background: var(--zg-brand-soft);
+	border-color: transparent;
+}
+
+.zg-agent-mark.is-zhigeng img {
+	width: 22px;
+	height: 22px;
+}
+
+.zg-agent-routes strong,
+.zg-agent-routes small {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.zg-agent-routes strong {
+	font-size: 14px;
+	font-weight: 650;
+}
+
+.zg-agent-routes small {
+	margin-top: 5px;
+	color: #878a87;
+	font-size: 11px;
+}
+
+.zg-agent-done {
+	color: #38775b;
+	background: rgb(76 153 112 / 0.09);
+}
+
+.zg-memory-profile li {
+	background: rgb(255 255 255 / 0.64);
+}
+
+.zg-memory-actions button {
+	padding: 8px 15px;
+	border: 1px solid var(--zg-line);
+	border-radius: 999px;
+	color: #6c727f;
+	background: #fff;
+	font: inherit;
+	font-size: 13px;
+	font-weight: 650;
+}
+
+.zg-memory-actions button:first-child {
+	border-color: #1c1c1b;
+	color: #fff;
+	background: #1c1c1b;
+}
+
+.zg-recap {
+	margin-top: 180px;
+}
+
+.zg-recap p {
+	font-size: clamp(32px, 4.2vw, 52px);
+	font-weight: 570;
+	letter-spacing: -0.035em;
+}
+
+.zg-final-cta,
+.zg-page-cta {
+	position: relative;
+	width: min(100%, 1180px);
+	margin: 130px auto 0;
+	padding: clamp(72px, 9vw, 118px) clamp(24px, 6vw, 72px);
+	overflow: hidden;
+	border-radius: 48px;
+	background:
+		linear-gradient(rgb(251 250 247 / 0.4), rgb(251 250 247 / 0.6)),
+		url("/brand/fold-home-mist-bg.webp") center / cover;
+	text-align: center;
+}
+
+.zg-final-cta::before,
+.zg-page-cta::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background:
+		radial-gradient(circle at 30% 45%, rgb(184 218 240 / 0.38), transparent 28%),
+		radial-gradient(circle at 72% 52%, rgb(213 185 222 / 0.32), transparent 29%);
+	filter: blur(24px);
+	pointer-events: none;
+}
+
+.zg-final-cta > *,
+.zg-page-cta > * {
+	position: relative;
+}
+
+.zg-final-cta > span,
+.zg-page-intro > span,
+.zg-page-cta > span,
+.zg-faq > span,
+.zg-origin span,
+.zg-plain-note > span {
+	color: #777b78;
+	font-size: 12px;
+	font-weight: 650;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+}
+
+.zg-final-cta h2,
+.zg-page-cta h2 {
+	margin: 20px 0 0;
+	font-size: clamp(38px, 5vw, 66px);
+	font-weight: 620;
+	letter-spacing: -0.045em;
+	line-height: 1.06;
+}
+
+.zg-final-cta > p,
+.zg-page-cta > p {
+	margin: 22px auto 0;
+	color: var(--zg-muted);
+	font-size: 17px;
+	line-height: 1.8;
+}
+
+.zg-final-cta .zg-actions {
+	justify-content: center;
+}
+
+.zg-footer {
+	display: grid;
+	grid-template-columns: 1fr auto;
+	gap: 42px;
+	width: min(calc(100% - 40px), 1180px);
+	margin: 96px auto 0;
+	padding: 42px 0 30px;
+	border-top: 1px solid var(--zg-line);
+}
+
+.zg-footer-brand a {
+	display: inline-flex;
+	align-items: center;
+	gap: 10px;
+	color: inherit;
+	font-size: 20px;
+	text-decoration: none;
+}
+
+.zg-footer-brand strong {
+	font-family: var(--font-zhigeng-wordmark), "PingFang SC", sans-serif;
+	font-weight: 600;
+}
+
+.zg-footer-brand p,
+.zg-footer-meta {
+	margin: 12px 0 0;
+	color: #898b88;
+	font-size: 13px;
+}
+
+.zg-footer nav {
+	display: flex;
+	align-items: center;
+	gap: 28px;
+}
+
+.zg-footer nav a {
+	color: #4f514f;
+	font-size: 14px;
+	text-decoration: none;
+}
+
+.zg-footer-meta {
+	grid-column: 1 / -1;
+}
+
+/* 独立页面 */
+
+.zg-subpage {
+	width: min(calc(100% - 40px), 1180px);
+	margin: 0 auto;
+}
+
+.zg-page-intro {
+	max-width: 980px;
+	padding: clamp(96px, 12vw, 168px) 0 88px;
+}
+
+.zg-page-intro h1 {
+	max-width: 950px;
+	margin: 24px 0 0;
+	font-size: clamp(48px, 6.8vw, 88px);
+	font-weight: 580;
+	letter-spacing: -0.05em;
+	line-height: 1.04;
+}
+
+.zg-page-intro > div {
+	max-width: 650px;
+	margin-top: 28px;
+	color: var(--zg-muted);
+	font-size: 18px;
+	line-height: 1.85;
+}
+
+.zg-page-intro p {
+	margin: 0;
+}
+
+.zg-price-card {
+	display: grid;
+	grid-template-columns: 1.1fr 1fr;
+	gap: 48px 80px;
+	padding: clamp(36px, 6vw, 72px);
+	border: 1px solid rgb(255 255 255 / 0.72);
+	border-radius: 44px;
+	background:
+		radial-gradient(circle at 18% 22%, rgb(194 220 238 / 0.3), transparent 32%),
+		radial-gradient(circle at 84% 78%, rgb(218 199 229 / 0.28), transparent 34%),
+		rgb(255 255 255 / 0.62);
+	box-shadow: 0 30px 90px rgb(48 48 45 / 0.07);
+}
+
+.zg-price-card h2 {
+	margin: 14px 0;
+	font-size: clamp(36px, 4.5vw, 58px);
+	font-weight: 620;
+	letter-spacing: -0.04em;
+}
+
+.zg-price-card p {
+	max-width: 450px;
+	color: var(--zg-muted);
+	line-height: 1.75;
+}
+
+.zg-price-card ul {
+	display: grid;
+	gap: 16px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.zg-price-card li {
+	display: flex;
+	gap: 10px;
+	color: #3f423f;
+	line-height: 1.55;
+}
+
+.zg-price-card li svg {
+	flex: none;
+	margin-top: 4px;
+	color: var(--zg-brand-deep);
+}
+
+.zg-price-card .zg-primary {
+	justify-self: start;
+}
+
+.zg-faq {
+	max-width: 860px;
+	margin: 150px auto 0;
+}
+
+.zg-faq > h2 {
+	margin: 18px 0 42px;
+	font-size: clamp(36px, 4.2vw, 54px);
+	font-weight: 600;
+	letter-spacing: -0.035em;
+}
+
+.zg-faq details {
+	padding: 22px 0;
+	border-top: 1px solid var(--zg-line);
+}
+
+.zg-faq summary {
+	cursor: pointer;
+	font-size: 18px;
+	font-weight: 600;
+}
+
+.zg-faq details p {
+	max-width: 680px;
+	color: var(--zg-muted);
+	line-height: 1.75;
+}
+
+.zg-origin {
+	display: grid;
+	grid-template-columns: 0.7fr 1.3fr;
+	gap: 70px;
+	align-items: center;
+	padding: clamp(48px, 7vw, 84px);
+	border-radius: 44px;
+	background:
+		radial-gradient(circle at 30% 40%, rgb(194 219 237 / 0.36), transparent 36%),
+		radial-gradient(circle at 78% 62%, rgb(216 198 228 / 0.3), transparent 38%),
+		rgb(255 255 255 / 0.62);
+}
+
+.zg-origin-mark {
+	display: grid;
+	place-items: center;
+	aspect-ratio: 1;
+	border: 1px solid rgb(255 255 255 / 0.82);
+	border-radius: 50%;
+	color: rgb(31 34 33 / 0.74);
+	background: rgb(255 255 255 / 0.36);
+	font-family: var(--font-zhigeng-wordmark), "PingFang SC", sans-serif;
+	font-size: clamp(70px, 10vw, 130px);
+	box-shadow: inset 0 1px 0 #fff;
+}
+
+.zg-origin h2,
+.zg-plain-note h2 {
+	margin: 18px 0;
+	font-size: clamp(34px, 4vw, 52px);
+	font-weight: 600;
+	letter-spacing: -0.035em;
+	line-height: 1.12;
+}
+
+.zg-origin p,
+.zg-plain-note p {
+	color: var(--zg-muted);
+	font-size: 16px;
+	line-height: 1.85;
+}
+
+.zg-beliefs,
+.zg-principles {
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	gap: 18px;
+	margin-top: 100px;
+}
+
+.zg-beliefs article,
+.zg-principles article {
+	padding: 34px;
+	border-top: 1px solid var(--zg-line);
+}
+
+.zg-beliefs article > span {
+	color: #979994;
+	font-size: 12px;
+	letter-spacing: 0.12em;
+}
+
+.zg-beliefs h2,
+.zg-principles h2 {
+	margin: 50px 0 14px;
+	font-size: 23px;
+	font-weight: 610;
+	letter-spacing: -0.02em;
+}
+
+.zg-beliefs p,
+.zg-principles p {
+	margin: 0;
+	color: var(--zg-muted);
+	line-height: 1.8;
+}
+
+.zg-privacy-hero {
+	position: relative;
+	display: grid;
+	place-items: center;
+	min-height: 480px;
+	overflow: hidden;
+	border-radius: 48px;
+	background:
+		linear-gradient(rgb(255 255 255 / 0.22), rgb(255 255 255 / 0.32)),
+		url("/brand/fold-home-mist-bg.webp") center / cover;
+}
+
+.zg-privacy-orb {
+	position: absolute;
+	width: min(58vw, 430px);
+	aspect-ratio: 1;
+	border: 1px solid rgb(255 255 255 / 0.6);
+	border-radius: 50%;
+	background:
+		radial-gradient(circle at 35% 30%, rgb(255 255 255 / 0.78), transparent 36%),
+		radial-gradient(circle at 58% 68%, rgb(155 180 214 / 0.3), transparent 48%),
+		rgb(234 235 233 / 0.34);
+	box-shadow:
+		inset 0 0 70px rgb(255 255 255 / 0.62),
+		0 40px 100px rgb(65 74 84 / 0.14);
+	backdrop-filter: blur(18px);
+}
+
+.zg-privacy-hero p {
+	position: relative;
+	margin: 0;
+	font-size: clamp(42px, 6vw, 78px);
+	font-weight: 590;
+	letter-spacing: -0.05em;
+	line-height: 1.05;
+	text-align: center;
+}
+
+.zg-principles {
+	grid-template-columns: repeat(2, 1fr);
+}
+
+.zg-principles article {
+	min-height: 260px;
+}
+
+.zg-principles h2 {
+	margin-top: 44px;
+}
+
+.zg-plain-note {
+	max-width: 900px;
+	margin: 140px auto 0;
+	text-align: center;
+}
+
+/* 博客 */
+
+.zg-blog-list {
+	border-top: 1px solid var(--zg-line);
+}
+
+.zg-blog-list article {
+	display: grid;
+	grid-template-columns: minmax(180px, 0.45fr) minmax(0, 1.55fr);
+	column-gap: clamp(36px, 7vw, 110px);
+	padding: 54px 0;
+	border-bottom: 1px solid var(--zg-line);
+}
+
+.zg-blog-list article > div {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	color: #8b8d89;
+	font-size: 12px;
+	letter-spacing: 0.04em;
+}
+
+.zg-blog-list h2,
+.zg-blog-list article > p,
+.zg-blog-read {
+	grid-column: 2;
+}
+
+.zg-blog-list h2 {
+	margin: 0;
+	font-size: clamp(28px, 3.6vw, 48px);
+	font-weight: 590;
+	letter-spacing: -0.035em;
+	line-height: 1.12;
+}
+
+.zg-blog-list h2 a,
+.zg-blog-read {
+	color: inherit;
+	text-decoration: none;
+}
+
+.zg-blog-list article > p {
+	max-width: 680px;
+	margin: 18px 0 0;
+	color: var(--zg-muted);
+	font-size: 16px;
+	line-height: 1.75;
+}
+
+.zg-blog-read {
+	justify-self: start;
+	margin-top: 26px;
+	padding-bottom: 4px;
+	border-bottom: 1px solid #303230;
+	font-size: 13px;
+	font-weight: 650;
+}
+
+.zg-blog-list .is-featured {
+	padding: clamp(42px, 7vw, 82px);
+	border: 0;
+	border-radius: 42px;
+	background:
+		radial-gradient(circle at 16% 28%, rgb(193 219 238 / 0.34), transparent 32%),
+		radial-gradient(circle at 84% 72%, rgb(216 198 229 / 0.3), transparent 34%),
+		rgb(255 255 255 / 0.62);
+}
+
+.zg-blog-list .is-featured + article {
+	border-top: 1px solid var(--zg-line);
+}
+
+.zg-article-page {
+	width: min(calc(100% - 40px), 1180px);
+	margin: 0 auto;
+}
+
+.zg-article-head {
+	max-width: 920px;
+	padding: clamp(90px, 12vw, 160px) 0 72px;
+}
+
+.zg-article-head > a {
+	display: inline-block;
+	margin-bottom: 64px;
+	color: #696c68;
+	font-size: 13px;
+	text-decoration: none;
+}
+
+.zg-article-head > div {
+	color: var(--zg-brand-deep);
+	font-size: 12px;
+	font-weight: 650;
+	letter-spacing: 0.1em;
+}
+
+.zg-article-head h1 {
+	margin: 20px 0 0;
+	font-size: clamp(46px, 6.4vw, 82px);
+	font-weight: 580;
+	letter-spacing: -0.05em;
+	line-height: 1.04;
+}
+
+.zg-article-head p {
+	max-width: 700px;
+	margin: 26px 0 0;
+	color: var(--zg-muted);
+	font-size: 18px;
+	line-height: 1.8;
+}
+
+.zg-article-head time {
+	display: block;
+	margin-top: 24px;
+	color: #969893;
+	font-size: 12px;
+}
+
+.zg-prose {
+	max-width: 740px;
+	margin: 0 auto;
+	padding: 72px 0;
+	border-top: 1px solid var(--zg-line);
+	color: #303230;
+	font-size: 18px;
+	line-height: 1.95;
+}
+
+.zg-prose h2 {
+	margin: 72px 0 20px;
+	color: var(--zg-ink);
+	font-size: 30px;
+	font-weight: 620;
+	letter-spacing: -0.025em;
+	line-height: 1.25;
+}
+
+.zg-prose p {
+	margin: 0 0 28px;
+}
+
+.zg-prose a {
+	color: var(--zg-brand-deep);
+	text-underline-offset: 3px;
+}
+
+.zg-article-end {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 16px 28px;
+	max-width: 740px;
+	margin: 30px auto 0;
+	padding: 32px 0;
+	border-top: 1px solid var(--zg-line);
+}
+
+.zg-article-end span {
+	width: 100%;
+	color: #949692;
+	font-size: 12px;
+	letter-spacing: 0.1em;
+}
+
+.zg-article-end a {
+	color: #313331;
+	font-size: 14px;
+	font-weight: 600;
+	text-decoration: none;
+}
+
+@media (max-width: 880px) {
+	.zg-hero-product {
+		grid-template-columns: 1fr;
+		padding: 32px;
+	}
+
+	.zg-hero-pill {
+		justify-self: center;
+	}
+
+	.zg-agent-routes {
+		grid-template-columns: repeat(2, 1fr);
+	}
+
+	.zg-footer,
+	.zg-price-card,
+	.zg-origin {
+		grid-template-columns: 1fr;
+	}
+
+	.zg-footer nav {
+		flex-wrap: wrap;
+		justify-content: flex-start;
+	}
+
+	.zg-beliefs {
+		grid-template-columns: 1fr;
+	}
+
+	.zg-blog-list article,
+	.zg-blog-list .is-featured {
+		grid-template-columns: 1fr;
+		padding: 42px 0;
+	}
+
+	.zg-blog-list .is-featured {
+		padding: 34px 26px;
+	}
+
+	.zg-blog-list h2,
+	.zg-blog-list article > p,
+	.zg-blog-read {
+		grid-column: 1;
+	}
+
+	.zg-blog-list h2 {
+		margin-top: 24px;
+	}
+}
+
+@media (max-width: 520px) {
+	.zg-hero h1 {
+		font-size: 42px;
+	}
+
+	.zg-hero-product {
+		margin-top: 24px;
+		padding: 24px 18px;
+		border-radius: 28px;
+	}
+
+	.zg-feature {
+		margin-top: 112px;
+	}
+
+	.zg-feature-panel,
+	.zg-agent {
+		padding: 34px 18px;
+		border-radius: 30px;
+	}
+
+	.zg-agent-routes {
+		grid-template-columns: 1fr;
+	}
+
+	.zg-final-cta,
+	.zg-page-cta {
+		margin-top: 100px;
+		border-radius: 30px;
+	}
+
+	.zg-page-intro {
+		padding-top: 72px;
+		padding-bottom: 58px;
+	}
+
+	.zg-page-intro h1 {
+		font-size: 45px;
+	}
+
+	.zg-price-card,
+	.zg-origin {
+		padding: 28px 22px;
+		border-radius: 30px;
+	}
+
+	.zg-origin-mark {
+		width: 180px;
+	}
+
+	.zg-principles {
+		grid-template-columns: 1fr;
+	}
+
+	.zg-principles article {
+		min-height: 0;
+		padding-right: 0;
+		padding-left: 0;
+	}
+}

@@ -1,41 +1,75 @@
 import { useEffect, useRef } from "react";
-import { createAliyunAsr, createMockAsr, type AsrController } from "@fold/voice";
+import {
+	createAliyunAsr,
+	createLocalAsr,
+	createMockAsr,
+	type AsrController,
+} from "@fold/voice";
+import { playFoldSound } from "./sounds";
 
 const WS_BASE = import.meta.env.VITE_ASR_WS_URL ?? "ws://localhost:3003";
 
 export function useVoiceHandlers() {
 	const asrRef = useRef<AsrController | null>(null);
-	const useMockRef = useRef(true);
 	const wsBaseRef = useRef(WS_BASE);
+	const voiceModeRef = useRef<"structure" | "reply" | "agent">("structure");
 
 	useEffect(() => {
 		void (async () => {
 			const config = await window.fold.getConfig();
-			useMockRef.current = await window.fold.getUseMockAsr();
 			if (config.asrWsUrl) wsBaseRef.current = config.asrWsUrl;
 		})();
 
-		const startRecording = async () => {
+		const startRecording = async (session: {
+			mode: "structure" | "reply" | "agent";
+			app?: string | null;
+			windowTitle?: string | null;
+		}) => {
 			if (asrRef.current) return;
-			const asr = useMockRef.current
-				? createMockAsr()
-				: createAliyunAsr({
-						wsBaseUrl: wsBaseRef.current,
-						workletPath: "/asr-pcm-worklet.js",
-					});
-			asrRef.current = asr;
 			try {
+				const runtime = await window.fold.getAsrRuntime();
+				if (runtime.provider === "local-whisper" && !runtime.ready) {
+					throw new Error("请先在设置中下载语音包，才能使用本地语音识别。");
+				}
+				const asr =
+					runtime.provider === "local-whisper"
+						? createLocalAsr({
+								workletPath: "/asr-pcm-worklet.js",
+								transport: {
+									start: async () => {
+										await window.fold.localAsrStart();
+									},
+									sendAudio: (chunk) => window.fold.localAsrAudio(chunk),
+									finish: () => window.fold.localAsrFinish(),
+									cancel: async () => {
+										await window.fold.localAsrCancel();
+									},
+								},
+							})
+						: runtime.provider === "dashscope"
+							? createAliyunAsr({
+									wsBaseUrl: wsBaseRef.current,
+									workletPath: "/asr-pcm-worklet.js",
+									mode: session.mode,
+									app: session.app,
+									windowTitle: session.windowTitle,
+									authToken: runtime.authToken,
+								})
+							: createMockAsr();
+				asrRef.current = asr;
+				asr.onLevel?.((level) => {
+					window.dispatchEvent(new CustomEvent("fold:voice-level-local", { detail: level }));
+				});
 				await asr.start({
-					onPartial: (text) => {
-						window.dispatchEvent(new CustomEvent("fold:transcript-local", { detail: text }));
-					},
+					// 界面用音波，不再推实时字幕；ASR 仍在后台出最终文本
+					onPartial: () => {},
 					onError: (err) => {
 						asrRef.current = null;
 						void window.fold.voiceError(err.message);
 					},
 				});
 			} catch (err) {
-				asr.cancel();
+				asrRef.current?.cancel();
 				asrRef.current = null;
 				void window.fold.voiceError((err as Error).message);
 			}
@@ -46,17 +80,23 @@ export function useVoiceHandlers() {
 			asrRef.current = null;
 		};
 
-		const stopRecording = async () => {
+		const stopRecording = async (mode: "structure" | "reply" | "agent") => {
 			const asr = asrRef.current;
 			if (!asr) {
 				await window.fold.dismiss();
 				return;
 			}
 			try {
-				const text = await asr.stop();
+				const result = await asr.stop();
 				asrRef.current = null;
-				if (text.trim()) {
-					await window.fold.runTask(text);
+				if (result.text.trim()) {
+					if (mode === "agent") await window.fold.runTask(result.text);
+					else if (mode === "reply") await window.fold.replyVoice(result.text);
+					else {
+						await window.fold.structureVoice(result.text, {
+							directStructured: result.directStructured,
+						});
+					}
 				} else {
 					await window.fold.dismiss();
 				}
@@ -67,8 +107,15 @@ export function useVoiceHandlers() {
 		};
 
 		const unsubs = [
-			window.fold.onHotkeyDown(() => void startRecording()),
-			window.fold.onHotkeyUp(() => void stopRecording()),
+			window.fold.onHotkeyDown((session) => {
+				voiceModeRef.current = session.mode;
+				playFoldSound("voiceStart");
+				void startRecording(session);
+			}),
+			window.fold.onHotkeyUp((mode) => {
+				playFoldSound("startup");
+				void stopRecording(mode);
+			}),
 			window.fold.onHotkeyCancel(cancelRecording),
 		];
 

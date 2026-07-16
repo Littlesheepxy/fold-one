@@ -1,0 +1,8 @@
+{
+	"name": "@fold/macos-input",
+	"version": "0.0.1",
+	"private": true,
+	"main": "build/Release/fold_macos_input.node",
+	"types": "index.d.ts",
+	"gypfile": true
+}

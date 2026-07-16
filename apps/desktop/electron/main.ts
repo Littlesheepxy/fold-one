@@ -1,22 +1,164 @@
-import { app, BrowserWindow, ipcMain, screen, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, powerSaveBlocker, screen, shell } from "electron";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { ContextEngine } from "@fold/context";
-import { createNangoConnectLink, openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal, openOfficeSetupInTerminal, cancelConnectFlow, pollConnectFlow, resolveConnectTarget, startConnectFlow } from "@fold/connectors";
-import { saveContextEvent } from "@fold/memory";
-import { runTask, type FoldStateEvent, type UserActionRequest } from "@fold/runtime";
-import { getAppIconDataUrl, resolveAppBundlePath } from "./app-icon.js";
-import { applyConfigToEnv, hasRealAsr, loadConfig, saveConfig, type FoldConfig } from "./config.js";
+import { ContextEngine, isClipboardRecallIntent, resolveClipboardRecall, type ContextEvent } from "@fold/context";
+import { captureScreenshot, createNangoConnectLink, openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal, openOfficeSetupInTerminal, openWorkBuddyApp, activateAgentConnectFlow, cancelConnectFlow, pollConnectFlow, resolveConnectTarget, startConnectFlow } from "@fold/connectors";
+import { saveContextEvent, listContextEvents, saveVoiceInteraction, listMemoryEntities, saveProductEvent, deactivateMemory, removeProfileConstraint } from "@fold/memory";
+import {
+	hasPlannerApiKey,
+	buildWeeklyRecap,
+	markWeeklyRecapShown,
+	recallHabitsFromUsage,
+	resolveEntitlements,
+	runTask,
+	shouldCleanSpeechLocally,
+	shouldShowWeeklyRecap,
+	startHabitRecallLoop,
+	structureSpeechText,
+	streamAhaGuess,
+	type FoldStateEvent,
+	type UserActionRequest,
+} from "@fold/runtime";
+import {
+	clearPredictTargetApp,
+	getPredictTargetApp,
+	getPredictPreviewForHome,
+	recordPredictCardFeedback,
+	resolveAhaGuess,
+	streamAhaGuessForHome,
+	refreshPredictCacheEnriched,
+	resolveReplyDraftsForInstruction,
+	resolveReplyVoiceCard,
+	resolvePredictDraftsForIntent,
+	resolveReplyPredictions,
+	setPredictTargetApp,
+} from "./predict-enrich.js";
+import {
+	captureTextInsertionTarget,
+	clearTextInsertionTarget,
+	insertTextToFrontApp,
+	undoTextInsertion,
+} from "./insert-text.js";
+import { canUseUndoReceipt, createUndoReceipt, type UndoReceipt } from "./undo-receipt.js";
+import { buildVoiceOverlayContext } from "./voice-overlay-context.js";
+import { focusApp, focusUrl } from "./focus-context.js";
+import { getAppIconDataUrl, getFirstAppIconDataUrl, resolveAppBundlePath } from "./app-icon.js";
+import {
+	applyConfigToEnv,
+	consumeSmartActionTrial,
+	hasRealAsr,
+	loadConfig,
+	resolveSmartActionAccess,
+	saveConfig,
+	type FoldConfig,
+} from "./config.js";
+import {
+	cancelPlan,
+	checkoutPlan,
+	deleteAccount,
+	getAccountState,
+	logoutAccount,
+	requestAccountCode,
+	syncAccountEntitlements,
+	updateAccountName,
+	verifyAccountCode,
+} from "./account-sync.js";
+import { loadAccountSecret } from "./secure-store.js";
 import { buildHomeSnapshot } from "./home-snapshot.js";
+import {
+	cursorPointInOverlay,
+	getDisplayWorkAreaForOverlayPoint,
+	getDisplayWorkAreaInOverlay,
+	getOverlaySpanBounds,
+	getPrimaryDisplayWorkAreaInOverlay,
+	overlayPointToScreen,
+	positionOverlayForActiveContext,
+	positionOverlayForAnchoredScreen,
+	positionOverlayForIdle,
+} from "./overlay-display.js";
+import { openAccessibilitySettings, probeAccessibility, ensureAccessibilityPermission } from "./permissions.js";
 import { buildEpisodeDetail, listEpisodesForHome } from "./episode-detail.js";
-import { startToggleHotkey } from "./hotkey.js";
+import {
+	buildProfilePrompt,
+	copyProfilePrompt,
+	executeProfileImport,
+	getStoredProfile,
+	listProfileImportOptions,
+	saveProfileFromResponse,
+} from "./profile-import.js";
+import {
+	getActiveHotkeyBindings,
+	getHotkeyStatus,
+	hotkeyIdsForSave,
+	reloadHotkeysFromConfig,
+	startHoldHotkey,
+} from "./hotkey.js";
+import {
+	AGENT_PRESETS,
+	CANCEL_PRESETS,
+	presetOptionsForRenderer,
+	TRIGGER_PRESETS,
+	type HotkeyAction,
+} from "./hotkey-presets.js";
 import { createTray } from "./tray.js";
-import { createFoldAppIcon } from "./tray-icon.js";
+import { migrateLegacyDataDir } from "./data-dir.js";
+import {
+	startMemoryConsolidationLoop,
+	stopMemoryConsolidationLoop,
+	triggerMemoryConsolidationNow,
+} from "./memory-consolidation.js";
+import {
+	disableCodexRemoteControl,
+	enableCodexRemoteControl,
+	getCodexRemoteStatus,
+	listCodexRemoteClients,
+	pollCodexRemotePairing,
+	revokeCodexRemoteClient,
+	shutdownCodexAppServer,
+	startCodexRemotePairing,
+} from "./codex-remote-control.js";
+import { PRODUCT_NAME } from "./brand.js";
+import { createZhigengAppIcon } from "./tray-icon.js";
+import {
+	appendLocalWhisperAudio,
+	cancelLocalWhisperSession,
+	finishLocalWhisperSession,
+	getDefaultLocalModelPath,
+	hasLocalWhisperModel,
+	resolveLocalModelPath,
+	startLocalWhisperSession,
+} from "./local-whisper.js";
+import {
+	downloadVoicePack,
+	getVoiceSetupStatus,
+	shouldUseSmartVoice,
+} from "./voice-setup.js";
+import { scanInputHabits, listInstalledInputMethods } from "./input-habit-scanner/index.js";
+import { exportInputHabitsToRime } from "./input-habit-scanner/export-rime.js";
+import {
+	importInputHabitsOneClick,
+	loadImportedInputHabits,
+} from "./input-habit-scanner/import.js";
+import {
+	completeOnboarding,
+	getOnboardingState,
+	isOnboardingComplete,
+	markProfileImported,
+	markProfileImportSkipped,
+	resetOnboardingForTest,
+	setOnboardingStep,
+} from "./onboarding.js";
+import {
+	getOnboardingAhaInput,
+	runOnboardingCompareDemo,
+	runOnboardingStructureVoice,
+} from "./onboarding-compare.js";
 
+migrateLegacyDataDir();
 applyConfigToEnv();
 
 const contextEngine = new ContextEngine({
-	ignoreApps: ["Electron", "Fold", "fold"],
+	ignoreApps: ["Electron", "Fold", "fold", "知更", "Zhigeng", "zhigeng"],
 	onEvent: (event) => {
 		try {
 			saveContextEvent(event);
@@ -24,21 +166,123 @@ const contextEngine = new ContextEngine({
 			// Raw retention should never break foreground agent execution.
 		}
 		settingsWindow?.webContents.send("fold:context-event", event);
+		if (predictRefreshTimer) clearTimeout(predictRefreshTimer);
+		predictRefreshTimer = setTimeout(() => {
+			void refreshPredictCacheEnriched(contextEngine.getLiveContext());
+		}, 4000);
 	},
 });
+
+function hydrateContextFromDb() {
+	try {
+		const rows = listContextEvents(400);
+		if (!rows.length) return;
+		const events: ContextEvent[] = rows.map((row) => ({
+			id: row.id,
+			type: row.type as ContextEvent["type"],
+			source: row.source as ContextEvent["source"],
+			timestamp: row.timestamp,
+			data: {
+				appName: typeof row.data.appName === "string" ? row.data.appName : undefined,
+				windowTitle:
+					typeof row.data.windowTitle === "string" ? row.data.windowTitle : undefined,
+				appPath: typeof row.data.appPath === "string" ? row.data.appPath : undefined,
+				filePath: typeof row.data.filePath === "string" ? row.data.filePath : undefined,
+				url: typeof row.data.url === "string" ? row.data.url : undefined,
+				text: typeof row.data.text === "string" ? row.data.text : undefined,
+				origin:
+					row.data.origin === "fold" || row.data.origin === "user"
+						? row.data.origin
+						: undefined,
+			},
+		}));
+		contextEngine.hydrate(events);
+	} catch {
+		// DB hydration should never block startup.
+	}
+}
+
 let overlayWindow: BrowserWindow | null = null;
 let settingsWindow: BrowserWindow | null = null;
+let onboardingWindow: BrowserWindow | null = null;
+let onboardingStep: string | undefined;
 let pendingHomeSection: string | null = null;
 let isRecording = false;
+let voiceOutcome: "structure" | "reply" | "agent" = "structure";
+let voiceCanUseDirectStructure = false;
+/** 代回首轮：松开右 ⌘ 不结束，短按结束 */
+let replyLatched = false;
+/** 确认卡上按住修改：松开结束 */
+let replyRefineHold = false;
+let voiceTargetApp: string | null = null;
+/** 代回：Overlay 升起前截下的聊天窗，避免松手时截到主屏微信/知更自己 */
+let voiceReplyScreenshotPath: string | null = null;
 let lastIntent = "";
+let lastReplyTranscript = "";
+/** 代回卡片上做过语音 refine 后再插入 → 记 edited 而非 accept */
+let replyWasRefined = false;
 let stopHotkey: (() => void) | null = null;
+let refreshTrayMenu: (() => void) | null = null;
+let stopHabitRecall: (() => void) | null = null;
+let activeTaskPowerBlockerId: number | null = null;
+let activeTaskPowerAssertionCount = 0;
+
+function startTaskPowerAssertion(): void {
+	activeTaskPowerAssertionCount += 1;
+	if (activeTaskPowerBlockerId !== null && powerSaveBlocker.isStarted(activeTaskPowerBlockerId)) return;
+	activeTaskPowerBlockerId = powerSaveBlocker.start("prevent-app-suspension");
+}
+
+function stopTaskPowerAssertion(): void {
+	activeTaskPowerAssertionCount = Math.max(0, activeTaskPowerAssertionCount - 1);
+	if (activeTaskPowerAssertionCount > 0) return;
+	if (activeTaskPowerBlockerId === null) return;
+	if (powerSaveBlocker.isStarted(activeTaskPowerBlockerId)) {
+		powerSaveBlocker.stop(activeTaskPowerBlockerId);
+	}
+	activeTaskPowerBlockerId = null;
+}
+
+function snapshotContextEvents() {
+	return contextEngine.getLiveContext().events.slice(-24).map((e) => ({
+		type: e.type,
+		source: e.source,
+		data: e.data as Record<string, unknown>,
+	}));
+}
+
+function recordVoiceInteraction(
+	kind: "structure" | "reply" | "agent",
+	transcript: string,
+	outcome?: string,
+	status: "success" | "failed" = "success",
+) {
+	const ctx = contextEngine.getLiveContext();
+	try {
+		saveVoiceInteraction({
+			kind,
+			transcript,
+			outcome,
+			status,
+			appName: ctx.activeApp,
+			windowTitle: ctx.activeWindow,
+			contextEvents: snapshotContextEvents(),
+		});
+		if (status === "success") recallHabitsFromUsage();
+	} catch {
+		// Habit learning should never block voice flows.
+	}
+}
 let pendingUserAction: {
 	resolve: (optionId: string) => void;
 	reject: (error: Error) => void;
 	runContext?: Record<string, unknown>;
 } | null = null;
-const appIconCache = new Map<string, string | null>();
+let predictRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+let ahaGuessRunId = 0;
+const appIconCache = new Map<string, string>();
 let lastOverlayState: FoldStateEvent = { status: "idle" };
+let lastUndoReceipt: UndoReceipt | null = null;
 
 function emitState(state: FoldStateEvent) {
 	lastOverlayState = { ...lastOverlayState, ...state };
@@ -53,14 +297,23 @@ function emitState(state: FoldStateEvent) {
 	} catch {
 		// Overlay reload/HMR can dispose the render frame mid-task.
 	}
+	// 引导窗也要听状态：first-reply 步靠「已插入回复」解锁继续
+	if (onboardingWindow && !onboardingWindow.isDestroyed()) {
+		try {
+			onboardingWindow.webContents.send("fold:state", state);
+		} catch {
+			/* ignore */
+		}
+	}
 }
 
 function syncDockVisibility() {
 	if (process.platform !== "darwin") return;
 	const devMode = Boolean(process.env.VITE_DEV_SERVER_URL);
 	const settingsOpen = Boolean(settingsWindow && !settingsWindow.isDestroyed());
-	if (devMode || settingsOpen) {
-		app.dock?.setIcon(createFoldAppIcon());
+	const onboardingOpen = Boolean(onboardingWindow && !onboardingWindow.isDestroyed());
+	if (devMode || settingsOpen || onboardingOpen) {
+		app.dock?.setIcon(createZhigengAppIcon());
 		app.dock?.show();
 		return;
 	}
@@ -79,6 +332,7 @@ function createOverlayWindow() {
 		y: workArea.y,
 		frame: false,
 		transparent: true,
+		backgroundColor: "#00000000",
 		alwaysOnTop: true,
 		focusable: false,
 		skipTaskbar: true,
@@ -91,11 +345,14 @@ function createOverlayWindow() {
 			preload: join(__dirname, "preload.js"),
 			contextIsolation: true,
 			nodeIntegration: false,
+			// overlay 窗 focusable:false，从不获用户手势；否则音效被 autoplay 策略拦掉
+			autoplayPolicy: "no-user-gesture-required",
 		},
 	});
 
 	overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 	overlayWindow.setAlwaysOnTop(true, "floating");
+	overlayWindow.showInactive();
 	// CSS pointer-events-none is not enough — pass clicks through to apps below.
 	overlayWindow.setIgnoreMouseEvents(true, { forward: true });
 
@@ -110,7 +367,15 @@ function createOverlayWindow() {
 	});
 
 	overlayWindow.webContents.once("did-finish-load", () => {
-		emitState(lastOverlayState);
+		const widgetDisplayBounds = positionOverlayForIdle(overlayWindow);
+		console.log(
+			`[fold:widget] primary bounds=${widgetDisplayBounds.x},${widgetDisplayBounds.y} ${widgetDisplayBounds.width}x${widgetDisplayBounds.height}`,
+		);
+		emitState({
+			...lastOverlayState,
+			voiceTabPlacement: null,
+			widgetDisplayBounds,
+		});
 	});
 }
 
@@ -127,12 +392,12 @@ function openSettingsWindow(section?: string) {
 	}
 
 	settingsWindow = new BrowserWindow({
-		width: 920,
-		height: 680,
-		title: "Fold",
+		width: 1120,
+		height: 780,
+		title: PRODUCT_NAME,
 		resizable: true,
-		minWidth: 720,
-		minHeight: 520,
+		minWidth: 880,
+		minHeight: 640,
 		show: false,
 		...(process.platform === "darwin"
 			? {
@@ -173,6 +438,111 @@ function openSettingsWindow(section?: string) {
 	});
 }
 
+function isOnboardingHotkeyTestStep(): boolean {
+	return Boolean(
+		onboardingWindow && !onboardingWindow.isDestroyed() && onboardingStep === "hotkey",
+	);
+}
+
+function isOnboardingVoiceLiveStep(): boolean {
+	return Boolean(
+		onboardingWindow && !onboardingWindow.isDestroyed() && onboardingStep === "voice-live",
+	);
+}
+
+function isOnboardingReplyDemoStep(): boolean {
+	return Boolean(
+		onboardingWindow && !onboardingWindow.isDestroyed() && onboardingStep === "reply-demo",
+	);
+}
+
+/** 语音输入引导页：整理结果写回引导窗，不插入前台 App */
+let onboardingVoiceApp: string | null = null;
+let onboardingVoiceWindowTitle: string | null = null;
+
+function raiseOverlayForVoiceUi() {
+	if (!overlayWindow || overlayWindow.isDestroyed()) return;
+	overlayWindow.setAlwaysOnTop(true, "screen-saver");
+	overlayWindow.showInactive();
+	overlayWindow.moveTop();
+}
+
+function restoreOverlayZOrder() {
+	if (!overlayWindow || overlayWindow.isDestroyed()) return;
+	overlayWindow.setAlwaysOnTop(true, "floating");
+}
+
+function sendOnboardingVoiceEvent(payload: {
+	phase: "listening" | "formatting" | "done" | "error";
+	raw?: string;
+	cleaned?: string;
+	error?: string;
+}) {
+	if (onboardingWindow && !onboardingWindow.isDestroyed()) {
+		onboardingWindow.webContents.send("fold:onboarding-voice-event", payload);
+	}
+}
+
+function openOnboardingWindow() {
+	if (onboardingWindow && !onboardingWindow.isDestroyed()) {
+		onboardingStep = getOnboardingState().step;
+		onboardingWindow.focus();
+		syncDockVisibility();
+		return;
+	}
+
+	onboardingWindow = new BrowserWindow({
+		width: 1120,
+		height: 780,
+		title: PRODUCT_NAME,
+		resizable: true,
+		minWidth: 880,
+		minHeight: 640,
+		show: false,
+		...(process.platform === "darwin"
+			? {
+					frame: false,
+					transparent: true,
+					hasShadow: true,
+					backgroundColor: "#00000000",
+					titleBarStyle: "hidden" as const,
+					trafficLightPosition: { x: 16, y: 16 },
+				}
+			: {}),
+		webPreferences: {
+			preload: join(__dirname, "preload.js"),
+			contextIsolation: true,
+			nodeIntegration: false,
+		},
+	});
+
+	const onboardingUrl = process.env.VITE_DEV_SERVER_URL
+		? `${process.env.VITE_DEV_SERVER_URL}onboarding.html`
+		: pathToFileURL(join(__dirname, "../dist/onboarding.html")).href;
+
+	onboardingWindow.loadURL(onboardingUrl);
+	onboardingStep = getOnboardingState().step;
+	onboardingWindow.once("ready-to-show", () => {
+		onboardingWindow?.show();
+		syncDockVisibility();
+	});
+	onboardingWindow.on("closed", () => {
+		onboardingWindow = null;
+		onboardingStep = undefined;
+		syncDockVisibility();
+	});
+}
+
+function finishOnboardingFlow() {
+	completeOnboarding();
+	onboardingStep = undefined;
+	if (onboardingWindow && !onboardingWindow.isDestroyed()) {
+		onboardingWindow.close();
+		onboardingWindow = null;
+	}
+	openSettingsWindow("overview");
+}
+
 async function runUserAction(optionId: string, context?: Record<string, unknown>) {
 	switch (optionId) {
 		case "gmail:terminal-auth":
@@ -194,6 +564,12 @@ async function runUserAction(optionId: string, context?: Record<string, unknown>
 			await shell.openExternal(
 				"x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
 			);
+			break;
+		case "accessibility:request":
+			void ensureAccessibilityPermission();
+			break;
+		case "accessibility:open-settings":
+			await openAccessibilitySettings();
 			break;
 		case "cdp:open-chrome-help":
 			await shell.openExternal(
@@ -222,6 +598,9 @@ async function runUserAction(optionId: string, context?: Record<string, unknown>
 		case "claude:login-terminal":
 			openClaudeLoginInTerminal();
 			break;
+		case "workbuddy:open-app":
+			openWorkBuddyApp();
+			break;
 		default:
 			break;
 	}
@@ -243,18 +622,418 @@ function requestUserAction(req: UserActionRequest): Promise<string> {
 
 async function executeTask(intent: string) {
 	if (!intent.trim()) {
-		emitState({ status: "idle" });
+		emitIdleState();
 		return;
 	}
 	lastIntent = intent.trim();
+	const smartAccess = resolveSmartActionAccess();
+	if (!smartAccess.allowed && !hasPlannerApiKey()) {
+		emitState({
+			status: "error",
+			transcript: lastIntent,
+			error: "智能体验次数已用完。可升级版本，或在设置中启用 BYOK 使用自己的模型。",
+		});
+		return;
+	}
+	if (!smartAccess.allowed) {
+		emitState({
+			status: "error",
+			transcript: lastIntent,
+			error: "智能体验次数已用完。启用 BYOK 后可继续使用你配置的 Planner。",
+		});
+		return;
+	}
+	emitState({ status: "understanding", ...clearPredictState() });
+	startTaskPowerAssertion();
 	try {
 		await runTask(lastIntent, emitState, {
 			getLiveContext: () => contextEngine.getLiveContext(),
 			requestUserAction,
 			runUserAction,
 		});
+		if (smartAccess.usesTrial && hasPlannerApiKey()) consumeSmartActionTrial();
 	} catch (err) {
 		emitState({ status: "error", error: (err as Error).message });
+	} finally {
+		stopTaskPowerAssertion();
+		void refreshPredictCacheEnriched(contextEngine.getLiveContext());
+	}
+}
+
+function getCursorInOverlay(): { x: number; y: number } {
+	return cursorPointInOverlay(overlayWindow);
+}
+
+function clearPredictState(): Partial<FoldStateEvent> {
+	return {
+		predictMode: null,
+		predictPhase: null,
+		predictSurface: null,
+		predictAnchor: null,
+		predictSuggestions: undefined,
+		predictDrafts: undefined,
+		predictSelectedIntent: null,
+		predictMemoryRefs: undefined,
+		predictDraftsLoading: false,
+		predictCursor: null,
+		contextPageUrl: null,
+		contextPageLabel: null,
+		predictRefining: false,
+		structureDraftOpen: false,
+	};
+}
+
+function emitIdleState(extra: Partial<FoldStateEvent> = {}) {
+	restoreOverlayZOrder();
+	const widgetDisplayBounds = positionOverlayForIdle(overlayWindow);
+	emitState({
+		status: "idle",
+		undoAvailable: false,
+		verificationChecks: undefined,
+		voiceTabPlacement: null,
+		voiceHint: null,
+		widgetDisplayBounds,
+		...clearPredictState(),
+		...extra,
+	});
+}
+
+function emitPredictResult(result: Awaited<ReturnType<typeof resolveReplyPredictions>>) {
+	emitState({
+		status: "predict",
+		...clearPredictState(),
+		predictMode: result.mode,
+		predictPhase: result.phase,
+		predictSurface: result.surface,
+		predictAnchor: result.anchor,
+		predictSuggestions: result.suggestions,
+		predictDrafts: result.drafts,
+		predictMemoryRefs: result.memoryRefs,
+		predictCursor: getCursorInOverlay(),
+	});
+}
+
+function showReplyPredictions() {
+	createOverlayWindow();
+	const ctx = contextEngine.getLiveContext();
+	const targetApp = ctx.activeApp;
+	void (async () => {
+		let precapture: string | null = null;
+		try {
+			const shot = await captureScreenshot({ target: "frontmost" });
+			precapture = shot.path;
+		} catch {
+			// enrichForReply 会按 app 名再试
+		}
+		await contextEngine.refreshActiveApp();
+		const fresh = contextEngine.getLiveContext();
+		const app = fresh.activeApp ?? targetApp;
+		const voiceTabPlacement = await positionOverlayForActiveContext(overlayWindow, app);
+		emitState({
+			status: "predict",
+			...clearPredictState(),
+			predictMode: "fast",
+			predictPhase: "pick",
+			predictSurface: "reply",
+			predictAnchor: "正在读取对话…",
+			predictSuggestions: [],
+			predictCursor: getCursorInOverlay(),
+			voiceTabPlacement,
+			contextAppName: app,
+			contextAppPath: fresh.activeAppPath,
+		});
+		const result = await resolveReplyPredictions(fresh, app, precapture);
+		const placement = await positionOverlayForActiveContext(overlayWindow, app);
+		emitState({
+			status: "predict",
+			...clearPredictState(),
+			predictMode: result.mode,
+			predictPhase: result.phase,
+			predictSurface: result.surface,
+			predictAnchor: result.anchor,
+			predictSuggestions: result.suggestions,
+			predictDrafts: result.drafts,
+			predictMemoryRefs: result.memoryRefs,
+			predictCursor: getCursorInOverlay(),
+			voiceTabPlacement: placement,
+			contextAppName: app,
+			contextAppPath: fresh.activeAppPath,
+			contextWindowTitle: result.anchor,
+		});
+	})();
+}
+
+async function structureVoiceTranscript(
+	transcript: string,
+	opts: { directStructured?: boolean } = {},
+) {
+	const text = transcript.trim();
+	if (!text) {
+		emitIdleState();
+		return;
+	}
+	const ctx = contextEngine.getLiveContext();
+	const smartAccess = resolveSmartActionAccess();
+	const useLocal = shouldCleanSpeechLocally(text);
+
+	if (isOnboardingVoiceLiveStep()) {
+		const app = onboardingVoiceApp ?? "微信";
+		// 引导窗（Electron 自身）在前台：锚定到活跃屏底中，overlay 只覆盖该屏避免多屏 span 飘移
+		const voiceTabPlacement = await positionOverlayForAnchoredScreen(
+			overlayWindow,
+			voiceTargetApp,
+		);
+		raiseOverlayForVoiceUi();
+		sendOnboardingVoiceEvent({ phase: "formatting", raw: text });
+		emitState({
+			status: "formatting",
+			transcript: text,
+			voiceMode: "structure",
+			voiceTabPlacement,
+			voiceHint: null,
+			...clearPredictState(),
+			contextAppName: app,
+			contextWindowTitle: onboardingVoiceWindowTitle,
+		});
+		try {
+			const structured = opts.directStructured
+				? { headline: text, detail: "" }
+				: await structureSpeechText(text, {
+						app,
+						windowTitle: onboardingVoiceWindowTitle ?? "Onboarding",
+						allowCloud: smartAccess.allowed,
+						preferQuality: true,
+					});
+			const body = [structured.headline, structured.detail]
+				.map((part) => part.trim())
+				.filter(Boolean)
+				.filter((part, index, arr) => index === 0 || part !== arr[0])
+				.join("\n\n");
+			const output = body || text;
+			sendOnboardingVoiceEvent({ phase: "done", raw: text, cleaned: output });
+			emitIdleState({ voiceMode: null });
+		} catch (err) {
+			sendOnboardingVoiceEvent({
+				phase: "error",
+				raw: text,
+				error: (err as Error).message,
+			});
+			emitState({ status: "error", error: (err as Error).message, transcript: text, voiceHint: null });
+		}
+		return;
+	}
+
+	const voiceTabPlacement = await positionOverlayForActiveContext(
+		overlayWindow,
+		voiceTargetApp ?? ctx.activeApp,
+	);
+	emitState({
+		status: "formatting",
+		transcript: text,
+		voiceMode: "structure",
+		voiceTabPlacement,
+		...clearPredictState(),
+		...buildVoiceOverlayContext(ctx),
+	});
+	try {
+		if (isClipboardRecallIntent(text)) {
+			const recall = resolveClipboardRecall(text, ctx.recentClipboards ?? []);
+			recordVoiceInteraction("structure", text, recall.summary);
+			emitState({
+				status: "done",
+				transcript: text,
+				voiceMode: "structure",
+				result: recall.ok ? "已找到复制记录" : "未找到复制记录",
+				resultDetail: recall.summary,
+			});
+			setTimeout(() => {
+				if (lastOverlayState.status === "done" && lastOverlayState.voiceMode === "structure") {
+					emitIdleState({ voiceMode: null });
+				}
+			}, 2500);
+			return;
+		}
+
+		const structured = opts.directStructured
+			? { headline: text, detail: "" }
+			: (
+					await Promise.all([
+						structureSpeechText(text, {
+							app: ctx.activeApp,
+							windowTitle: ctx.activeWindow,
+							allowCloud: useLocal ? false : smartAccess.allowed,
+							onCloudSuccess: smartAccess.usesTrial
+								? () => {
+										consumeSmartActionTrial();
+									}
+								: undefined,
+						}),
+						useLocal ? new Promise((r) => setTimeout(r, 240)) : Promise.resolve(),
+					])
+				)[0];
+		const body = [structured.headline, structured.detail]
+			.map((part) => part.trim())
+			.filter(Boolean)
+			.filter((part, index, arr) => index === 0 || part !== arr[0])
+			.join("\n\n");
+		const output = body || text;
+		if (opts.directStructured && smartAccess.usesTrial) {
+			consumeSmartActionTrial();
+		}
+		const targetApp = voiceTargetApp ?? ctx.activeApp;
+		const autoInsert = loadConfig().structureAutoInsert !== false;
+		recordVoiceInteraction("structure", text, output);
+
+		if (autoInsert) {
+			contextEngine.suppressClipboardCapture(5000);
+			const insertResult = await insertTextToFrontApp(output, targetApp);
+			console.log(
+				`[fold:voice-insert] targetApp=${targetApp ?? "—"} ok=${insertResult.ok} pasted=${insertResult.pasted}`,
+			);
+			if (insertResult.pasted) {
+				lastUndoReceipt = createUndoReceipt(targetApp);
+				clearTextInsertionTarget();
+				emitState({
+					status: "done",
+					transcript: text,
+					voiceMode: "structure",
+					result: "已输入",
+					resultDetail: output,
+					voiceTabPlacement,
+					structureDraftOpen: false,
+					undoAvailable: true,
+					verificationChecks: [
+						{
+							rule: "text.inserted",
+							passed: insertResult.verified !== false,
+							message: insertResult.verified === false ? "目标输入框未确认变化" : "已写入目标输入框",
+						},
+					],
+				});
+				setTimeout(() => {
+					if (lastOverlayState.status === "done" && lastOverlayState.voiceMode === "structure") {
+						emitIdleState({ voiceMode: null });
+					}
+				}, 6000);
+			} else {
+				emitState({
+					status: "done",
+					transcript: text,
+					voiceMode: "structure",
+					result: "转写完成，点击插入",
+					resultDetail: output,
+					voiceTabPlacement,
+					structureDraftOpen: true,
+					...buildVoiceOverlayContext(ctx),
+				});
+			}
+		} else {
+			emitState({
+				status: "done",
+				transcript: text,
+				voiceMode: "structure",
+				result: "转写完成",
+				resultDetail: output,
+				voiceTabPlacement,
+				structureDraftOpen: true,
+				...buildVoiceOverlayContext(ctx),
+			});
+		}
+	} catch (err) {
+		emitState({ status: "error", error: (err as Error).message, transcript: text });
+		recordVoiceInteraction("structure", text, (err as Error).message, "failed");
+	} finally {
+		if (
+			loadConfig().structureAutoInsert !== false &&
+			lastOverlayState.structureDraftOpen !== true
+		) {
+			voiceTargetApp = null;
+		}
+	}
+}
+
+async function replyVoiceTranscript(transcript: string) {
+	const text = transcript.trim();
+	if (!text) {
+		emitIdleState();
+		return;
+	}
+	lastReplyTranscript = text;
+
+	const onboardingReply = isOnboardingReplyDemoStep();
+	await contextEngine.refreshActiveApp();
+	const ctx = contextEngine.getLiveContext();
+	const contextAppName = onboardingReply
+		? onboardingVoiceApp ?? "飞书"
+		: voiceTargetApp ?? ctx.activeApp;
+	const contextAppPath = onboardingReply ? null : ctx.activeAppPath;
+	const contextWindowTitle = onboardingReply
+		? onboardingVoiceWindowTitle
+		: ctx.activeWindow;
+
+	createOverlayWindow();
+	const voiceTabPlacement = onboardingReply
+		? await positionOverlayForAnchoredScreen(overlayWindow, null)
+		: await positionOverlayForActiveContext(overlayWindow, contextAppName);
+	if (onboardingReply) raiseOverlayForVoiceUi();
+	emitState({
+		status: "predict",
+		voiceMode: null,
+		voiceTabPlacement,
+		...clearPredictState(),
+		predictMode: "full",
+		predictPhase: "result",
+		predictSurface: "reply",
+		predictAnchor: "正在生成回复…",
+		predictSelectedIntent: text,
+		predictDraftsLoading: true,
+		predictRefining: false,
+		predictCursor: getCursorInOverlay(),
+		contextAppName,
+		contextAppPath,
+		contextWindowTitle,
+	});
+
+	try {
+		const card = await resolveReplyVoiceCard(
+			ctx,
+			text,
+			contextAppName,
+			voiceReplyScreenshotPath,
+		);
+		const sceneTitle =
+			onboardingReply
+				? contextWindowTitle ?? contextAppName ?? "智能代回"
+				: card.sceneTitle;
+		recordVoiceInteraction("reply", text, card.drafts[0]?.text);
+		emitState({
+			status: "predict",
+			voiceMode: null,
+			voiceTabPlacement,
+			predictMode: "full",
+			predictPhase: "result",
+			predictSurface: "reply",
+			predictAnchor: sceneTitle,
+			predictSelectedIntent: text,
+			predictDrafts: card.drafts,
+			predictMemoryRefs: card.memoryRefs,
+			predictDraftsLoading: false,
+			predictRefining: false,
+			predictCursor: getCursorInOverlay(),
+			contextAppName: onboardingReply ? contextAppName : card.appName ?? contextAppName,
+			contextAppPath: onboardingReply ? null : card.appPath ?? contextAppPath,
+			contextWindowTitle: sceneTitle,
+		});
+	} catch (err) {
+		recordVoiceInteraction("reply", text, (err as Error).message, "failed");
+		emitState({
+			status: "error",
+			error: (err as Error).message,
+			transcript: text,
+			...clearPredictState(),
+		});
+	} finally {
+		voiceTargetApp = null;
 	}
 }
 
@@ -262,6 +1041,12 @@ const IPC_HANDLE_CHANNELS = [
 	"fold:get-config",
 	"fold:save-config",
 	"fold:get-mock-asr",
+	"fold:get-asr-runtime",
+	"fold:get-voice-setup",
+	"fold:download-voice-pack",
+	"fold:local-asr-start",
+	"fold:local-asr-finish",
+	"fold:local-asr-cancel",
 	"fold:get-home-snapshot",
 	"fold:get-live-context",
 	"fold:get-app-icon",
@@ -273,14 +1058,100 @@ const IPC_HANDLE_CHANNELS = [
 	"fold:connect-flow-cancel",
 	"fold:open-external",
 	"fold:run-task",
+	"fold:structure-voice",
+	"fold:reply-voice",
 	"fold:retry-task",
+	"fold:undo-last-insert",
 	"fold:ask-response",
 	"fold:dismiss",
 	"fold:toggle-voice",
 	"fold:voice-error",
 	"fold:open-settings",
 	"fold:quit",
+	"fold:probe-accessibility",
+	"fold:onboarding-get-state",
+	"fold:open-onboarding",
+	"fold:onboarding-set-step",
+	"fold:onboarding-complete",
+	"fold:onboarding-skip-profile",
+	"fold:onboarding-compare-demo",
+	"fold:onboarding-structure-voice",
+	"fold:onboarding-set-voice-app",
+	"fold:onboarding-aha-guess",
+	"fold:onboarding-simulate-clipboard",
+	"fold:account-get-state",
+	"fold:account-request-code",
+	"fold:account-verify-code",
+	"fold:account-logout",
+	"fold:account-sync",
+	"fold:account-update-name",
+	"fold:account-checkout",
+	"fold:account-cancel-plan",
+	"fold:account-delete",
+	"fold:get-hotkey-settings",
+	"fold:set-hotkey-binding",
 ] as const;
+
+function buildHotkeySettingsSnapshot() {
+	const bindings = getActiveHotkeyBindings();
+	return {
+		bindings: {
+			trigger: { id: bindings.trigger.id, label: bindings.trigger.label },
+			agent: {
+				id: bindings.agent.id,
+				label: bindings.agent.label,
+				keys: bindings.agent.keys,
+			},
+			cancel: {
+				id: bindings.cancel.id,
+				label: bindings.cancel.label,
+				keys: bindings.cancel.keys,
+			},
+		},
+		options: presetOptionsForRenderer(),
+		status: getHotkeyStatus(),
+	};
+}
+
+function isValidHotkeyPreset(action: HotkeyAction, presetId: string): boolean {
+	if (action === "trigger") return TRIGGER_PRESETS.some((preset) => preset.id === presetId);
+	if (action === "agent") return AGENT_PRESETS.some((preset) => preset.id === presetId);
+	return CANCEL_PRESETS.some((preset) => preset.id === presetId);
+}
+
+function resolveAsrRuntime() {
+	const config = loadConfig();
+	const requested = config.asrProvider ?? "auto";
+	const modelPath =
+		config.localWhisperModelPath ?? getDefaultLocalModelPath();
+	const resolvedModelPath = resolveLocalModelPath(modelPath);
+	const hasLocal = hasLocalWhisperModel(modelPath);
+	const hasCloud = hasRealAsr(config);
+	const tier = resolveEntitlements(config.planTier);
+	const smartAccess = resolveSmartActionAccess(config);
+
+	if (requested === "local-whisper" || requested === "local-funasr") {
+		return { provider: "local-whisper" as const, modelPath: resolvedModelPath, ready: hasLocal };
+	}
+	if (requested === "dashscope") {
+		return {
+			provider: hasCloud ? ("dashscope" as const) : ("mock" as const),
+			ready: hasCloud,
+		};
+	}
+	// 会员或仍有智能体验次数：自动走云端；额度耗尽后回退到本地。
+	if (shouldUseSmartVoice(requested, tier.cloudAsr, smartAccess.allowed)) {
+		return {
+			provider: hasCloud ? ("dashscope" as const) : ("dashscope" as const),
+			ready: hasCloud,
+		};
+	}
+	// 免费版：仅本地语音包
+	if (hasLocal) {
+		return { provider: "local-whisper" as const, modelPath: resolvedModelPath, ready: true };
+	}
+	return { provider: "local-whisper" as const, modelPath: resolvedModelPath, ready: false };
+}
 
 function registerIpc() {
 	for (const channel of IPC_HANDLE_CHANNELS) {
@@ -295,11 +1166,127 @@ function registerIpc() {
 		return { ok: true };
 	});
 
-	ipcMain.handle("fold:get-mock-asr", () => !hasRealAsr());
+	ipcMain.handle("fold:account-get-state", () => getAccountState());
+	ipcMain.handle("fold:account-request-code", (_e, email: string) => requestAccountCode(email));
+	ipcMain.handle("fold:account-verify-code", (_e, input: { email: string; code: string }) =>
+		verifyAccountCode(input),
+	);
+	ipcMain.handle("fold:account-logout", () => logoutAccount());
+	ipcMain.handle("fold:account-sync", () => syncAccountEntitlements());
+	ipcMain.handle("fold:account-update-name", (_e, name: string) => updateAccountName(name));
+	ipcMain.handle(
+		"fold:account-checkout",
+		(_e, input: { productId: string }) => checkoutPlan(input),
+	);
+	ipcMain.handle("fold:account-cancel-plan", () => cancelPlan());
+	ipcMain.handle("fold:account-delete", () => deleteAccount());
+
+	ipcMain.handle("fold:get-hotkey-settings", () => buildHotkeySettingsSnapshot());
+
+	ipcMain.handle(
+		"fold:set-hotkey-binding",
+		(_e, action: HotkeyAction, presetId: string) => {
+			if (!isValidHotkeyPreset(action, presetId)) {
+				return { ok: false as const, reason: "invalid" as const };
+			}
+			const config = loadConfig();
+			const nextHotkeys = { ...config.hotkeys, [action]: presetId };
+			const result = reloadHotkeysFromConfig(nextHotkeys);
+			if (!result.ok) {
+				return { ok: false as const, reason: result.reason };
+			}
+			saveConfig({ ...config, hotkeys: hotkeyIdsForSave() });
+			refreshTrayMenu?.();
+			return {
+				ok: true as const,
+				settings: buildHotkeySettingsSnapshot(),
+			};
+		},
+	);
+
+	ipcMain.handle("fold:get-mock-asr", () => resolveAsrRuntime().provider === "mock");
+
+	ipcMain.handle("fold:get-voice-setup", () => getVoiceSetupStatus());
+
+	ipcMain.handle("fold:download-voice-pack", () => downloadVoicePack());
+
+	ipcMain.handle("fold:get-asr-runtime", () => {
+		const runtime = resolveAsrRuntime();
+		const authToken = loadAccountSecret() ?? loadConfig().hubApiKey?.trim() ?? undefined;
+		return { ...runtime, authToken };
+	});
+
+	ipcMain.handle("fold:local-asr-start", () => {
+		startLocalWhisperSession();
+		return { ok: true };
+	});
+
+	ipcMain.removeAllListeners("fold:local-asr-audio");
+	ipcMain.on("fold:local-asr-audio", (_event, chunk: ArrayBuffer | Uint8Array) => {
+		appendLocalWhisperAudio(chunk);
+	});
+
+	ipcMain.handle("fold:local-asr-finish", async () => {
+		const config = loadConfig();
+		return finishLocalWhisperSession(
+			resolveLocalModelPath(config.localWhisperModelPath),
+		);
+	});
+
+	ipcMain.handle("fold:local-asr-cancel", () => {
+		cancelLocalWhisperSession();
+		return { ok: true };
+	});
 
 	ipcMain.handle("fold:get-home-snapshot", () =>
 		buildHomeSnapshot(() => contextEngine.getLiveContext()),
 	);
+
+	ipcMain.handle("fold:get-predict-preview", () =>
+		getPredictPreviewForHome(contextEngine.getLiveContext()),
+	);
+
+	ipcMain.handle("fold:start-aha-guess", async () => {
+		const runId = ++ahaGuessRunId;
+		const win = settingsWindow;
+		if (!win || win.isDestroyed()) return { ok: false };
+
+		const send = (channel: string, payload: Record<string, unknown>) => {
+			if (runId !== ahaGuessRunId || win.isDestroyed()) return;
+			win.webContents.send(channel, { runId, ...payload });
+		};
+
+		void (async () => {
+			try {
+				const result = await streamAhaGuessForHome(
+					contextEngine.getLiveContext(),
+					undefined,
+					(chunk) => send("fold:aha-guess-chunk", { chunk }),
+					() => runId !== ahaGuessRunId,
+				);
+				if (runId !== ahaGuessRunId) return;
+				send("fold:aha-guess-done", {
+					suggestions: result.suggestions,
+					reply: result.reply,
+					confidenceLevel: result.confidenceLevel,
+					confidenceScore: result.confidenceScore,
+				});
+			} catch {
+				if (runId !== ahaGuessRunId) return;
+				send("fold:aha-guess-done", {
+					error: "暂时没看清楚，稍后再试。",
+					suggestions: [],
+				});
+			}
+		})();
+
+		return { ok: true, runId };
+	});
+
+	ipcMain.handle("fold:cancel-aha-guess", () => {
+		ahaGuessRunId += 1;
+		return { ok: true };
+	});
 
 	// 轻量版实时上下文（不带连接探测），供 Home 窗口高频刷新
 	ipcMain.handle("fold:get-live-context", () => {
@@ -308,25 +1295,384 @@ function registerIpc() {
 			activeApp: ctx.activeApp,
 			activeWindow: ctx.activeWindow,
 			activeAppPath: ctx.activeAppPath,
-			events: ctx.events.slice(-50),
+			recentUrls: ctx.recentUrls.slice(0, 10).map((u) => ({
+				url: u.url,
+				title: u.title,
+			})),
+			recentFiles: ctx.recentFiles.slice(0, 10).map((f) => ({
+				path: f.path,
+				name: f.name,
+			})),
+			clipboardPreview: ctx.clipboard?.text
+				? ctx.clipboard.text.slice(0, 80) + (ctx.clipboard.text.length > 80 ? "…" : "")
+				: null,
+			recentClipboards: ctx.recentClipboards.slice(0, 50).map((item) => ({
+				id: item.id,
+				timestamp: item.timestamp,
+				text: item.text,
+				appName: item.appName,
+				windowTitle: item.windowTitle,
+				appPath: item.appPath,
+			})),
+			focusDwells: (ctx.focusDwells ?? []).slice(0, 6).map((d) => ({
+				app: d.app,
+				windowTitle: d.windowTitle,
+				dwellMs: d.dwellMs,
+			})),
+			events: ctx.events.slice(-80),
 		};
 	});
+
+	ipcMain.handle("fold:restore-clipboard", async (_e, payload: { id?: string; text?: string }) => {
+		const id = typeof payload?.id === "string" ? payload.id : "";
+		const directText = typeof payload?.text === "string" ? payload.text.trim() : "";
+		const ctx = contextEngine.getLiveContext();
+		const entry =
+			(id ? ctx.recentClipboards.find((item) => item.id === id) : null) ??
+			(directText
+				? {
+						id: "direct",
+						text: directText,
+						timestamp: Date.now(),
+						appName: null,
+						windowTitle: null,
+						appPath: null,
+					}
+				: null);
+		if (!entry?.text) return { ok: false };
+		const { clipboard } = await import("electron");
+		contextEngine.suppressClipboardCapture(2500);
+		clipboard.writeText(entry.text);
+		return { ok: true };
+	});
+
+	ipcMain.handle(
+		"fold:focus-context",
+		async (_e, target: { kind: "app"; appName: string } | { kind: "url"; url: string }) => {
+			if (target?.kind === "app") return focusApp(target.appName);
+			if (target?.kind === "url") return focusUrl(target.url);
+			return { ok: false };
+		},
+	);
 
 	ipcMain.handle("fold:get-app-icon", (_e, appPath: string, appName?: string) => {
 		const cacheKey = appPath?.endsWith(".app") ? appPath : `name:${appName ?? appPath}`;
 		if (!cacheKey || cacheKey === "name:") return null;
 		const cached = appIconCache.get(cacheKey);
-		if (cached !== undefined) return cached;
+		if (cached) return cached;
 		const dataUrl = getAppIconDataUrl(appPath, appName);
-		appIconCache.set(cacheKey, dataUrl);
+		// ponytail: 只缓存成功结果——图标一旦拿到不会变，但失败可能是瞬时的（sips 临时文件竞争等），
+		// 缓存 null 会让某个 app 的图标在整个进程生命周期内永久丢失，只能重启桌面端才能恢复。
+		if (dataUrl) appIconCache.set(cacheKey, dataUrl);
+		return dataUrl;
+	});
+
+	ipcMain.handle("fold:get-first-app-icon", (_e, appNames: string[]) => {
+		const key = `names:${appNames.join("|")}`;
+		if (!appNames.length) return null;
+		const cached = appIconCache.get(key);
+		if (cached) return cached;
+		const dataUrl = getFirstAppIconDataUrl(appNames);
+		if (dataUrl) appIconCache.set(key, dataUrl);
 		return dataUrl;
 	});
 
 	ipcMain.handle("fold:list-episodes", () => listEpisodesForHome(50));
 
+	ipcMain.handle("fold:list-memory-entities", () => listMemoryEntities());
+	ipcMain.handle("fold:deactivate-memory", (_e, id: string) => {
+		const ok = deactivateMemory(String(id ?? ""));
+		return { ok };
+	});
+	ipcMain.handle("fold:remove-profile-constraint", (_e, text: string) => {
+		const ok = removeProfileConstraint(String(text ?? ""));
+		return { ok };
+	});
+
+	ipcMain.handle("fold:run-memory-consolidation", async () => triggerMemoryConsolidationNow());
+
+	ipcMain.handle("fold:codex-remote-status", () => getCodexRemoteStatus());
+	ipcMain.handle("fold:codex-remote-enable", () => enableCodexRemoteControl());
+	ipcMain.handle("fold:codex-remote-disable", () => disableCodexRemoteControl());
+	ipcMain.handle("fold:codex-remote-pair-start", () => startCodexRemotePairing());
+	ipcMain.handle(
+		"fold:codex-remote-pair-poll",
+		(_e, input: { pairingCode?: string; manualPairingCode?: string }) =>
+			pollCodexRemotePairing(input),
+	);
+	ipcMain.handle("fold:codex-remote-clients", () => listCodexRemoteClients());
+	ipcMain.handle("fold:codex-remote-revoke", (_e, clientId: string) =>
+		revokeCodexRemoteClient(clientId),
+	);
+
 	ipcMain.handle("fold:get-episode", (_e, id: string) => {
 		if (!id) return null;
 		return buildEpisodeDetail(id);
+	});
+
+	ipcMain.handle("fold:profile-import-options", () => listProfileImportOptions());
+	ipcMain.handle("fold:profile-build-prompt", () => buildProfilePrompt());
+	ipcMain.handle("fold:profile-copy-prompt", () => ({ prompt: copyProfilePrompt() }));
+	ipcMain.handle("fold:profile-get", () => getStoredProfile());
+	ipcMain.handle("fold:profile-run-import", (_e, platformId: string, tabUrl?: string) =>
+		executeProfileImport(platformId, tabUrl),
+	);
+	ipcMain.handle("fold:profile-save-response", (_e, responseText: string) => {
+		const result = saveProfileFromResponse(responseText);
+		if (result.ok) markProfileImported();
+		return result;
+	});
+
+	ipcMain.handle("fold:probe-accessibility", () => probeAccessibility(false));
+	ipcMain.handle("fold:onboarding-get-state", () => getOnboardingState());
+	ipcMain.handle("fold:open-onboarding", (_e, opts?: { reset?: boolean }) => {
+		if (opts?.reset) resetOnboardingForTest();
+		openOnboardingWindow();
+		return { ok: true };
+	});
+	ipcMain.handle("fold:onboarding-set-step", (_e, step: string) => {
+		if (typeof step === "string" && step.trim()) {
+			const next = step.trim();
+			onboardingStep = next;
+			setOnboardingStep(next);
+			if (next === "first-reply") {
+				// 真实代回：清掉 demo 伪 App，用前台上下文
+				onboardingVoiceApp = null;
+				onboardingVoiceWindowTitle = null;
+			}
+			try {
+				saveProductEvent({ name: "onboarding_step_enter", props: { step: next } });
+			} catch {
+				/* ignore */
+			}
+		}
+		return getOnboardingState();
+	});
+	ipcMain.handle("fold:onboarding-complete", () => {
+		try {
+			saveProductEvent({ name: "onboarding_step_complete", props: { step: "summary" } });
+		} catch {
+			/* ignore */
+		}
+		finishOnboardingFlow();
+		return { ok: true };
+	});
+	ipcMain.handle("fold:onboarding-skip-profile", () => {
+		markProfileImportSkipped();
+		return getOnboardingState();
+	});
+	ipcMain.handle("fold:onboarding-compare-demo", (_e, opts: { withProfile?: boolean }) =>
+		runOnboardingCompareDemo({ withProfile: Boolean(opts?.withProfile) }),
+	);
+	ipcMain.handle("fold:onboarding-structure-voice", (_e, transcript: string) =>
+		runOnboardingStructureVoice(String(transcript ?? "")),
+	);
+	ipcMain.handle("fold:onboarding-set-voice-app", (_e, app: string, windowTitle?: string) => {
+		onboardingVoiceApp = typeof app === "string" && app.trim() ? app.trim() : null;
+		onboardingVoiceWindowTitle =
+			typeof windowTitle === "string" && windowTitle.trim() ? windowTitle.trim() : null;
+		return { ok: true };
+	});
+	ipcMain.handle("fold:onboarding-aha-guess", async () => {
+		const runId = ++ahaGuessRunId;
+		const win = onboardingWindow;
+		if (!win || win.isDestroyed()) return { ok: false };
+
+		const send = (channel: string, payload: Record<string, unknown>) => {
+			if (runId !== ahaGuessRunId || win.isDestroyed()) return;
+			win.webContents.send(channel, { runId, ...payload });
+		};
+
+		void (async () => {
+			try {
+				const input = getOnboardingAhaInput();
+				const reply = await streamAhaGuess(input, {
+					allowCloud: resolveSmartActionAccess().allowed,
+					onChunk: (chunk: string) => send("fold:aha-guess-chunk", { chunk }),
+					isCancelled: () => runId !== ahaGuessRunId,
+				});
+				if (runId !== ahaGuessRunId) return;
+				send("fold:aha-guess-done", {
+					reply,
+					suggestions: [
+						{
+							label: "回复进度",
+							intent: "回复同事关于预算评审的时间安排",
+							reason: "当前在飞书预算文档",
+							confidence: 0.72,
+						},
+					],
+					confidenceLevel: "medium",
+					confidenceScore: 0.72,
+				});
+			} catch {
+				if (runId !== ahaGuessRunId) return;
+				send("fold:aha-guess-done", {
+					error: "暂时没看清楚，稍后再试。",
+					suggestions: [],
+				});
+			}
+		})();
+
+		return { ok: true, runId };
+	});
+	ipcMain.handle("fold:onboarding-simulate-clipboard", (_e, lines: string[]) => {
+		const texts = Array.isArray(lines) ? lines.filter((t) => typeof t === "string" && t.trim()) : [];
+		if (texts.length < 2) return { ok: false };
+		const now = Date.now();
+		contextEngine.pushEvent({
+			type: "clipboard.changed",
+			source: "clipboard",
+			timestamp: now - 2000,
+			data: { text: texts[0]!.trim(), origin: "user", appName: "Safari" },
+		});
+		contextEngine.pushEvent({
+			type: "clipboard.changed",
+			source: "clipboard",
+			timestamp: now,
+			data: { text: texts[1]!.trim(), origin: "user", appName: "备忘录" },
+		});
+		const ctx = contextEngine.getLiveContext();
+		return {
+			ok: true,
+			previous: ctx.recentClipboards[1] ?? null,
+			current: ctx.recentClipboards[0] ?? null,
+		};
+	});
+
+	ipcMain.handle("fold:predict-pick-intent", async (_e, intent: string) => {
+		if (!intent?.trim()) return { ok: false };
+		emitState({
+			...lastOverlayState,
+			status: "predict",
+			predictDraftsLoading: true,
+			predictSelectedIntent: intent.trim(),
+			predictCursor: getCursorInOverlay(),
+		});
+		const ctx = contextEngine.getLiveContext();
+		const { surface, drafts } = await resolvePredictDraftsForIntent(ctx, intent.trim());
+		emitState({
+			...lastOverlayState,
+			status: "predict",
+			predictPhase: "result",
+			predictSurface: surface,
+			predictSelectedIntent: intent.trim(),
+			predictDrafts: drafts,
+			predictDraftsLoading: false,
+			predictCursor: getCursorInOverlay(),
+		});
+		return { ok: true };
+	});
+
+	ipcMain.handle("fold:predict-insert-draft", async (_e, text: string) => {
+		if (isOnboardingReplyDemoStep()) {
+			sendOnboardingVoiceEvent({ phase: "done", cleaned: text });
+			if (lastReplyTranscript.trim()) {
+				recordVoiceInteraction("reply", lastReplyTranscript, text);
+			}
+			lastReplyTranscript = "";
+			replyWasRefined = false;
+			clearPredictTargetApp();
+			emitIdleState();
+			return { ok: true, pasted: true };
+		}
+		const feedbackMeta = {
+			surface: lastOverlayState.predictSurface ?? null,
+			intent:
+				lastOverlayState.predictSelectedIntent ??
+				lastOverlayState.predictSuggestions?.[0]?.intent ??
+				null,
+			draft: text,
+			anchor: lastOverlayState.predictAnchor ?? null,
+		};
+		const edited = replyWasRefined;
+		const targetApp = getPredictTargetApp() ?? contextEngine.getLiveContext().activeApp;
+		const refreshedTarget = captureTextInsertionTarget();
+		overlayWindow?.setIgnoreMouseEvents(true, { forward: true });
+		contextEngine.suppressClipboardCapture(5000);
+		const result = await insertTextToFrontApp(text, refreshedTarget?.appName ?? targetApp);
+		const replyTranscript = lastReplyTranscript.trim();
+		lastReplyTranscript = "";
+		replyWasRefined = false;
+		clearPredictTargetApp();
+		if (result.pasted) {
+			if (replyTranscript) {
+				recordVoiceInteraction("reply", replyTranscript, text);
+			}
+			// 只有真正贴进输入框才记正反馈，避免插入失败也算 adopt
+			recordPredictCardFeedback({
+				kind: edited ? "edited" : "accept",
+				...feedbackMeta,
+			});
+			lastUndoReceipt = createUndoReceipt(refreshedTarget?.appName ?? targetApp);
+			clearTextInsertionTarget();
+			emitState({
+				status: "done",
+				result: "已插入回复",
+				resultDetail: text,
+				undoAvailable: true,
+				verificationChecks: [{ rule: "text.inserted", passed: result.verified !== false, message: "已写入目标输入框" }],
+			});
+		} else {
+			if (replyTranscript) {
+				recordVoiceInteraction("reply", replyTranscript, result.error ?? "插入失败", "failed");
+			}
+			emitState({ status: "error", error: result.error ?? "插入失败" });
+		}
+		return result;
+	});
+
+	ipcMain.handle(
+		"fold:structure-insert-draft",
+		async (_e, text: string, targetAppName?: string | null) => {
+			const trimmed = String(text ?? "").trim();
+			if (!trimmed) return { ok: false, pasted: false };
+			const targetApp =
+				String(targetAppName ?? "").trim() ||
+				voiceTargetApp ||
+				contextEngine.getLiveContext().activeApp;
+			const refreshedTarget = captureTextInsertionTarget();
+			overlayWindow?.setIgnoreMouseEvents(true, { forward: true });
+			contextEngine.suppressClipboardCapture(5000);
+			const result = await insertTextToFrontApp(
+				trimmed,
+				refreshedTarget?.appName ?? targetApp,
+			);
+			if (result.pasted) {
+				lastUndoReceipt = createUndoReceipt(refreshedTarget?.appName ?? targetApp);
+				voiceTargetApp = null;
+				clearTextInsertionTarget();
+				emitState({
+					status: "done",
+					voiceMode: "structure",
+					result: "已插入文字",
+					resultDetail: trimmed,
+					undoAvailable: true,
+					structureDraftOpen: false,
+					verificationChecks: [{ rule: "text.inserted", passed: result.verified !== false, message: "已写入目标输入框" }],
+				});
+			}
+			return result;
+		},
+	);
+
+	ipcMain.handle("fold:copy-text", (_e, text: string) => {
+		const trimmed = String(text ?? "").trim();
+		if (!trimmed) return { ok: false };
+		clipboard.writeText(trimmed);
+		return { ok: true };
+	});
+
+	ipcMain.handle("fold:predict-start-voice", () => {
+		emitIdleState();
+		toggleVoiceRecording("structure");
+		return { ok: true };
+	});
+
+	ipcMain.handle("fold:predict-refine-voice", () => {
+		if (!isReplyPredictCard()) return { ok: false };
+		startReplyRefineRecording();
+		return { ok: true };
 	});
 
 	ipcMain.handle("fold:connection-action", async (_e, action: string, context?: Record<string, unknown>) => {
@@ -347,6 +1693,14 @@ function registerIpc() {
 		return { ok: true };
 	});
 
+	ipcMain.handle("fold:connect-flow-activate", async (_e, sessionId: string) => {
+		if (typeof sessionId !== "string" || !sessionId) {
+			return { ok: false, opened: false };
+		}
+		const result = activateAgentConnectFlow(sessionId);
+		return { ok: true, opened: result.opened, url: result.url };
+	});
+
 	ipcMain.handle("fold:open-external", async (_e, url: string) => {
 		if (typeof url === "string" && /^https?:\/\//i.test(url)) {
 			await shell.openExternal(url);
@@ -359,8 +1713,46 @@ function registerIpc() {
 		await executeTask(intent);
 	});
 
+	ipcMain.handle("fold:structure-voice", async (
+		_e,
+		transcript: string,
+		opts?: { directStructured?: boolean },
+	) => {
+		isRecording = false;
+		const directStructured =
+			voiceCanUseDirectStructure && opts?.directStructured === true;
+		voiceCanUseDirectStructure = false;
+		await structureVoiceTranscript(transcript, { directStructured });
+	});
+
+	ipcMain.handle("fold:reply-voice", async (_e, transcript: string) => {
+		isRecording = false;
+		await replyVoiceTranscript(transcript);
+	});
+
 	ipcMain.handle("fold:retry-task", async () => {
 		if (lastIntent) await executeTask(lastIntent);
+	});
+
+	ipcMain.handle("fold:undo-last-insert", async () => {
+		if (!canUseUndoReceipt(lastUndoReceipt)) {
+			lastUndoReceipt = null;
+			return { ok: false, error: "撤销时限已过" };
+		}
+		const receipt = lastUndoReceipt;
+		const result = await undoTextInsertion(receipt?.targetApp);
+		if (result.ok) {
+			lastUndoReceipt = null;
+			recordPredictCardFeedback({
+				kind: "undo",
+				surface: lastOverlayState.predictSurface ?? "reply",
+				intent: lastOverlayState.predictSelectedIntent ?? null,
+				draft: lastOverlayState.resultDetail ?? null,
+				anchor: lastOverlayState.predictAnchor ?? null,
+			});
+			emitState({ status: "done", result: "已撤销刚才的输入", undoAvailable: false });
+		}
+		return result;
 	});
 
 	ipcMain.handle("fold:ask-response", async (_e, optionId: string) => {
@@ -390,13 +1782,76 @@ function registerIpc() {
 		overlayWindow?.setIgnoreMouseEvents(ignore, { forward: ignore });
 	});
 
-	ipcMain.handle("fold:dismiss", () => {
+	ipcMain.handle(
+		"fold:get-display-work-area",
+		(_e, overlayPoint?: { x: number; y: number }) => {
+			if (overlayPoint) {
+				const savedArea = getDisplayWorkAreaForOverlayPoint(overlayPoint);
+				if (savedArea) return savedArea;
+				const screenPoint = overlayPointToScreen(overlayPoint, overlayWindow);
+				return getDisplayWorkAreaInOverlay(screenPoint, overlayWindow);
+			}
+			return getPrimaryDisplayWorkAreaInOverlay(overlayWindow);
+		},
+	);
+
+	ipcMain.handle("fold:get-overlay-state", () => lastOverlayState);
+
+	ipcMain.handle(
+		"fold:predict-feedback",
+		(
+			_e,
+			payload: {
+				kind: "dismiss" | "reject" | "accept" | "edited" | "undo" | "ignore";
+				surface?: string | null;
+				intent?: string | null;
+				draft?: string | null;
+				anchor?: string | null;
+			},
+		) => {
+			recordPredictCardFeedback({
+				kind: payload?.kind ?? "dismiss",
+				surface: payload?.surface ?? lastOverlayState.predictSurface ?? null,
+				intent:
+					payload?.intent ??
+					lastOverlayState.predictSelectedIntent ??
+					lastOverlayState.predictSuggestions?.[0]?.intent ??
+					null,
+				draft: payload?.draft ?? null,
+				anchor: payload?.anchor ?? lastOverlayState.predictAnchor ?? null,
+			});
+			return { ok: true };
+		},
+	);
+
+	ipcMain.handle("fold:dismiss", (_e, opts?: { skipFeedback?: boolean }) => {
+		if (!opts?.skipFeedback && lastOverlayState.status === "predict") {
+			const phase = lastOverlayState.predictPhase;
+			const hasDrafts = (lastOverlayState.predictDrafts?.length ?? 0) > 0;
+			// pick / 还没出草案时关掉 = ignore，不参与晋升；出过草案再关才记 dismiss
+			const kind =
+				phase === "pick" || phase === "silent" || !hasDrafts ? "ignore" : "dismiss";
+			recordPredictCardFeedback({
+				kind,
+				surface: lastOverlayState.predictSurface ?? null,
+				intent:
+					lastOverlayState.predictSelectedIntent ??
+					lastOverlayState.predictSuggestions?.[0]?.intent ??
+					null,
+				draft: lastOverlayState.predictDrafts?.[0]?.text ?? null,
+				anchor: lastOverlayState.predictAnchor ?? null,
+			});
+		}
 		isRecording = false;
+		replyWasRefined = false;
 		if (pendingUserAction) {
 			pendingUserAction.reject(new Error("用户取消了授权"));
 			pendingUserAction = null;
 		}
-		emitState({ status: "idle" });
+		clearPredictTargetApp();
+		voiceTargetApp = null;
+		clearTextInsertionTarget();
+		emitIdleState();
 	});
 
 	ipcMain.handle("fold:toggle-voice", () => {
@@ -412,6 +1867,21 @@ function registerIpc() {
 		openSettingsWindow(section);
 	});
 
+	ipcMain.handle("fold:scan-input-habits", () => scanInputHabits());
+	ipcMain.handle("fold:list-installed-input-methods", () => listInstalledInputMethods());
+
+	ipcMain.handle("fold:import-input-habits", () => importInputHabitsOneClick());
+	ipcMain.handle("fold:get-imported-input-habits", () => loadImportedInputHabits());
+	ipcMain.handle("fold:export-input-habits-rime", async () => {
+		const { canceled, filePaths } = await dialog.showOpenDialog({
+			title: "选择搜狗词库备份（偏好设置 → 词库 → 导出）",
+			filters: [{ name: "搜狗词库备份", extensions: ["bin"] }],
+			properties: ["openFile"],
+		});
+		if (canceled || !filePaths[0]) return { canceled: true as const };
+		return exportInputHabitsToRime({ sogouBinPath: filePaths[0] });
+	});
+
 	ipcMain.handle("fold:quit", () => {
 		app.quit();
 	});
@@ -419,47 +1889,285 @@ function registerIpc() {
 
 registerIpc();
 
-function toggleVoiceRecording() {
+async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
+	if (isRecording) return;
+	// Capture synchronously before any async work so the exact focused field is retained.
+	const insertionTarget = captureTextInsertionTarget();
+	await contextEngine.refreshActiveApp();
+	voiceOutcome = outcome;
+	voiceCanUseDirectStructure =
+		outcome === "structure" && resolveAsrRuntime().provider === "dashscope";
+	const ctx = contextEngine.getLiveContext();
+	voiceTargetApp = insertionTarget?.appName ?? ctx.activeApp ?? null;
+	isRecording = true;
+
+	// 代回必须在 raise overlay 之前截聊天窗：松手时 frontmost 常是 Electron，
+	// 全屏回退又会落到主屏上一次微信会话。
+	voiceReplyScreenshotPath = null;
+	if (outcome === "reply") {
+		try {
+			const shot = await captureScreenshot({
+				target: "frontmost",
+			});
+			voiceReplyScreenshotPath = shot.path;
+			console.log(
+				`[fold:reply] precapture screenshot=${shot.path} frontmostApp=${voiceTargetApp ?? "?"}`,
+			);
+		} catch (err) {
+			console.warn("[fold:reply] precapture screenshot failed", err);
+		}
+	}
+
+	createOverlayWindow();
+
+	const isOnboardingVoiceDemo =
+		(outcome === "structure" && isOnboardingVoiceLiveStep()) ||
+		(outcome === "reply" && isOnboardingReplyDemoStep());
+	if (isOnboardingVoiceDemo) {
+		voiceTargetApp = onboardingVoiceApp ?? (outcome === "reply" ? "飞书" : "微信");
+		const voiceTabPlacement = await positionOverlayForAnchoredScreen(
+			overlayWindow,
+			null,
+		);
+		raiseOverlayForVoiceUi();
+		emitState({
+			status: "listening",
+			transcript: "",
+			result: null,
+			resultDetail: null,
+			voiceMode: outcome,
+			voiceTabPlacement,
+			voiceHint: null,
+			predictRefining: false,
+			...clearPredictState(),
+			contextAppName: voiceTargetApp,
+			contextAppPath: null,
+			contextWindowTitle: onboardingVoiceWindowTitle,
+			contextPageUrl: null,
+			contextPageLabel: null,
+		});
+		if (outcome === "structure") sendOnboardingVoiceEvent({ phase: "listening" });
+		overlayWindow?.webContents.send("fold:hotkey-down", {
+			mode: outcome,
+			app: voiceTargetApp,
+			windowTitle: onboardingVoiceWindowTitle,
+		});
+		return;
+	}
+
+	const voiceTabPlacement = await positionOverlayForActiveContext(overlayWindow, voiceTargetApp);
+	raiseOverlayForVoiceUi();
+	emitState({
+		status: "listening",
+		transcript: "",
+		result: null,
+		resultDetail: null,
+		voiceMode: outcome,
+		voiceTabPlacement,
+		voiceHint: null,
+		predictRefining: false,
+		...clearPredictState(),
+		...buildVoiceOverlayContext(ctx),
+	});
+	overlayWindow?.webContents.send("fold:hotkey-down", {
+		mode: outcome,
+		app: ctx.activeApp,
+		windowTitle: ctx.activeWindow,
+	});
+}
+
+function startReplyLatchedRecording() {
+	replyLatched = true;
+	replyRefineHold = false;
+	startVoiceRecording("reply");
+}
+
+function startReplyRefineRecording() {
+	if (isRecording) return;
+	replyLatched = false;
+	replyRefineHold = true;
+	replyWasRefined = true;
+	voiceOutcome = "reply";
+	voiceCanUseDirectStructure = false;
+	isRecording = true;
+	createOverlayWindow();
+	const app = voiceTargetApp ?? contextEngine.getLiveContext().activeApp;
+	void positionOverlayForActiveContext(overlayWindow, app).then((voiceTabPlacement) => {
+		raiseOverlayForVoiceUi();
+		emitState({
+			...lastOverlayState,
+			status: "predict",
+			voiceMode: "reply",
+			predictRefining: true,
+			predictDraftsLoading: false,
+			voiceTabPlacement,
+		});
+	});
+	const ctx = contextEngine.getLiveContext();
+	overlayWindow?.webContents.send("fold:hotkey-down", {
+		mode: "reply",
+		app: voiceTargetApp ?? ctx.activeApp,
+		windowTitle: ctx.activeWindow,
+	});
+}
+
+function stopVoiceRecording() {
+	if (!isRecording) return;
+	isRecording = false;
+	replyLatched = false;
+	replyRefineHold = false;
+	overlayWindow?.webContents.send("fold:hotkey-up", voiceOutcome);
+}
+
+function toggleVoiceRecording(outcome: "structure" | "reply" | "agent" = "structure") {
+	if (isRecording) stopVoiceRecording();
+	else startVoiceRecording(outcome);
+}
+
+function isReplyPredictCard(): boolean {
+	return lastOverlayState.status === "predict" && lastOverlayState.predictSurface === "reply";
+}
+
+function cancelActiveSession() {
+	replyLatched = false;
+	replyRefineHold = false;
+	voiceCanUseDirectStructure = false;
 	if (isRecording) {
 		isRecording = false;
-		overlayWindow?.webContents.send("fold:hotkey-up");
-	} else {
-		isRecording = true;
-		emitState({ status: "listening", transcript: "" });
-		overlayWindow?.webContents.send("fold:hotkey-down");
+		overlayWindow?.webContents.send("fold:hotkey-cancel");
+		emitIdleState();
+		return;
+	}
+	if (lastOverlayState.status === "predict") {
+		emitIdleState();
 	}
 }
 
 function registerHotkeys() {
-	stopHotkey = startToggleHotkey(
-		toggleVoiceRecording,
-		() => {
-			if (!isRecording) return;
-			isRecording = false;
-			overlayWindow?.webContents.send("fold:hotkey-cancel");
-			emitState({ status: "idle" });
+	stopHotkey = startHoldHotkey(
+		{
+		onAgentToggle: () => {
+			if (isOnboardingHotkeyTestStep()) return;
+			toggleVoiceRecording("agent");
 		},
+		onStructureToggle: () => {
+			if (isOnboardingHotkeyTestStep()) return;
+			if (isRecording && voiceOutcome === "reply" && replyLatched) {
+				stopVoiceRecording();
+				return;
+			}
+			if (isRecording && voiceOutcome === "reply") return;
+			toggleVoiceRecording("structure");
+		},
+		onReplyHoldStart: () => {
+			if (isOnboardingHotkeyTestStep()) return;
+			if (isReplyPredictCard() && !isRecording) {
+				startReplyRefineRecording();
+				return;
+			}
+			if (isRecording && voiceOutcome === "structure") {
+				isRecording = false;
+				overlayWindow?.webContents.send("fold:hotkey-cancel");
+			}
+			if (!isRecording) startReplyLatchedRecording();
+		},
+		onReplyHoldEnd: () => {
+			if (isOnboardingHotkeyTestStep()) return;
+			if (isRecording && voiceOutcome === "reply" && replyRefineHold) {
+				stopVoiceRecording();
+			}
+		},
+		onReplyToggle: () => {
+			if (isOnboardingHotkeyTestStep()) return;
+			toggleVoiceRecording("reply");
+		},
+		onCancel: cancelActiveSession,
+		onHotkeyTest: (event) => {
+			if (onboardingWindow && !onboardingWindow.isDestroyed()) {
+				onboardingWindow.webContents.send("fold:onboarding-hotkey-event", event);
+			}
+		},
+		},
+		loadConfig().hotkeys ?? {},
 	);
+}
+
+function maybeShowWeeklyRecap() {
+	if (!shouldShowWeeklyRecap()) return;
+	if (isRecording || lastOverlayState.status === "predict" || lastOverlayState.status === "listening") {
+		return;
+	}
+	const recap = buildWeeklyRecap();
+	markWeeklyRecapShown(recap.weekKey);
+	createOverlayWindow();
+	emitState({
+		status: "done",
+		result: recap.title,
+		resultDetail: recap.body,
+		undoAvailable: false,
+	});
 }
 
 app.whenReady().then(() => {
 	if (process.platform === "darwin") {
-		app.setName("Fold");
+		app.setName(PRODUCT_NAME);
 	}
 	syncDockVisibility();
 
 	contextEngine.start();
+	hydrateContextFromDb();
+	stopHabitRecall = startHabitRecallLoop(() => recallHabitsFromUsage());
+	startMemoryConsolidationLoop();
 	createOverlayWindow();
 	registerHotkeys();
+	void refreshPredictCacheEnriched(contextEngine.getLiveContext());
 
-	createTray({
+	// 启动后错开 onboarding：若本周该看回顾，弹一张完成态卡片
+	setTimeout(() => {
+		try {
+			maybeShowWeeklyRecap();
+		} catch {
+			/* ignore */
+		}
+	}, 12_000);
+
+	const trayApi = createTray({
+		onVoiceStructure: () => toggleVoiceRecording("structure"),
+		onReplyPredict: () => showReplyPredictions(),
+		onVoiceAgent: () => toggleVoiceRecording("agent"),
+		onCancel: cancelActiveSession,
 		onOpenSettings: openSettingsWindow,
 		onQuit: () => app.quit(),
+		getSessionState: () => ({
+			recording: isRecording,
+			predicting: lastOverlayState.status === "predict",
+		}),
+		getHotkeyLabels: () => {
+			const bindings = getActiveHotkeyBindings();
+			return {
+				structure: bindings.trigger.trayShort,
+				reply: bindings.trigger.trayHold,
+				agent: bindings.agent.trayLabel,
+				cancel: bindings.cancel.trayLabel,
+			};
+		},
 	});
+	refreshTrayMenu = trayApi.refreshMenu;
+
+	if (!isOnboardingComplete()) {
+		openOnboardingWindow();
+	} else {
+		setTimeout(() => void ensureAccessibilityPermission(), 1200);
+	}
 });
 
 app.on("will-quit", () => {
+	activeTaskPowerAssertionCount = 0;
+	stopTaskPowerAssertion();
 	stopHotkey?.();
+	stopHabitRecall?.();
+	stopMemoryConsolidationLoop();
+	void shutdownCodexAppServer();
 	contextEngine.stop();
 });
 

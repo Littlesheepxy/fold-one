@@ -1,6 +1,30 @@
-export type HomeSection = "overview" | "profile" | "work" | "tasks" | "connections" | "settings";
+export type HomeSection =
+	| "overview"
+	| "profile"
+	| "work"
+	| "tasks"
+	| "connections"
+	| "account"
+	| "settings";
+export type PlanTier = "free" | "pro" | "ultra";
+export type AsrProvider = "auto" | "local-funasr" | "local-whisper" | "dashscope";
+export type ExecutionMode = "auto" | "local_agent" | "fold_only";
+
+import type { CapabilityItem, CapabilitySnapshot } from "@fold/runtime";
+
+export type { CapabilityItem, CapabilitySnapshot };
 
 export interface FoldConfig {
+	planTier?: PlanTier;
+	executionMode?: ExecutionMode;
+	enabledCapabilities?: string[];
+	preferredExecutor?: "claude-code" | "codex" | "cursor" | "workbuddy" | "auto";
+	skipLocalAgent?: boolean;
+	structureAutoInsert?: boolean;
+	asrProvider?: AsrProvider;
+	localWhisperModelPath?: string;
+	trialSmartActionsRemaining?: number;
+	byokOverrides?: boolean;
 	dashscopeApiKey?: string;
 	openrouterApiKey?: string;
 	openaiApiKey?: string;
@@ -8,9 +32,20 @@ export interface FoldConfig {
 	zhipuOcrModel?: string;
 	plannerProvider?: string;
 	plannerModel?: string;
+	fastProvider?: string;
+	fastModel?: string;
 	mailProvider?: string;
 	nangoSecretKey?: string;
 	hubApiKey?: string;
+	accountUserId?: string;
+	accountEmail?: string;
+	accountName?: string;
+	accountSyncedAt?: number;
+	voiceSecondsRemaining?: number;
+	smartActionsRemaining?: number;
+	voiceSecondsLimit?: number;
+	smartActionsLimit?: number;
+	periodEnd?: string;
 	playwrightMcpExtensionToken?: string;
 	asrWsUrl?: string;
 	chromeCdpUrl?: string;
@@ -20,9 +55,42 @@ export interface FoldConfig {
 	allowUitars?: boolean;
 	allowWorkbuddy?: boolean;
 	workbuddyGatewayUrl?: string;
+	workbuddyMcpToken?: string;
 	uitarsVlmBaseUrl?: string;
 	uitarsVlmApiKey?: string;
 	uitarsVlmModel?: string;
+	onboarding?: {
+		completedAt?: number;
+		step?: string;
+		profileImportedAt?: number;
+		profileImportSkippedAt?: number;
+	};
+	hotkeys?: {
+		trigger?: string;
+		agent?: string;
+		cancel?: string;
+	};
+}
+
+export type HotkeyAction = "trigger" | "agent" | "cancel";
+
+export interface HotkeySettingsSnapshot {
+	bindings: {
+		trigger: { id: string; label: string };
+		agent: { id: string; label: string; keys: string[] };
+		cancel: { id: string; label: string; keys: string[] };
+	};
+	options: {
+		trigger: Array<{ id: string; label: string }>;
+		agent: Array<{ id: string; label: string; keys: string[] }>;
+		cancel: Array<{ id: string; label: string; keys: string[] }>;
+	};
+	status: {
+		trigger: boolean;
+		agent: boolean;
+		cancel: boolean;
+		triggerUsesFallback: boolean;
+	};
 }
 
 export interface HomeEpisode {
@@ -62,6 +130,24 @@ export interface EpisodeDetail {
 		error?: string;
 	}>;
 	validationChecks: Array<{ rule: string; passed: boolean; message?: string }>;
+	agentEvents: Array<{
+		taskId: string;
+		sequence: number;
+		timestamp: number;
+		source: string;
+		status: string;
+		message: string;
+		elapsedMs?: number;
+	}>;
+	artifacts: Array<{ type: string; value: string; label?: string }>;
+	memoryCandidates: Array<{
+		type: string;
+		key: string;
+		value: string;
+		confidence: number;
+		reason?: string;
+		requiresConfirmation: true;
+	}>;
 	contextEvents: Array<{
 		id: string;
 		type: string;
@@ -94,6 +180,31 @@ export interface HomeConfigSummary {
 	allowUitars: boolean;
 }
 
+export interface HomeAhaGuess {
+	reply: string;
+	confidenceLevel?: "high" | "medium" | "low";
+	confidenceScore?: number;
+	suggestions: Array<{
+		label: string;
+		intent: string;
+		reason: string;
+		confidence: number;
+	}>;
+}
+
+export interface HomePredictPreview {
+	anchor: string | null;
+	phase: "silent" | "pick" | "result";
+	activeApp: string | null;
+	activeWindow: string | null;
+	suggestions: Array<{
+		label: string;
+		intent: string;
+		reason: string;
+		confidence: number;
+	}>;
+}
+
 export interface HomeSnapshot {
 	episodes: HomeEpisode[];
 	liveContext: {
@@ -103,7 +214,9 @@ export interface HomeSnapshot {
 		recentFiles: Array<{ path: string; name: string }>;
 	};
 	connections: HomeConnection[];
+	capabilitySnapshot: CapabilitySnapshot;
 	configSummary: HomeConfigSummary;
+	userProfile: UserProfileData | null;
 }
 
 export interface HomeContextEvent {
@@ -117,12 +230,82 @@ export interface HomeContextEvent {
 		filePath?: string;
 		url?: string;
 		text?: string;
+		origin?: "user" | "fold";
 	};
+}
+
+export interface ClipboardHistoryItem {
+	id: string;
+	timestamp: number;
+	text: string;
+	appName: string | null;
+	windowTitle: string | null;
+	appPath: string | null;
 }
 
 export interface LiveContextLite {
 	activeApp: string | null;
 	activeWindow: string | null;
 	activeAppPath: string | null;
+	recentUrls: Array<{ url: string; title: string }>;
+	recentFiles: Array<{ path: string; name: string }>;
+	clipboardPreview: string | null;
+	recentClipboards: ClipboardHistoryItem[];
+	focusDwells?: Array<{
+		app: string;
+		windowTitle?: string;
+		dwellMs: number;
+	}>;
 	events: HomeContextEvent[];
 }
+
+export interface UserProfileData {
+	summary?: string;
+	role?: string;
+	domains?: string[];
+	preferredTools?: string[];
+	workPatterns?: string[];
+	communicationStyle?: string;
+	constraints?: string[];
+	migrationArchive?: string;
+	updatedAt?: number;
+}
+
+export interface PersonMemoryValue {
+	name: string;
+	role?: string;
+	commitment?: string;
+	projectKeys?: string[];
+	episodeIds: string[];
+	lastSeenDate: string;
+	history?: Array<{ date: string; note: string }>;
+}
+
+export interface ProjectMemoryValue {
+	name: string;
+	status?: string;
+	nextStep?: string;
+	personKeys?: string[];
+	filePaths?: string[];
+	episodeIds: string[];
+	lastActiveDate: string;
+	history?: Array<{ date: string; note: string }>;
+}
+
+export type MemoryEntityRecord =
+	| {
+			id: string;
+			type: "entity.person";
+			key: string;
+			value: PersonMemoryValue;
+			confidence: number;
+			updatedAt: number;
+	  }
+	| {
+			id: string;
+			type: "entity.project";
+			key: string;
+			value: ProjectMemoryValue;
+			confidence: number;
+			updatedAt: number;
+	  };

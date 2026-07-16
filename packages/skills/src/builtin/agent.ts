@@ -22,12 +22,14 @@ export async function agentExecute(args: Record<string, unknown>, ctx: SkillCont
 	const result = await executeAgent(
 		{
 			brief,
-			contextSnapshot: formatContextSummary(ctx.liveContext),
+			contextSnapshot: ctx.contextSnapshot?.trim() || formatContextSummary(ctx.liveContext),
 			cwd,
 			agent,
 			maxTurns: typeof args.maxTurns === "number" ? args.maxTurns : 10,
 			timeoutMs: typeof args.timeoutMs === "number" ? args.timeoutMs : 180_000,
 			allowEdits,
+			onEvent: (taskEvent) =>
+				ctx.emit({ type: "progress", message: taskEvent.message, taskEvent }),
 		},
 		failedSteps,
 	);

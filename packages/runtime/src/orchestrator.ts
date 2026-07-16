@@ -5,25 +5,50 @@ import {
 	type ActionPlan,
 } from "@fold/ai";
 import type { LiveContext } from "@fold/context";
-import { formatContextSummary } from "@fold/context";
-import { isAgentSubagentsEnabled } from "@fold/connectors";
+import {
+	isAgentSubagentsEnabled,
+	type LocalTaskArtifact,
+	type LocalTaskEvent,
+	type MemoryCandidate,
+} from "@fold/connectors";
 import { saveEpisode } from "@fold/memory";
-import { buildSkillCatalog } from "@fold/skills";
+import { buildSkillCatalog, labelForStep } from "@fold/skills";
 import { ensureExecutionPrerequisites } from "./auth-gate.js";
 import { formatCapabilityBrief } from "./capability-brief.js";
 import { formatRelevantEpisodes } from "./episode-context.js";
-import { buildResultDetail, formatThinkingText } from "./format-result.js";
+import { formatPlannerMemory } from "./trace-retrieval.js";
+import { buildAgentPlannerContextSummary } from "./context-enrich.js";
+import { buildResultDetail, buildUserVisibleSummary, formatThinkingText } from "./format-result.js";
 import { runPlan } from "./executor.js";
 import { formatProbeSummary, runProbes, type ProbeRunResult } from "./probe-runner.js";
 import { buildReactAgentPlan } from "./repair.js";
 import { getAgentProbe, getCdpConnected, runRecoveryLoop } from "./recovery-runner.js";
 import { resolveTier, tryCompiledPlan } from "./router.js";
-import { labelForSkill } from "./step-labels.js";
 import type { OrchestratorDeps, StateEmitter, TaskResult } from "./types.js";
 import { needsVisualRead } from "./capability-resolver.js";
 import { validatePlan, type ValidationResult } from "./validator.js";
 
 export type { OrchestratorDeps } from "./types.js";
+
+function collectLocalTaskEvidence(steps: Array<{ output?: unknown }>): {
+	agentEvents: LocalTaskEvent[];
+	artifacts: LocalTaskArtifact[];
+	memoryCandidates: MemoryCandidate[];
+} {
+	const agentEvents: LocalTaskEvent[] = [];
+	const artifacts: LocalTaskArtifact[] = [];
+	const memoryCandidates: MemoryCandidate[] = [];
+	for (const step of steps) {
+		if (!step.output || typeof step.output !== "object") continue;
+		const output = step.output as Record<string, unknown>;
+		if (Array.isArray(output.events)) agentEvents.push(...(output.events as LocalTaskEvent[]));
+		if (Array.isArray(output.artifacts)) artifacts.push(...(output.artifacts as LocalTaskArtifact[]));
+		if (Array.isArray(output.memoryCandidates)) {
+			memoryCandidates.push(...(output.memoryCandidates as MemoryCandidate[]));
+		}
+	}
+	return { agentEvents, artifacts, memoryCandidates };
+}
 
 export async function runTask(
 	intent: string,
@@ -37,6 +62,7 @@ export async function runTask(
 	let plan: ActionPlan;
 	let probeSummary = "";
 	let probeResult: ProbeRunResult | undefined;
+	let plannerContextSummary: string | undefined;
 	try {
 		emit({ status: "planning" });
 		probeResult = await runProbes(intent, context);
@@ -45,7 +71,7 @@ export async function runTask(
 		if (route.tier === "react") {
 			if (!isAgentSubagentsEnabled()) {
 				throw new Error(
-					`此任务需要 Tier 2 本地 Agent Subagent（${route.reason}）。请在设置中开启「允许本地 Agent Subagent」。`,
+					`此任务需要 Tier 2 本地 Agent（${route.reason}）。请在设置中开启「允许本地 Agent Subagent」。`,
 				);
 			}
 			const agentProbe = getAgentProbe(probeResult);
@@ -54,6 +80,8 @@ export async function runTask(
 					`此任务需要 Tier 2，但未检测到可用的本地 Agent CLI（claude / codex / agent）。`,
 				);
 			}
+			const built = await buildAgentPlannerContextSummary(context);
+			plannerContextSummary = built.summary;
 			plan = buildReactAgentPlan(
 				intent,
 				agentProbe.preferred ?? "auto",
@@ -62,12 +90,20 @@ export async function runTask(
 		} else if (route.tier === "compiled") {
 			plan = tryCompiledPlan(intent) ?? mockActionPlan(intent);
 		} else if (hasPlannerApiKey()) {
+			const { summary: contextSummary, enriched } = await buildAgentPlannerContextSummary(context);
+			plannerContextSummary = contextSummary;
 			plan = await generateActionPlan({
 				intent,
-				contextSummary: formatContextSummary(context),
+				contextSummary,
 				skillCatalog: buildSkillCatalog(),
 				probeSummary,
-				relevantEpisodes: formatRelevantEpisodes(intent, deps.dataDir),
+				relevantEpisodes: formatPlannerMemory(
+					intent,
+					context,
+					formatRelevantEpisodes(intent, deps.dataDir),
+					deps.dataDir,
+					enriched.screenSnippet || intent,
+				),
 			});
 		} else {
 			plan = mockActionPlan(intent);
@@ -95,7 +131,7 @@ export async function runTask(
 		thinkingText,
 		steps: plan.steps.map((s) => ({
 			id: s.id,
-			label: labelForSkill(s.skill),
+			label: labelForStep(s.skill, { args: s.args }),
 			status: "pending",
 		})),
 	});
@@ -120,6 +156,7 @@ export async function runTask(
 		previousResults: new Map<string, unknown>(),
 		emit: () => {},
 		taskIntent: intent,
+		contextSnapshot: plannerContextSummary,
 	};
 
 	const { steps: initialSteps, failures: initialFailures } = await runPlan(plan, skillCtx, emit);
@@ -127,6 +164,7 @@ export async function runTask(
 	let steps = initialSteps;
 	let validation = initialValidation;
 
+	let abortReason: string | undefined;
 	if (!validation.ok || initialFailures.length > 0) {
 		const recovery = await runRecoveryLoop({
 			intent,
@@ -141,12 +179,15 @@ export async function runTask(
 		});
 		steps = recovery.steps;
 		validation = recovery.validation;
+		const lastAbort = [...recovery.actions].reverse().find((a) => a.type === "abort");
+		abortReason = lastAbort?.type === "abort" ? lastAbort.reason : undefined;
 	}
 
 	validation = softenValidationForVisualAnswer(intent, steps, validation);
 
-	const userVisibleResult = summarizeTaskResult(intent, steps, validation.ok);
+	const userVisibleResult = buildUserVisibleSummary(intent, steps, validation.ok);
 	const resultDetail = buildResultDetail(intent, steps);
+	const localTaskEvidence = collectLocalTaskEvidence(steps);
 
 	const episode = saveEpisode(
 		{
@@ -156,6 +197,7 @@ export async function runTask(
 			steps: steps.map((s) => ({
 				stepId: s.stepId,
 				skill: s.skill,
+				label: labelForStep(s.skill, { output: s.output }),
 				status: s.status,
 				durationMs: s.durationMs,
 				error: s.error,
@@ -167,6 +209,9 @@ export async function runTask(
 			contextEvents: context.events,
 			thinkingText,
 			resultDetail,
+			agentEvents: localTaskEvidence.agentEvents,
+			artifacts: localTaskEvidence.artifacts,
+			memoryCandidates: localTaskEvidence.memoryCandidates,
 		},
 		deps.dataDir,
 	);
@@ -178,24 +223,34 @@ export async function runTask(
 			thinkingText,
 			result: userVisibleResult,
 			resultDetail,
+			verificationChecks: validation.checks,
 			steps: plan.steps.map((s) => ({
 				id: s.id,
-				label: labelForSkill(s.skill),
+				label: labelForStep(s.skill, {
+					args: s.args,
+					output: steps.find((r) => r.stepId === s.id)?.output,
+				}),
 				status: steps.find((r) => r.stepId === s.id)?.status === "success" ? "done" : "failed",
 			})),
 		});
 		return { status: "success", intent, plan, steps, episodeId: episode.id };
 	}
 
+	const failedCheckMessage =
+		validation.checks.find((c) => !c.passed)?.message ?? "Validation failed";
 	emit({
 		status: "error",
-		error: validation.checks.find((c) => !c.passed)?.message ?? "Validation failed",
+		error: abortReason ? `${abortReason} · ${failedCheckMessage}` : failedCheckMessage,
 		result: userVisibleResult,
 		resultDetail,
+		verificationChecks: validation.checks,
 		thinkingText,
 		steps: plan.steps.map((s) => ({
 			id: s.id,
-			label: labelForSkill(s.skill),
+			label: labelForStep(s.skill, {
+				args: s.args,
+				output: steps.find((r) => r.stepId === s.id)?.output,
+			}),
 			status: steps.find((r) => r.stepId === s.id)?.status === "success" ? "done" : "failed",
 		})),
 	});
@@ -263,79 +318,4 @@ function softenValidationForVisualAnswer(
 		ok: true,
 		checks: [...validation.checks, { rule: "visual.answer", passed: true }],
 	};
-}
-
-function summarizeTaskResult(
-	intent: string,
-	steps: Array<{ skill: string; status: string; output?: unknown; error?: string }>,
-	validationOk = true,
-) {
-	const mailAuthFail = steps.find(
-		(s) =>
-			s.skill.startsWith("mail.") &&
-			s.status === "failed" &&
-			/未登录|auth add|not logged in/i.test(s.error ?? ""),
-	);
-	if (mailAuthFail?.error) return mailAuthFail.error;
-
-	const agentStep = steps.find((s) => s.skill === "agent.execute" && s.status === "success");
-	const agentOutput = agentStep?.output as { summary?: string; agentId?: string } | undefined;
-	const browserPage = steps.find((s) => s.skill === "browser.currentPage" && s.status === "success");
-	const browserOutput = browserPage?.output as { url?: string; title?: string } | undefined;
-	if (agentStep && agentOutput?.summary) {
-		const summary = agentOutput.summary.trim();
-		if (agentStep.status === "success" && !/no stdin data received|proceeding without it/i.test(summary)) {
-			const prefix = agentOutput.agentId ? `${agentOutput.agentId}: ` : "";
-			return `${prefix}${summary}`;
-		}
-	}
-	if (browserOutput?.url) {
-		return browserOutput.title
-			? `当前页面：${browserOutput.title}（${browserOutput.url}）`
-			: `当前页面：${browserOutput.url}`;
-	}
-	const mailStep = steps.find((s) => s.skill === "mail.draft");
-	const unreadStep = steps.find((s) => s.skill === "mail.countUnread" && s.status === "success");
-	const pdfStep = steps.find((s) => s.skill === "pdf.extract");
-	const shellStep = steps.find(
-		(s) =>
-			s.skill === "os.shell" &&
-			s.status === "success" &&
-			(s.output as { exitCode?: number } | undefined)?.exitCode === 0,
-	);
-	const pythonStep = steps.find(
-		(s) =>
-			s.skill === "os.python" &&
-			s.status === "success" &&
-			(s.output as { exitCode?: number } | undefined)?.exitCode === 0,
-	);
-	const screenshotStep = steps.find((s) => s.skill === "os.screenshot" && s.status === "success");
-	const fields = pdfStep?.output as Record<string, unknown> | undefined;
-	const fieldCount = fields ? Object.keys(fields).filter((k) => fields[k]).length : 0;
-	const unreadOutput = unreadStep?.output as { count?: number } | undefined;
-	const shellOutput = shellStep?.output as { stdout?: string } | undefined;
-	const screenshotOutput = screenshotStep?.output as { text?: string; path?: string } | undefined;
-	const stdout = shellOutput?.stdout?.trim();
-	const lineCount = stdout ? stdout.split(/\r?\n/).filter(Boolean).length : 0;
-	const wantsCount = /(多少|几个|count)/i.test(intent);
-
-	if (mailStep) {
-		return fieldCount > 0 ? `已创建邮件草稿，提取了 ${fieldCount} 个字段` : "已创建邮件草稿";
-	}
-	if (unreadStep) return `当前有 ${unreadOutput?.count ?? 0} 封待处理邮件`;
-	if (screenshotStep) {
-		const text = screenshotOutput?.text?.trim();
-		if (text) return text.split(/\r?\n/).slice(0, 3).join(" ").slice(0, 200);
-		return `已截取屏幕${screenshotOutput?.path ? `：${screenshotOutput.path}` : ""}`;
-	}
-	if (shellStep) {
-		if (wantsCount) return `已找到 ${lineCount} 条结果`;
-		if (stdout) return lineCount > 1 ? `已找到 ${lineCount} 条结果` : `结果：${stdout.slice(0, 120)}`;
-		return "命令执行完成";
-	}
-	const pythonStdout = (pythonStep?.output as { stdout?: string } | undefined)?.stdout?.trim();
-	if (pythonStdout) {
-		return pythonStdout.split(/\r?\n/).slice(0, 3).join(" ").slice(0, 200);
-	}
-	return validationOk ? `已完成：${intent}` : `部分完成：${intent}`;
 }

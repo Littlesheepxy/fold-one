@@ -3,20 +3,23 @@
   "private": true,
   "description": "Fold Runtime — Local Context Agent for macOS",
   "scripts": {
-    "dev": "dotenv -c -- turbo dev --concurrency 12",
+    "postinstall": "node apps/desktop/scripts/prepare-whisper-addon.mjs",
+    "dev": "dotenv -c -- turbo dev --concurrency 12 --filter=!@fold/site",
     "build": "turbo build",
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
+    "site:dev": "pnpm --filter @fold/site dev",
+    "site:build": "pnpm --filter @fold/site build",
     "asr:dev": "dotenv -c -- pnpm --filter @fold/asr-proxy dev",
     "desktop:dev": "dotenv -c -- pnpm --filter @fold/desktop rebuild:native && dotenv -c -- pnpm --parallel --filter @fold/asr-proxy --filter @fold/desktop dev",
-    "e2e:smoke": "dotenv -c -- pnpm rebuild better-sqlite3 && dotenv -c -- bash scripts/e2e-smoke.sh"
+    "e2e:smoke": "dotenv -c -- node scripts/rebuild-better-sqlite3-node.mjs && dotenv -c -- bash scripts/e2e-smoke.sh"
   },
   "engines": {
     "node": ">=20"
   },
   "packageManager": "pnpm@10.14.0",
   "pnpm": {
-    "onlyBuiltDependencies": ["better-sqlite3", "electron", "esbuild", "uiohook-napi", "@computer-use/nut-js"]
+    "onlyBuiltDependencies": ["@fold/macos-input", "better-sqlite3", "electron", "esbuild", "uiohook-napi", "@computer-use/nut-js"]
   },
   "devDependencies": {
     "@types/node": "^24.3.0",

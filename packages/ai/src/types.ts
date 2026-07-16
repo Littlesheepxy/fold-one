@@ -4,9 +4,10 @@ export type Provider =
 	| "dashscope"
 	| "deepseek"
 	| "moonshot"
+	| "zhipu"
 	| "openrouter";
 
-export type ModelRole = "planner" | "repair" | "validator";
+export type ModelRole = "planner" | "repair" | "validator" | "fast" | "fastVision";
 
 export interface ModelChoice {
 	provider: Provider;
@@ -45,25 +46,14 @@ export const PROVIDER_TABLE: Record<Provider, ProviderEnvConfig> = {
 		apiKeyEnv: "MOONSHOT_API_KEY",
 		displayName: "Moonshot",
 	},
+	zhipu: {
+		baseURL: "https://open.bigmodel.cn/api/paas/v4",
+		apiKeyEnv: "ZHIPU_API_KEY",
+		displayName: "Zhipu",
+	},
 	openrouter: {
 		baseURL: "https://openrouter.ai/api/v1",
 		apiKeyEnv: "OPENROUTER_API_KEY",
 		displayName: "OpenRouter",
 	},
 };
-
-export function resolveModelChoice(role: ModelRole): ModelChoice {
-	if (role === "planner") {
-		const provider = (process.env.FOLD_PLANNER_PROVIDER ?? "openai") as Provider;
-		const model = process.env.FOLD_PLANNER_MODEL ?? "gpt-4o-mini";
-		return { provider, model };
-	}
-	if (role === "repair") {
-		const provider = (process.env.FOLD_REPAIR_PROVIDER ?? process.env.FOLD_PLANNER_PROVIDER ?? "openai") as Provider;
-		const model = process.env.FOLD_REPAIR_MODEL ?? process.env.FOLD_PLANNER_MODEL ?? "gpt-4o-mini";
-		return { provider, model };
-	}
-	const provider = (process.env.FOLD_PLANNER_PROVIDER ?? "openai") as Provider;
-	const model = process.env.FOLD_PLANNER_MODEL ?? "gpt-4o-mini";
-	return { provider, model };
-}

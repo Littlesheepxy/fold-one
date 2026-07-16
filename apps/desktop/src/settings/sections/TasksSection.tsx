@@ -5,13 +5,20 @@ import {
 	ChevronDown,
 	Circle,
 	Clipboard,
+	Clock3,
 	FileText,
 	Globe,
+	MessageCircleReply,
+	Mic2,
+	Bot,
+	Brain,
+	Paperclip,
 	XCircle,
 } from "lucide-react";
 import { AppIconImg } from "../components/AppIcon.js";
 import { Card, formatTime } from "../components/FormFields.js";
 import { SkillIcon } from "../components/SkillIcon.js";
+import { estimateHomeMetrics, formatSavedDuration } from "../lib/home-metrics.js";
 import type { EpisodeDetail, EpisodeSummary } from "../types.js";
 
 function formatClock(ts: number) {
@@ -130,9 +137,12 @@ function EpisodeDetailView({
 								{statusBadge(detail.status).label}
 							</span>
 						</div>
-						<div className="mt-3.5 border-t border-black/5 pt-3.5">
-							<p className="text-[13px] leading-relaxed text-[#1d1d1f]">{detail.summary || "—"}</p>
-						</div>
+						{detail.summary && (
+							<div className="fold-tasks-result-box mt-3.5">
+								<span className="fold-tasks-result-label">结果</span>
+								<p className="fold-episode-summary">{detail.summary}</p>
+							</div>
+						)}
 					</Card>
 
 					<Card title="执行步骤">
@@ -161,8 +171,60 @@ function EpisodeDetailView({
 						)}
 					</Card>
 
-					{detail.resultDetail && (
-						<Collapse title="结果详情" defaultOpen>
+					{detail.agentEvents.length > 0 && (
+						<Collapse title={`Agent 进展（${detail.agentEvents.length}）`} defaultOpen>
+							<ul className="max-h-64 space-y-2.5 overflow-y-auto pr-1">
+								{detail.agentEvents.map((event) => (
+									<li key={`${event.taskId}-${event.sequence}`} className="flex items-start gap-2.5">
+										<Bot className="mt-0.5 h-4 w-4 shrink-0 text-[#5856d6]" strokeWidth={1.75} />
+										<div className="min-w-0 flex-1">
+											<p className="text-[13px] text-[#1d1d1f]">{event.message}</p>
+											<p className="mt-0.5 text-[11px] text-[#86868b]">
+												{event.source} · {event.status}
+												{typeof event.elapsedMs === "number" ? ` · ${formatDuration(event.elapsedMs)}` : ""}
+											</p>
+										</div>
+									</li>
+								))}
+							</ul>
+						</Collapse>
+					)}
+
+					{detail.artifacts.length > 0 && (
+						<Collapse title={`交付物（${detail.artifacts.length}）`}>
+							<ul className="space-y-2.5">
+								{detail.artifacts.map((artifact, index) => (
+									<li key={`${artifact.type}-${artifact.value}-${index}`} className="flex items-start gap-2.5">
+										<Paperclip className="mt-0.5 h-4 w-4 shrink-0 text-[#86868b]" strokeWidth={1.75} />
+										<div className="min-w-0">
+											<p className="text-[13px] text-[#1d1d1f]">{artifact.label ?? artifact.type}</p>
+											<p className="break-all text-[11px] text-[#86868b]">{artifact.value}</p>
+										</div>
+									</li>
+								))}
+							</ul>
+						</Collapse>
+					)}
+
+					{detail.memoryCandidates.length > 0 && (
+						<Collapse title={`记忆建议（${detail.memoryCandidates.length}，待确认）`}>
+							<ul className="space-y-3">
+								{detail.memoryCandidates.map((candidate, index) => (
+									<li key={`${candidate.key}-${index}`} className="flex items-start gap-2.5">
+										<Brain className="mt-0.5 h-4 w-4 shrink-0 text-[#af52de]" strokeWidth={1.75} />
+										<div className="min-w-0">
+											<p className="text-[13px] font-medium text-[#1d1d1f]">{candidate.key}</p>
+											<p className="mt-0.5 text-[12px] text-[#3a3a3c]">{candidate.value}</p>
+											{candidate.reason && <p className="mt-0.5 text-[11px] text-[#86868b]">{candidate.reason}</p>}
+										</div>
+									</li>
+								))}
+							</ul>
+						</Collapse>
+					)}
+
+					{detail.resultDetail && detail.resultDetail !== detail.summary && (
+						<Collapse title="结果详情">
 							<pre className="fold-episode-pre">{detail.resultDetail}</pre>
 						</Collapse>
 					)}
@@ -254,7 +316,7 @@ function TaskEpisodeCard({ ep, onClick }: { ep: EpisodeSummary; onClick: () => v
 			{ep.summary && (
 				<div className="fold-tasks-result-box">
 					<span className="fold-tasks-result-label">结果</span>
-					<p className="line-clamp-3">{ep.summary}</p>
+					<p className="fold-tasks-result-text">{ep.summary}</p>
 				</div>
 			)}
 
@@ -364,9 +426,41 @@ export function TasksSection({
 	return (
 		<div className="fold-tasks-page">
 			<div className="fold-tasks-page-head">
-				<h2 className="text-[15px] font-semibold tracking-[-0.01em] text-[#1d1d1f]">任务记录</h2>
+				<h2 className="text-[15px] font-semibold tracking-[-0.01em] text-[#1d1d1f]">活动</h2>
 				<span className="text-[11px] text-[#aeaeb2]">{episodes.length} 条</span>
 			</div>
+
+			{episodes.length > 0 ? (
+				<section className="fold-tasks-stats" aria-label="本周统计">
+					{(() => {
+						const metrics = estimateHomeMetrics(episodes);
+						return (
+							<>
+								<div className="fold-tasks-stat">
+									<Mic2 size={16} strokeWidth={1.8} />
+									<span>字数</span>
+									<strong>{metrics.characters.toLocaleString("zh-CN")}</strong>
+								</div>
+								<div className="fold-tasks-stat">
+									<MessageCircleReply size={16} strokeWidth={1.8} />
+									<span>回复</span>
+									<strong>{metrics.replies}</strong>
+								</div>
+								<div className="fold-tasks-stat">
+									<CheckCircle2 size={16} strokeWidth={1.8} />
+									<span>行动</span>
+									<strong>{metrics.actions}</strong>
+								</div>
+								<div className="fold-tasks-stat is-highlight">
+									<Clock3 size={16} strokeWidth={1.8} />
+									<span>节省</span>
+									<strong>{formatSavedDuration(metrics.savedMinutes)}</strong>
+								</div>
+							</>
+						);
+					})()}
+				</section>
+			) : null}
 
 			{loadingList ? (
 				<p className="text-[13px] text-[#86868b]">加载中…</p>
@@ -378,7 +472,7 @@ export function TasksSection({
 				</div>
 			) : (
 				<Card>
-					<p className="text-[13px] text-[#86868b]">还没有执行记录。按 ⌥ Space 开始第一个任务。</p>
+					<p className="text-[13px] text-[#86868b]">还没有执行记录。按 ⌥Space 开始第一个任务。</p>
 				</Card>
 			)}
 		</div>

@@ -1,0 +1,507 @@
+@import "../styles.css";
+
+html,
+body,
+#root {
+	width: 100%;
+	min-width: 320px;
+	height: auto;
+	min-height: 100%;
+	overflow-x: hidden;
+	overflow-y: auto;
+	background: #ffffff;
+}
+
+body.zhigeng-landing-page {
+	margin: 0;
+	color: #202124;
+	background:
+		radial-gradient(circle at 16% 8%, rgb(103 92 241 / 0.12), transparent 28rem),
+		radial-gradient(circle at 78% 18%, rgb(30 138 255 / 0.1), transparent 26rem),
+		linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+	font-family:
+		Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+		"PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+.zg-page {
+	position: relative;
+	min-height: 100vh;
+	padding: 28px clamp(20px, 5vw, 72px) 72px;
+}
+
+.zg-nav {
+	display: grid;
+	grid-template-columns: 1fr auto 1fr;
+	align-items: center;
+	width: min(100%, 1180px);
+	margin: 0 auto;
+	gap: 24px;
+}
+
+.zg-brand {
+	display: inline-flex;
+	align-items: center;
+	gap: 12px;
+	justify-self: start;
+	color: #161719;
+	font-size: 28px;
+	font-weight: 760;
+	text-decoration: none;
+}
+
+.zg-brand span {
+	font-family: "ZhigengWordmark", "PingFang SC", sans-serif;
+	font-weight: 600;
+}
+
+.zg-nav-links {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: clamp(22px, 4vw, 42px);
+	font-size: 16px;
+	font-weight: 650;
+}
+
+.zg-nav-links a,
+.zg-secondary {
+	color: #303134;
+	text-decoration: none;
+}
+
+.zg-nav-cta,
+.zg-primary {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	min-height: 52px;
+	padding: 0 24px;
+	border-radius: 999px;
+	color: #ffffff;
+	background: #19171a;
+	box-shadow: 0 14px 28px rgb(25 23 26 / 0.16);
+	font-weight: 720;
+	text-decoration: none;
+	white-space: nowrap;
+}
+
+.zg-nav-cta {
+	justify-self: end;
+}
+
+.zg-hero {
+	width: min(100%, 1180px);
+	margin: 118px auto 0;
+}
+
+.zg-hero-copy {
+	max-width: 820px;
+	margin: 0 auto;
+	text-align: center;
+}
+
+.zg-kicker {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 22px;
+	padding: 9px 14px;
+	border: 1px solid rgb(103 92 241 / 0.16);
+	border-radius: 999px;
+	color: #4d46c8;
+	background: rgb(255 255 255 / 0.74);
+	box-shadow: 0 10px 30px rgb(80 89 110 / 0.08);
+	font-size: 14px;
+	font-weight: 680;
+}
+
+.zg-hero h1 {
+	margin: 0;
+	color: #111315;
+	font-size: clamp(54px, 8.5vw, 104px);
+	font-weight: 760;
+	line-height: 1.02;
+	letter-spacing: 0;
+	text-wrap: balance;
+}
+
+.zg-hero-copy p {
+	max-width: 690px;
+	margin: 26px auto 0;
+	color: #5f6368;
+	font-size: clamp(18px, 2vw, 23px);
+	line-height: 1.72;
+}
+
+.zg-actions {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 16px;
+	margin-top: 34px;
+}
+
+.zg-secondary {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 52px;
+	padding: 0 22px;
+	border: 1px solid #dfe3eb;
+	border-radius: 999px;
+	background: rgb(255 255 255 / 0.82);
+	font-weight: 700;
+}
+
+.zg-demo {
+	position: relative;
+	margin-top: 126px;
+	border-radius: 22px;
+	overflow: hidden;
+	background:
+		linear-gradient(110deg, rgb(255 255 255 / 0.88), rgb(245 250 255 / 0.74)),
+		url("/brand/fold-home-mist-bg.webp") center / cover;
+	box-shadow:
+		0 34px 90px rgb(66 75 93 / 0.14),
+		inset 0 0 0 1px rgb(108 128 180 / 0.15);
+}
+
+.zg-demo::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background:
+		linear-gradient(90deg, rgb(103 92 241 / 0.08), transparent 42%),
+		radial-gradient(circle at 68% 36%, rgb(255 126 78 / 0.2), transparent 20rem);
+	pointer-events: none;
+}
+
+.zg-demo-topline,
+.zg-workspace {
+	position: relative;
+	z-index: 1;
+}
+
+.zg-demo-topline {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 12px;
+	padding: 14px;
+}
+
+.zg-demo-topline > div {
+	min-height: 112px;
+	padding: 22px 26px;
+	border-radius: 8px;
+	background: rgb(255 255 255 / 0.78);
+	box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.64);
+}
+
+.zg-demo-label {
+	display: block;
+	margin-bottom: 10px;
+	color: #303134;
+	font-size: 15px;
+	font-weight: 760;
+}
+
+.zg-demo-topline strong {
+	color: #111315;
+	font-size: clamp(48px, 6vw, 74px);
+	line-height: 0.95;
+}
+
+.zg-demo-topline small {
+	margin-left: 8px;
+	color: #7a808a;
+	font-size: 20px;
+	font-weight: 680;
+}
+
+.zg-demo-better {
+	outline: 4px solid rgb(103 92 241 / 0.12);
+}
+
+.zg-workspace {
+	display: grid;
+	grid-template-columns: 180px minmax(0, 1fr);
+	gap: 28px;
+	align-items: center;
+	padding: 64px clamp(24px, 6vw, 84px) 74px;
+}
+
+.zg-context-stack {
+	display: grid;
+	gap: 10px;
+}
+
+.zg-context-stack span {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	height: 42px;
+	border-radius: 999px;
+	color: #3c4043;
+	background: rgb(255 255 255 / 0.7);
+	box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.65);
+	font-size: 14px;
+	font-weight: 700;
+}
+
+.zg-compose {
+	padding: clamp(22px, 4vw, 34px);
+	border-radius: 8px;
+	background: rgb(255 255 255 / 0.82);
+	box-shadow:
+		0 28px 70px rgb(69 78 100 / 0.14),
+		inset 0 0 0 1px rgb(255 255 255 / 0.74);
+	backdrop-filter: blur(22px);
+}
+
+.zg-compose-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 18px;
+	margin-bottom: 22px;
+}
+
+.zg-compose-header span {
+	display: block;
+	color: #6c727f;
+	font-size: 14px;
+	font-weight: 680;
+}
+
+.zg-compose-header strong {
+	display: block;
+	margin-top: 5px;
+	color: #202124;
+	font-size: 20px;
+}
+
+.zg-ready {
+	display: inline-flex !important;
+	align-items: center;
+	gap: 6px;
+	padding: 7px 10px;
+	border-radius: 999px;
+	color: #286f45 !important;
+	background: #e8f5ee;
+	white-space: nowrap;
+}
+
+.zg-compose p {
+	margin: 0;
+	color: #202124;
+	font-size: clamp(23px, 3vw, 34px);
+	line-height: 1.55;
+}
+
+.zg-voice-pill {
+	position: absolute;
+	left: 50%;
+	bottom: 26px;
+	display: inline-flex;
+	align-items: center;
+	gap: 14px;
+	min-height: 58px;
+	padding: 0 22px;
+	border-radius: 999px;
+	color: #ffffff;
+	background: #19171a;
+	box-shadow:
+		0 18px 42px rgb(25 23 26 / 0.24),
+		inset 0 0 0 1px rgb(255 255 255 / 0.12);
+	transform: translateX(-50%);
+}
+
+.zg-bars {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	height: 34px;
+}
+
+.zg-bars span {
+	width: 5px;
+	max-height: 34px;
+	border-radius: 999px;
+	background: #ffffff;
+}
+
+.zg-scenarios {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 18px;
+	width: min(100%, 1180px);
+	margin: 42px auto 0;
+}
+
+.zg-scenarios article {
+	padding: 28px;
+	border: 1px solid #e5e8ef;
+	border-radius: 8px;
+	background: rgb(255 255 255 / 0.78);
+	box-shadow: 0 18px 48px rgb(66 75 93 / 0.08);
+}
+
+.zg-scenarios span {
+	color: #675cf1;
+	font-weight: 780;
+}
+
+.zg-scenarios h2 {
+	margin: 18px 0 12px;
+	color: #202124;
+	font-size: 22px;
+	line-height: 1.28;
+}
+
+.zg-scenarios p {
+	margin: 0;
+	color: #626873;
+	font-size: 16px;
+	line-height: 1.7;
+}
+
+.zg-pricing {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(280px, 520px) auto;
+	align-items: center;
+	gap: 28px;
+	width: min(100%, 1180px);
+	margin: 18px auto 0;
+	padding: 30px;
+	border: 1px solid #e5e8ef;
+	border-radius: 8px;
+	background: #ffffff;
+	box-shadow: 0 18px 48px rgb(66 75 93 / 0.08);
+}
+
+.zg-pricing span {
+	color: #675cf1;
+	font-size: 14px;
+	font-weight: 780;
+}
+
+.zg-pricing h2 {
+	margin: 8px 0 0;
+	color: #202124;
+	font-size: clamp(26px, 3vw, 38px);
+	line-height: 1.18;
+	letter-spacing: 0;
+}
+
+.zg-pricing p {
+	margin: 0;
+	color: #626873;
+	font-size: 16px;
+	line-height: 1.7;
+}
+
+@media (max-width: 880px) {
+	.zg-page {
+		padding: 20px 16px 48px;
+	}
+
+	.zg-nav {
+		grid-template-columns: 1fr auto;
+	}
+
+	.zg-nav-links {
+		display: none;
+	}
+
+	.zg-brand {
+		font-size: 24px;
+	}
+
+	.zg-nav-cta {
+		min-height: 44px;
+		padding: 0 17px;
+	}
+
+	.zg-hero {
+		margin-top: 72px;
+	}
+
+	.zg-actions {
+		flex-direction: column;
+		align-items: stretch;
+		width: min(100%, 320px);
+		margin-right: auto;
+		margin-left: auto;
+	}
+
+	.zg-demo {
+		margin-top: 72px;
+		border-radius: 16px;
+	}
+
+	.zg-demo-topline,
+	.zg-workspace,
+	.zg-scenarios,
+	.zg-pricing {
+		grid-template-columns: 1fr;
+	}
+
+	.zg-workspace {
+		padding: 28px 16px 88px;
+	}
+
+	.zg-context-stack {
+		grid-template-columns: repeat(5, minmax(0, 1fr));
+		gap: 6px;
+	}
+
+	.zg-context-stack span {
+		height: 34px;
+		font-size: 12px;
+	}
+
+	.zg-compose-header {
+		display: block;
+	}
+
+	.zg-ready {
+		margin-top: 14px;
+	}
+}
+
+@media (max-width: 520px) {
+	.zg-kicker {
+		font-size: 13px;
+	}
+
+	.zg-hero h1 {
+		font-size: 46px;
+	}
+
+	.zg-hero-copy {
+		text-align: left;
+	}
+
+	.zg-actions {
+		margin-left: 0;
+	}
+
+	.zg-demo-topline > div {
+		min-height: 94px;
+		padding: 18px;
+	}
+
+	.zg-demo-topline strong {
+		font-size: 48px;
+	}
+
+	.zg-compose p {
+		font-size: 21px;
+	}
+
+	.zg-pricing {
+		padding: 24px;
+	}
+}

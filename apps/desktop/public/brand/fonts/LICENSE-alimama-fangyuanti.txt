@@ -1,0 +1,9 @@
+zhigeng-wordmark.woff2 是从「阿里妈妈方圆体 VF」(Alimama FangYuanTi VF) 字体
+子集化而来，仅保留「知」「更」两个字形，用于产品 logo 文字展示。
+
+原字体版权：(c) 2023 阿里巴巴（中国）有限公司，版权所有
+设计：Alibaba Design（刘闯、洪良芬、韩晓明、陈杨健、龚炜、易思、李牧）
+授权：免费商用（个人及企业均可，包含嵌入式使用），详见
+https://www.yuque.com/alimama_ai-fontlab/help/font-license
+
+字重/字形轴：wght=600 (SemiBold)，BEVL=100 (Round) —— 圆润端点版本。

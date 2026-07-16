@@ -1,7 +1,8 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
+import { spawn } from "node:child_process";
+import { constants } from "node:fs";
+import { access } from "node:fs/promises";
+import { homedir } from "node:os";
+import { delimiter, join } from "node:path";
 
 export interface ShellResult {
 	stdout: string;
@@ -10,10 +11,66 @@ export interface ShellResult {
 	signal?: NodeJS.Signals | null;
 }
 
-function toText(value: unknown): string {
-	if (Buffer.isBuffer(value)) return value.toString("utf8");
-	if (typeof value === "string") return value;
-	return "";
+/**
+ * GUI apps on macOS often start with a minimal PATH, even when Homebrew or
+ * user-level CLIs are available in Terminal. Resolve common CLI locations
+ * without invoking a shell so connector probes and executions behave the same
+ * in the packaged app and in development.
+ */
+function executableSearchDirs(): string[] {
+	const home = homedir();
+	return [...new Set([
+		...(process.env.PATH ?? "").split(delimiter),
+		"/opt/homebrew/bin",
+		"/opt/homebrew/sbin",
+		"/usr/local/bin",
+		"/usr/local/sbin",
+		"/usr/bin",
+		"/bin",
+		"/usr/sbin",
+		"/sbin",
+		join(home, ".local", "bin"),
+		join(home, ".npm-global", "bin"),
+		join(home, "bin"),
+	].filter(Boolean))];
+}
+
+async function resolveExecutable(command: string, searchDirs: string[]): Promise<string> {
+	if (command.includes("/")) return command;
+
+	// The Codex desktop app ships a complete, authenticated CLI. Prefer it over
+	// a stale or partially removed global wrapper so desktop users do not need a
+	// second installation just to let Fold call Codex.
+	if (command === "codex" && process.platform === "darwin") {
+		const home = homedir();
+		const bundledCandidates = [
+			process.env.FOLD_CODEX_BINARY?.trim(),
+			"/Applications/ChatGPT.app/Contents/Resources/codex",
+			"/Applications/Codex.app/Contents/Resources/codex",
+			join(home, "Applications", "ChatGPT.app", "Contents", "Resources", "codex"),
+			join(home, "Applications", "Codex.app", "Contents", "Resources", "codex"),
+		].filter((candidate): candidate is string => Boolean(candidate));
+		for (const candidate of bundledCandidates) {
+			try {
+				await access(candidate, constants.X_OK);
+				return candidate;
+			} catch {
+				// Try the next supported desktop app location.
+			}
+		}
+	}
+
+	for (const dir of searchDirs) {
+		const candidate = join(dir, command);
+		try {
+			await access(candidate, constants.X_OK);
+			return candidate;
+		} catch {
+			// Try the next known executable directory.
+		}
+	}
+
+	return command;
 }
 
 export async function runShellDetailed(
@@ -21,31 +78,47 @@ export async function runShellDetailed(
 	args: string[],
 	timeoutMs = 10000,
 	cwd?: string,
-	options?: { closeStdin?: boolean },
+	_options?: { closeStdin?: boolean },
 ): Promise<ShellResult> {
-	try {
-		const { stdout, stderr } = await execFileAsync(command, args, {
-			timeout: timeoutMs,
-			maxBuffer: 10 * 1024 * 1024,
+	const searchDirs = executableSearchDirs();
+	const executable = await resolveExecutable(command, searchDirs);
+	return new Promise((resolve) => {
+		let stdout = "";
+		let stderr = "";
+		let settled = false;
+		const finish = (result: ShellResult) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			resolve(result);
+		};
+		const child = spawn(executable, args, {
 			cwd,
-			...(options?.closeStdin ? { stdio: ["ignore", "pipe", "pipe"] as const } : {}),
+			env: { ...process.env, PATH: searchDirs.join(delimiter) },
+			// GUI apps may not have a valid inherited stdin descriptor.
+			stdio: ["ignore", "pipe", "pipe"],
 		});
-		return { stdout, stderr, exitCode: 0 };
-	} catch (error) {
-		const e = error as {
-			stdout?: string | Buffer;
-			stderr?: string | Buffer;
-			code?: number | string;
-			signal?: NodeJS.Signals | null;
+		const timer = setTimeout(() => {
+			child.kill("SIGTERM");
+			finish({ stdout, stderr: stderr || `Command timed out: ${command}`, exitCode: 124 });
+		}, timeoutMs);
+		const append = (current: string, chunk: Buffer): string => {
+			const next = current + chunk.toString("utf8");
+			return next.length > 10 * 1024 * 1024 ? next.slice(0, 10 * 1024 * 1024) : next;
 		};
-		const exitCode = typeof e.code === "number" ? e.code : 124;
-		return {
-			stdout: toText(e.stdout),
-			stderr: toText(e.stderr),
-			exitCode,
-			signal: e.signal,
-		};
-	}
+		child.stdout?.on("data", (chunk: Buffer) => {
+			stdout = append(stdout, chunk);
+		});
+		child.stderr?.on("data", (chunk: Buffer) => {
+			stderr = append(stderr, chunk);
+		});
+		child.once("error", (error: NodeJS.ErrnoException) => {
+			finish({ stdout, stderr: stderr || error.message, exitCode: 124 });
+		});
+		child.once("close", (code, signal) => {
+			finish({ stdout, stderr, exitCode: code ?? 124, signal });
+		});
+	});
 }
 
 export async function runShell(command: string, args: string[], timeoutMs = 10000): Promise<string> {

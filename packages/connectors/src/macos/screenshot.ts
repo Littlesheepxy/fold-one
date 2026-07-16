@@ -3,12 +3,13 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { runAppleScript, runShellDetailed } from "../shell.js";
 
-export type ScreenshotTarget = "screen" | "frontmost";
+export type ScreenshotTarget = "screen" | "frontmost" | "app";
 
 export interface ScreenshotResult {
 	path: string;
 	target: ScreenshotTarget;
 	bytes: number;
+	windowId?: number | null;
 }
 
 export interface ScreenCaptureProbe {
@@ -20,6 +21,32 @@ function screenshotDir(): string {
 	return join(homedir(), ".fold", "screenshots");
 }
 
+function escapeAppleScript(s: string): string {
+	return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+/** Common process name aliases for Chinese chat apps. */
+function appNameCandidates(appName: string): string[] {
+	const raw = appName.trim();
+	if (!raw) return [];
+	const lower = raw.toLowerCase();
+	const out = new Set<string>([raw]);
+	if (/微信|wechat|weixin/i.test(raw) || lower === "wechat") {
+		out.add("WeChat");
+		out.add("微信");
+	}
+	if (/飞书|feishu|lark/i.test(raw) || lower === "feishu" || lower === "lark") {
+		out.add("Feishu");
+		out.add("Lark");
+		out.add("飞书");
+	}
+	if (/钉钉|dingtalk/i.test(raw)) {
+		out.add("DingTalk");
+		out.add("钉钉");
+	}
+	return [...out];
+}
+
 async function getFrontmostWindowId(): Promise<number | null> {
 	try {
 		const out = await runAppleScript(
@@ -29,33 +56,65 @@ async function getFrontmostWindowId(): Promise<number | null> {
 		if (!Number.isFinite(id)) return null;
 		return id;
 	} catch {
-		// -1728 / permission errors: frontmost process has no accessible window
+		return null;
+	}
+}
+
+async function getAppWindowId(appName: string): Promise<number | null> {
+	const names = appNameCandidates(appName);
+	if (!names.length) return null;
+	const list = names.map((n) => `"${escapeAppleScript(n)}"`).join(", ");
+	try {
+		const out = await runAppleScript(`
+tell application "System Events"
+  set wanted to {${list}}
+  repeat with p in (every application process whose visible is true)
+    set pn to name of p as text
+    if pn is in wanted then
+      try
+        return id of window 1 of p
+      end try
+    end if
+  end repeat
+end tell
+return ""
+`);
+		const id = Number.parseInt(out.trim(), 10);
+		if (!Number.isFinite(id)) return null;
+		return id;
+	} catch {
 		return null;
 	}
 }
 
 export async function captureScreenshot(
-	options: { target?: ScreenshotTarget; outPath?: string } = {},
+	options: {
+		target?: ScreenshotTarget;
+		appName?: string | null;
+		outPath?: string;
+	} = {},
 ): Promise<ScreenshotResult> {
 	if (process.platform !== "darwin") {
 		throw new Error("os.screenshot 仅支持 macOS");
 	}
 
-	const target = options.target ?? "frontmost";
+	const target = options.target ?? (options.appName ? "app" : "frontmost");
 	const dir = screenshotDir();
 	await mkdir(dir, { recursive: true });
 	const path = options.outPath ?? join(dir, `fold-${Date.now()}.png`);
 
 	const args = ["-x", path];
-	if (target === "frontmost") {
-		const winId = await getFrontmostWindowId();
-		if (winId !== null) {
-			args.unshift(`-l${winId}`);
-		}
-		// winId === null: frontmost process has no accessible window (error
-		// -1728). Fall through to a full-screen capture so the call still
-		// succeeds instead of passing an invalid "-lnull" flag.
+	let windowId: number | null = null;
+	if (target === "app" && options.appName?.trim()) {
+		windowId = await getAppWindowId(options.appName);
+	} else if (target === "frontmost") {
+		windowId = await getFrontmostWindowId();
 	}
+	if (windowId !== null) {
+		args.unshift(`-l${windowId}`);
+	}
+	// windowId === null: fall through to full primary-display capture.
+	// Callers that need a specific app should prefer early capture while that app is frontmost.
 
 	const result = await runShellDetailed("screencapture", args, 15_000);
 	if (result.exitCode !== 0) {
@@ -69,7 +128,7 @@ export async function captureScreenshot(
 		);
 	}
 
-	return { path, target, bytes: fileStat.size };
+	return { path, target, bytes: fileStat.size, windowId };
 }
 
 /** Probe screen-recording permission with a tiny throwaway capture. */

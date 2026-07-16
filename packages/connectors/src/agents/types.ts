@@ -1,6 +1,7 @@
 export type AgentId = "claude-code" | "codex" | "cursor";
 
 export interface AgentTask {
+	taskId?: string;
 	brief: string;
 	contextSnapshot?: string;
 	cwd?: string;
@@ -8,6 +9,7 @@ export interface AgentTask {
 	maxTurns?: number;
 	timeoutMs?: number;
 	allowEdits?: boolean;
+	onEvent?: import("../task-events.js").LocalTaskEventCallback;
 }
 
 import type { SubagentHandoff } from "./handoff.js";
@@ -21,6 +23,9 @@ export interface AgentResult {
 	exitCode: number;
 	stderr?: string;
 	raw?: unknown;
+	events: import("../task-events.js").LocalTaskEvent[];
+	artifacts: import("../task-events.js").LocalTaskArtifact[];
+	memoryCandidates: import("../task-events.js").MemoryCandidate[];
 	/** Compacted payload for Fold orchestrator; not the subagent's full transcript. */
 	handoff?: SubagentHandoff;
 }

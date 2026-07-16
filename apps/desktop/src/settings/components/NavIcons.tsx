@@ -5,6 +5,7 @@ import {
 	Link2,
 	ListChecks,
 	Settings,
+	CircleUserRound,
 	UserRound,
 	type LucideIcon,
 } from "lucide-react";
@@ -16,6 +17,7 @@ const NAV_ICONS: Record<HomeSection, LucideIcon> = {
 	tasks: ListChecks,
 	connections: Link2,
 	settings: Settings,
+	account: CircleUserRound,
 };
 
 export function NavIcon({ section, className }: { section: HomeSection; className?: string }) {

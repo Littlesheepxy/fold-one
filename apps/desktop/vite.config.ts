@@ -19,8 +19,10 @@ const foldAliases = {
 
 const electronExternals = (id: string) =>
 	id === "electron" ||
+	id === "@fold/macos-input" ||
 	id === "better-sqlite3" ||
 	id === "uiohook-napi" ||
+	id === "@kutalia/whisper-node-addon" ||
 	id === "fsevents" ||
 	id === "uuid" ||
 	id.startsWith("playwright") ||
@@ -42,11 +44,12 @@ export default defineConfig({
 			},
 		},
 	},
-	build: {
+		build: {
 		rollupOptions: {
 			input: {
 				main: "index.html",
 				settings: "settings.html",
+				onboarding: "onboarding.html",
 			},
 		},
 	},
@@ -57,8 +60,8 @@ export default defineConfig({
 			main: {
 				entry: "electron/main.ts",
 				onstart({ startup }) {
-					// Only boot Electron once — rebuilding main must not kill in-flight tasks.
-					if (!(process as NodeJS.Process & { electronApp?: unknown }).electronApp) startup();
+					// Main 重建时重启 Electron，否则 preload 已暴露新 IPC 但主进程仍是旧代码。
+					void startup();
 				},
 				vite: {
 					resolve: { alias: foldAliases },
