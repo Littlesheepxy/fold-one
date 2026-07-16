@@ -740,7 +740,7 @@ export function OverlayApp() {
 								exit={{ opacity: 0, x: -4 }}
 								transition={{ duration: 0.16, delay: 0.06 }}
 							>
-								{status === "idle" && (
+								{status === "idle" && !isVoiceStandby && (
 									<>
 										<div className="min-w-0 flex-1">
 											<p className="text-sm font-medium whitespace-nowrap">{PRODUCT_NAME} 准备好了</p>
