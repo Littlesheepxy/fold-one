@@ -17,6 +17,7 @@ interface Props {
 	drafts?: PredictDraftLine[];
 	loading?: boolean;
 	draftsLoading?: boolean;
+	memoryRefs?: string[];
 	selectedIntent?: string | null;
 	onPickIntent: (intent: string) => void;
 	onInsertDraft: (text: string) => void;
@@ -54,6 +55,7 @@ export function PredictConfirmCard({
 	drafts,
 	loading,
 	draftsLoading,
+	memoryRefs,
 	selectedIntent,
 	onPickIntent,
 	onInsertDraft,
@@ -200,6 +202,11 @@ export function PredictConfirmCard({
 			)}
 
 			<div className="fold-predict-card-foot fold-predict-card-foot--hint">
+				{memoryRefs?.length ? (
+					<p className="fold-predict-card-memory-refs" title={memoryRefs.join(" · ")}>
+						参考了：{memoryRefs.join(" · ")}
+					</p>
+				) : null}
 				{isReply ? (
 					<p className="fold-predict-card-hint">
 						<strong>点草案</strong>插入；继续<strong>按住右 ⌘</strong>说出修改要求

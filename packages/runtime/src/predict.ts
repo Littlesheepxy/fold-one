@@ -47,6 +47,8 @@ export interface PredictResult {
 	anchor: string | null;
 	suggestions: PredictSuggestion[];
 	drafts?: PredictDraftLine[];
+	/** 本次注入的记忆短标签，供确认卡展示「参考了」 */
+	memoryRefs?: string[];
 	topConfidence: number;
 	computedAt: number;
 }

@@ -43,7 +43,10 @@ export { hasPlannerApiKey, hasFastVisionApiKey } from "@fold/ai";
 export { inferPredictSurface, surfaceActionLabel, type PredictSurface } from "./predict-surface.js";
 export { predictContextSnippet } from "./predict-fallback.js";
 export {
+	buildAgentPlannerContextSummary,
 	enrichContext,
+	formatEnrichedPlannerSummary,
+	runAgentPlannerContextSelfCheck,
 	type ContextEnrichScope,
 	type EnrichedContext,
 } from "./context-enrich.js";
@@ -86,6 +89,14 @@ export {
 	type PredictFeedbackInput,
 	type PredictFeedbackKind,
 } from "./feedback-recall.js";
+export {
+	buildWeeklyRecap,
+	currentWeekKey,
+	markWeeklyRecapShown,
+	runWeeklyRecapSelfCheck,
+	shouldShowWeeklyRecap,
+	type WeeklyRecap,
+} from "./weekly-recap.js";
 export {
 	buildResultDetail,
 	buildUserVisibleSummary,

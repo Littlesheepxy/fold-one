@@ -130,13 +130,23 @@ export interface RawContextEventInput {
 }
 
 let db: Database.Database | null = null;
+let dbDir: string | null = null;
 
 export function getDb(dataDir?: string): Database.Database {
-	if (db) return db;
 	const dir = (dataDir ?? process.env.FOLD_DATA_DIR ?? join(homedir(), ".fold")).replace(
 		/^~/,
 		homedir(),
 	);
+	if (db && dbDir === dir) return db;
+	if (db) {
+		try {
+			db.close();
+		} catch {
+			/* ignore */
+		}
+		db = null;
+	}
+	dbDir = dir;
 	if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 	const path = join(dir, "fold.db");
 	db = new Database(path);

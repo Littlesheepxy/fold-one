@@ -36,7 +36,7 @@ export function SummaryStep({ onFinish }: { onFinish: () => void }) {
 			left={
 				<>
 					<h1 className="fold-onboarding-title">你的知更，准备好了</h1>
-					<p className="fold-onboarding-sub">三个快捷键，让知更随时帮你输入、代回和执行任务。</p>
+					<p className="fold-onboarding-sub">三个快捷键，随时输入、代回和执行。画像与离线语音包可在设置里稍后配置。</p>
 					<div className="fold-onboarding-shortcut-grid">
 						<button
 							type="button"

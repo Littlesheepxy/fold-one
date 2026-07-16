@@ -22,7 +22,7 @@ export async function agentExecute(args: Record<string, unknown>, ctx: SkillCont
 	const result = await executeAgent(
 		{
 			brief,
-			contextSnapshot: formatContextSummary(ctx.liveContext),
+			contextSnapshot: ctx.contextSnapshot?.trim() || formatContextSummary(ctx.liveContext),
 			cwd,
 			agent,
 			maxTurns: typeof args.maxTurns === "number" ? args.maxTurns : 10,

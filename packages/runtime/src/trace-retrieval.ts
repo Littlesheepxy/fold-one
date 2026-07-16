@@ -92,9 +92,11 @@ export function formatPlannerMemory(
 	ctx: LiveContext,
 	intentEpisodes: string,
 	dataDir?: string,
+	/** 优先用屏幕文本匹配人/项目；缺省回退 intent */
+	matchText?: string,
 ): string {
 	const traces = formatTracesForPlanner(retrieveSimilarTraces(ctx, dataDir, 3));
-	const entities = formatEntityBrief(dataDir, { matchText: intent });
+	const entities = formatEntityBrief(dataDir, { matchText: matchText?.trim() || intent });
 	const blocks = [intentEpisodes, traces, entities].filter((b) => b.trim());
 	return blocks.join("\n\n");
 }

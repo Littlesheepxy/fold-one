@@ -1,11 +1,11 @@
 import { generateRecoveryPlan, hasPlannerApiKey, type ActionPlan } from "@fold/ai";
 import type { AgentId, SubagentHandoff } from "@fold/connectors";
 import type { LiveContext } from "@fold/context";
-import { formatContextSummary } from "@fold/context";
 import { isAgentSubagentsEnabled } from "@fold/connectors";
 import type { ValidationResult } from "./validator.js";
 import { runPlan, retryFailedSteps, type StepFailure } from "./executor.js";
 import { formatProbeSummary, type ProbeRunResult } from "./probe-runner.js";
+import { buildAgentPlannerContextSummary } from "./context-enrich.js";
 import {
 	buildRecoveryPlan,
 	DEFAULT_REPAIR_BUDGET,
@@ -138,9 +138,10 @@ async function tryLlmReplan(
 	try {
 		input.emit({ status: "planning" });
 		const manifests = listSkillManifests().filter((m) => m.validators);
+		const { summary: contextSummary } = await buildAgentPlannerContextSummary(input.context);
 		const plan = await generateRecoveryPlan({
 			intent: input.intent,
-			contextSummary: formatContextSummary(input.context),
+			contextSummary,
 			skillCatalog: buildSkillCatalog(),
 			probeSummary: formatProbeSummary(input.probeResult),
 			failedPlanJson: JSON.stringify(input.plan),

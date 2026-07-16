@@ -16,6 +16,8 @@ import {
 import { extractEntityTokens } from "./entity-extract.js";
 import { predictContextSnippet } from "./predict-fallback.js";
 import type { PredictEnrichment } from "./predict.js";
+import { buildProfileBrief } from "./profile-brief.js";
+import { loadProfileMemories } from "@fold/memory";
 
 export type ContextEnrichScope = "reply" | "aha" | "predict" | "agent";
 
@@ -84,7 +86,7 @@ export async function enrichContext(
 			? listChromeTabsViaAppleScript().catch(() => [])
 			: Promise.resolve([]),
 		readAccessibility(),
-		// 日历是「未来」信号：代回/预测/Aha/Agent 都按需拉一次（失败则空）
+		// 日历默认关：需 FOLD_CALENDAR_ENABLED=1（listUpcoming 内部门控）
 		listUpcomingCalendarEvents({ withinHours: 12, limit: 5 }).catch(() => []),
 	]);
 
@@ -121,3 +123,49 @@ export async function enrichContext(
 		confidence,
 	};
 }
+
+/**
+ * Agent Planner / 重规划用的 L2 上下文摘要。
+ * 把 AX 屏幕片段、日历、置信度拼进原 contextSummary 槽位（不改 planner 签名）。
+ */
+export function formatEnrichedPlannerSummary(enriched: EnrichedContext): string {
+	const parts: string[] = [enriched.brief];
+	const snip = enriched.screenSnippet.trim();
+	if (snip) {
+		parts.push(`Screen / AX:\n${snip.slice(0, 2000)}`);
+	}
+	try {
+		const profile = buildProfileBrief(loadProfileMemories() ?? {});
+		if (profile.trim()) parts.push(profile.trim());
+	} catch {
+		/* profile optional */
+	}
+	parts.push(
+		`Context confidence: ${enriched.confidence.level} (${Math.round(enriched.confidence.score * 100)}%)`,
+	);
+	return parts.join("\n\n");
+}
+
+export async function buildAgentPlannerContextSummary(
+	ctx: LiveContext,
+	options?: EnrichContextOptions,
+): Promise<{ summary: string; enriched: EnrichedContext }> {
+	const enriched = await enrichContext(ctx, "agent", options);
+	return { summary: formatEnrichedPlannerSummary(enriched), enriched };
+}
+
+/** ponytail: 摘要必含 confidence 行 */
+export function runAgentPlannerContextSelfCheck(): void {
+	const summary = formatEnrichedPlannerSummary({
+		enrichment: {},
+		summary: "Active: WeChat",
+		brief: "Active app: WeChat\n\n接下来日程：例会",
+		screenSnippet: "Jason: 周五能发吗",
+		confidence: { level: "medium", score: 0.62, reasons: [] },
+	});
+	console.assert(summary.includes("WeChat"), "brief in summary");
+	console.assert(summary.includes("Jason"), "screen snippet");
+	console.assert(summary.includes("Context confidence: medium"), "confidence line");
+	console.assert(summary.includes("62%"), "confidence pct");
+}
+

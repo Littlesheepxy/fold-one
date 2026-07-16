@@ -96,6 +96,8 @@ interface FoldApi {
 	getFirstAppIcon(appNames: string[]): Promise<string | null>;
 	listEpisodes(): Promise<EpisodeSummary[]>;
 	listMemoryEntities(): Promise<MemoryEntityRecord[]>;
+	deactivateMemory(id: string): Promise<{ ok: boolean }>;
+	removeProfileConstraint(text: string): Promise<{ ok: boolean }>;
 	runMemoryConsolidation(): Promise<{ ok: boolean; dates: string[] }>;
 	codexRemoteStatus(): Promise<{
 		status: "disabled" | "connecting" | "connected" | "errored" | "unknown";
@@ -140,7 +142,7 @@ interface FoldApi {
 	predictPickIntent(intent: string): Promise<{ ok: boolean }>;
 	predictInsertDraft(text: string): Promise<{ ok: boolean; pasted: boolean; error?: string }>;
 	predictFeedback(payload: {
-		kind: "dismiss" | "reject" | "accept";
+		kind: "dismiss" | "reject" | "accept" | "edited" | "undo" | "ignore";
 		surface?: string | null;
 		intent?: string | null;
 		draft?: string | null;

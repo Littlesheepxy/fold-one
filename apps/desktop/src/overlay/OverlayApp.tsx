@@ -310,6 +310,7 @@ export function OverlayApp() {
 		predictAnchor,
 		predictSuggestions,
 		predictDrafts,
+		predictMemoryRefs,
 		predictSelectedIntent,
 		predictDraftsLoading,
 		predictCursor,
@@ -1009,6 +1010,7 @@ export function OverlayApp() {
 					refining={predictRefining}
 					suggestions={predictSuggestions ?? []}
 					drafts={predictDrafts}
+					memoryRefs={predictMemoryRefs}
 					loading={Boolean(predictAnchor?.includes("正在"))}
 					draftsLoading={predictDraftsLoading}
 					selectedIntent={predictSelectedIntent}

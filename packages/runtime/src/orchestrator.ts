@@ -5,7 +5,6 @@ import {
 	type ActionPlan,
 } from "@fold/ai";
 import type { LiveContext } from "@fold/context";
-import { formatContextSummary } from "@fold/context";
 import {
 	isAgentSubagentsEnabled,
 	type LocalTaskArtifact,
@@ -18,6 +17,7 @@ import { ensureExecutionPrerequisites } from "./auth-gate.js";
 import { formatCapabilityBrief } from "./capability-brief.js";
 import { formatRelevantEpisodes } from "./episode-context.js";
 import { formatPlannerMemory } from "./trace-retrieval.js";
+import { buildAgentPlannerContextSummary } from "./context-enrich.js";
 import { buildResultDetail, buildUserVisibleSummary, formatThinkingText } from "./format-result.js";
 import { runPlan } from "./executor.js";
 import { formatProbeSummary, runProbes, type ProbeRunResult } from "./probe-runner.js";
@@ -62,6 +62,7 @@ export async function runTask(
 	let plan: ActionPlan;
 	let probeSummary = "";
 	let probeResult: ProbeRunResult | undefined;
+	let plannerContextSummary: string | undefined;
 	try {
 		emit({ status: "planning" });
 		probeResult = await runProbes(intent, context);
@@ -79,6 +80,8 @@ export async function runTask(
 					`此任务需要 Tier 2，但未检测到可用的本地 Agent CLI（claude / codex / agent）。`,
 				);
 			}
+			const built = await buildAgentPlannerContextSummary(context);
+			plannerContextSummary = built.summary;
 			plan = buildReactAgentPlan(
 				intent,
 				agentProbe.preferred ?? "auto",
@@ -87,9 +90,11 @@ export async function runTask(
 		} else if (route.tier === "compiled") {
 			plan = tryCompiledPlan(intent) ?? mockActionPlan(intent);
 		} else if (hasPlannerApiKey()) {
+			const { summary: contextSummary, enriched } = await buildAgentPlannerContextSummary(context);
+			plannerContextSummary = contextSummary;
 			plan = await generateActionPlan({
 				intent,
-				contextSummary: formatContextSummary(context),
+				contextSummary,
 				skillCatalog: buildSkillCatalog(),
 				probeSummary,
 				relevantEpisodes: formatPlannerMemory(
@@ -97,6 +102,7 @@ export async function runTask(
 					context,
 					formatRelevantEpisodes(intent, deps.dataDir),
 					deps.dataDir,
+					enriched.screenSnippet || intent,
 				),
 			});
 		} else {
@@ -150,6 +156,7 @@ export async function runTask(
 		previousResults: new Map<string, unknown>(),
 		emit: () => {},
 		taskIntent: intent,
+		contextSnapshot: plannerContextSummary,
 	};
 
 	const { steps: initialSteps, failures: initialFailures } = await runPlan(plan, skillCtx, emit);

@@ -12,6 +12,7 @@ export {
 } from "./accessibility.js";
 export {
 	formatCalendarBrief,
+	isCalendarFeatureEnabled,
 	listUpcomingCalendarEvents,
 	probeCalendarAccess,
 	runCalendarBriefSelfCheck,

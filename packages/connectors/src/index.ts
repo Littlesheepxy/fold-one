@@ -168,6 +168,7 @@ export {
 export {
 	captureScreenshot,
 	formatCalendarBrief,
+	isCalendarFeatureEnabled,
 	listUpcomingCalendarEvents,
 	probeCalendarAccess,
 	probeScreenCapture,
