@@ -55,12 +55,19 @@ async function ensureCalendarBinary(): Promise<string> {
 
 /**
  * 列出未来若干小时内的日程（EventKit CLI）。
+ * 需显式开启：FOLD_CALENDAR_ENABLED=1（打包路径未稳前默认关闭，避免静默空结果假装有日历上下文）。
  * 首次会弹系统日历授权；拒绝或失败时返回空数组。
  */
+export function isCalendarFeatureEnabled(): boolean {
+	return process.env.FOLD_CALENDAR_ENABLED === "1";
+}
+
 export async function listUpcomingCalendarEvents(opts?: {
 	withinHours?: number;
 	limit?: number;
 }): Promise<CalendarEventBrief[]> {
+	if (!isCalendarFeatureEnabled()) return [];
+
 	const withinHours = Math.max(1, Math.min(opts?.withinHours ?? 12, 48));
 	const limit = Math.max(1, Math.min(opts?.limit ?? 5, 10));
 
@@ -140,6 +147,7 @@ function formatWhen(startAt: number, now: number): string {
 
 /** ponytail: 最小自检，不依赖系统日历授权 */
 export function runCalendarBriefSelfCheck(): void {
+	console.assert(typeof isCalendarFeatureEnabled() === "boolean", "calendar flag");
 	const now = Date.parse("2026-07-15T10:00:00");
 	const brief = formatCalendarBrief(
 		[

@@ -3,13 +3,16 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ContextEngine, isClipboardRecallIntent, resolveClipboardRecall, type ContextEvent } from "@fold/context";
 import { captureScreenshot, createNangoConnectLink, openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal, openOfficeSetupInTerminal, openWorkBuddyApp, activateAgentConnectFlow, cancelConnectFlow, pollConnectFlow, resolveConnectTarget, startConnectFlow } from "@fold/connectors";
-import { saveContextEvent, listContextEvents, saveVoiceInteraction, listMemoryEntities } from "@fold/memory";
+import { saveContextEvent, listContextEvents, saveVoiceInteraction, listMemoryEntities, saveProductEvent } from "@fold/memory";
 import {
 	hasPlannerApiKey,
+	buildWeeklyRecap,
+	markWeeklyRecapShown,
 	recallHabitsFromUsage,
 	resolveEntitlements,
 	runTask,
 	shouldCleanSpeechLocally,
+	shouldShowWeeklyRecap,
 	startHabitRecallLoop,
 	structureSpeechText,
 	streamAhaGuess,
@@ -216,6 +219,8 @@ let voiceTargetApp: string | null = null;
 let voiceReplyScreenshotPath: string | null = null;
 let lastIntent = "";
 let lastReplyTranscript = "";
+/** 代回卡片上做过语音 refine 后再插入 → 记 edited 而非 accept */
+let replyWasRefined = false;
 let stopHotkey: (() => void) | null = null;
 let refreshTrayMenu: (() => void) | null = null;
 let stopHabitRecall: (() => void) | null = null;
@@ -250,6 +255,7 @@ function recordVoiceInteraction(
 	kind: "structure" | "reply" | "agent",
 	transcript: string,
 	outcome?: string,
+	status: "success" | "failed" = "success",
 ) {
 	const ctx = contextEngine.getLiveContext();
 	try {
@@ -257,11 +263,12 @@ function recordVoiceInteraction(
 			kind,
 			transcript,
 			outcome,
+			status,
 			appName: ctx.activeApp,
 			windowTitle: ctx.activeWindow,
 			contextEvents: snapshotContextEvents(),
 		});
-		recallHabitsFromUsage();
+		if (status === "success") recallHabitsFromUsage();
 	} catch {
 		// Habit learning should never block voice flows.
 	}
@@ -289,6 +296,14 @@ function emitState(state: FoldStateEvent) {
 		webContents.send("fold:state", state);
 	} catch {
 		// Overlay reload/HMR can dispose the render frame mid-task.
+	}
+	// 引导窗也要听状态：first-reply 步靠「已插入回复」解锁继续
+	if (onboardingWindow && !onboardingWindow.isDestroyed()) {
+		try {
+			onboardingWindow.webContents.send("fold:state", state);
+		} catch {
+			/* ignore */
+		}
 	}
 }
 
@@ -923,6 +938,7 @@ async function structureVoiceTranscript(
 		}
 	} catch (err) {
 		emitState({ status: "error", error: (err as Error).message, transcript: text });
+		recordVoiceInteraction("structure", text, (err as Error).message, "failed");
 	} finally {
 		if (
 			loadConfig().structureAutoInsert !== false &&
@@ -1005,6 +1021,7 @@ async function replyVoiceTranscript(transcript: string) {
 			contextWindowTitle: sceneTitle,
 		});
 	} catch (err) {
+		recordVoiceInteraction("reply", text, (err as Error).message, "failed");
 		emitState({
 			status: "error",
 			error: (err as Error).message,
@@ -1403,12 +1420,28 @@ function registerIpc() {
 	});
 	ipcMain.handle("fold:onboarding-set-step", (_e, step: string) => {
 		if (typeof step === "string" && step.trim()) {
-			onboardingStep = step.trim();
-			setOnboardingStep(step.trim());
+			const next = step.trim();
+			onboardingStep = next;
+			setOnboardingStep(next);
+			if (next === "first-reply") {
+				// 真实代回：清掉 demo 伪 App，用前台上下文
+				onboardingVoiceApp = null;
+				onboardingVoiceWindowTitle = null;
+			}
+			try {
+				saveProductEvent({ name: "onboarding_step_enter", props: { step: next } });
+			} catch {
+				/* ignore */
+			}
 		}
 		return getOnboardingState();
 	});
 	ipcMain.handle("fold:onboarding-complete", () => {
+		try {
+			saveProductEvent({ name: "onboarding_step_complete", props: { step: "summary" } });
+		} catch {
+			/* ignore */
+		}
 		finishOnboardingFlow();
 		return { ok: true };
 	});
@@ -1526,28 +1559,39 @@ function registerIpc() {
 				recordVoiceInteraction("reply", lastReplyTranscript, text);
 			}
 			lastReplyTranscript = "";
+			replyWasRefined = false;
 			clearPredictTargetApp();
 			emitIdleState();
 			return { ok: true, pasted: true };
 		}
-		recordPredictCardFeedback({
-			kind: "accept",
+		const feedbackMeta = {
 			surface: lastOverlayState.predictSurface ?? null,
-			intent: lastOverlayState.predictSelectedIntent ?? lastOverlayState.predictSuggestions?.[0]?.intent ?? null,
+			intent:
+				lastOverlayState.predictSelectedIntent ??
+				lastOverlayState.predictSuggestions?.[0]?.intent ??
+				null,
 			draft: text,
 			anchor: lastOverlayState.predictAnchor ?? null,
-		});
+		};
+		const edited = replyWasRefined;
 		const targetApp = getPredictTargetApp() ?? contextEngine.getLiveContext().activeApp;
 		const refreshedTarget = captureTextInsertionTarget();
 		overlayWindow?.setIgnoreMouseEvents(true, { forward: true });
 		contextEngine.suppressClipboardCapture(5000);
 		const result = await insertTextToFrontApp(text, refreshedTarget?.appName ?? targetApp);
-		if (lastReplyTranscript.trim()) {
-			recordVoiceInteraction("reply", lastReplyTranscript, text);
-		}
+		const replyTranscript = lastReplyTranscript.trim();
 		lastReplyTranscript = "";
+		replyWasRefined = false;
 		clearPredictTargetApp();
 		if (result.pasted) {
+			if (replyTranscript) {
+				recordVoiceInteraction("reply", replyTranscript, text);
+			}
+			// 只有真正贴进输入框才记正反馈，避免插入失败也算 adopt
+			recordPredictCardFeedback({
+				kind: edited ? "edited" : "accept",
+				...feedbackMeta,
+			});
 			lastUndoReceipt = createUndoReceipt(refreshedTarget?.appName ?? targetApp);
 			clearTextInsertionTarget();
 			emitState({
@@ -1558,6 +1602,9 @@ function registerIpc() {
 				verificationChecks: [{ rule: "text.inserted", passed: result.verified !== false, message: "已写入目标输入框" }],
 			});
 		} else {
+			if (replyTranscript) {
+				recordVoiceInteraction("reply", replyTranscript, result.error ?? "插入失败", "failed");
+			}
 			emitState({ status: "error", error: result.error ?? "插入失败" });
 		}
 		return result;
@@ -1684,6 +1731,13 @@ function registerIpc() {
 		const result = await undoTextInsertion(receipt?.targetApp);
 		if (result.ok) {
 			lastUndoReceipt = null;
+			recordPredictCardFeedback({
+				kind: "undo",
+				surface: lastOverlayState.predictSurface ?? "reply",
+				intent: lastOverlayState.predictSelectedIntent ?? null,
+				draft: lastOverlayState.resultDetail ?? null,
+				anchor: lastOverlayState.predictAnchor ?? null,
+			});
 			emitState({ status: "done", result: "已撤销刚才的输入", undoAvailable: false });
 		}
 		return result;
@@ -1736,7 +1790,7 @@ function registerIpc() {
 		(
 			_e,
 			payload: {
-				kind: "dismiss" | "reject" | "accept";
+				kind: "dismiss" | "reject" | "accept" | "edited" | "undo" | "ignore";
 				surface?: string | null;
 				intent?: string | null;
 				draft?: string | null;
@@ -1760,8 +1814,13 @@ function registerIpc() {
 
 	ipcMain.handle("fold:dismiss", (_e, opts?: { skipFeedback?: boolean }) => {
 		if (!opts?.skipFeedback && lastOverlayState.status === "predict") {
+			const phase = lastOverlayState.predictPhase;
+			const hasDrafts = (lastOverlayState.predictDrafts?.length ?? 0) > 0;
+			// pick / 还没出草案时关掉 = ignore，不参与晋升；出过草案再关才记 dismiss
+			const kind =
+				phase === "pick" || phase === "silent" || !hasDrafts ? "ignore" : "dismiss";
 			recordPredictCardFeedback({
-				kind: "dismiss",
+				kind,
 				surface: lastOverlayState.predictSurface ?? null,
 				intent:
 					lastOverlayState.predictSelectedIntent ??
@@ -1772,6 +1831,7 @@ function registerIpc() {
 			});
 		}
 		isRecording = false;
+		replyWasRefined = false;
 		if (pendingUserAction) {
 			pendingUserAction.reject(new Error("用户取消了授权"));
 			pendingUserAction = null;
@@ -1914,6 +1974,7 @@ function startReplyRefineRecording() {
 	if (isRecording) return;
 	replyLatched = false;
 	replyRefineHold = true;
+	replyWasRefined = true;
 	voiceOutcome = "reply";
 	voiceCanUseDirectStructure = false;
 	isRecording = true;
@@ -2019,6 +2080,22 @@ function registerHotkeys() {
 	);
 }
 
+function maybeShowWeeklyRecap() {
+	if (!shouldShowWeeklyRecap()) return;
+	if (isRecording || lastOverlayState.status === "predict" || lastOverlayState.status === "listening") {
+		return;
+	}
+	const recap = buildWeeklyRecap();
+	markWeeklyRecapShown(recap.weekKey);
+	createOverlayWindow();
+	emitState({
+		status: "done",
+		result: recap.title,
+		resultDetail: recap.body,
+		undoAvailable: false,
+	});
+}
+
 app.whenReady().then(() => {
 	if (process.platform === "darwin") {
 		app.setName(PRODUCT_NAME);
@@ -2032,6 +2109,15 @@ app.whenReady().then(() => {
 	createOverlayWindow();
 	registerHotkeys();
 	void refreshPredictCacheEnriched(contextEngine.getLiveContext());
+
+	// 启动后错开 onboarding：若本周该看回顾，弹一张完成态卡片
+	setTimeout(() => {
+		try {
+			maybeShowWeeklyRecap();
+		} catch {
+			/* ignore */
+		}
+	}, 12_000);
 
 	const trayApi = createTray({
 		onVoiceStructure: () => toggleVoiceRecording("structure"),

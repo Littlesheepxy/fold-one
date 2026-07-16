@@ -178,7 +178,7 @@ contextBridge.exposeInMainWorld("fold", {
 			error?: string;
 		}>,
 	predictFeedback: (payload: {
-		kind: "dismiss" | "reject" | "accept";
+		kind: "dismiss" | "reject" | "accept" | "edited" | "undo" | "ignore";
 		surface?: string | null;
 		intent?: string | null;
 		draft?: string | null;

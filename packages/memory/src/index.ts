@@ -17,7 +17,14 @@ export {
 	type MemoryRecord,
 	type RawContextEventInput,
 } from "./episode.js";
-export { saveVoiceInteraction, type VoiceInteractionKind } from "./voice-interaction.js";
+export { saveVoiceInteraction, type VoiceInteractionKind, type VoiceInteractionStatus } from "./voice-interaction.js";
+export {
+	listProductEvents,
+	runProductEventsSelfCheck,
+	saveProductEvent,
+	type ProductEventInput,
+	type ProductEventName,
+} from "./product-events.js";
 export {
 	loadProfileMemories,
 	listActiveMemories,

@@ -140,7 +140,7 @@ interface FoldApi {
 	predictPickIntent(intent: string): Promise<{ ok: boolean }>;
 	predictInsertDraft(text: string): Promise<{ ok: boolean; pasted: boolean; error?: string }>;
 	predictFeedback(payload: {
-		kind: "dismiss" | "reject" | "accept";
+		kind: "dismiss" | "reject" | "accept" | "edited" | "undo" | "ignore";
 		surface?: string | null;
 		intent?: string | null;
 		draft?: string | null;

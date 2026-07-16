@@ -2,6 +2,7 @@ import type { ActionPlan } from "@fold/ai";
 import { saveEpisode, type EpisodeStep } from "./episode.js";
 
 export type VoiceInteractionKind = "structure" | "reply" | "agent";
+export type VoiceInteractionStatus = "success" | "failed";
 
 export interface VoiceInteractionInput {
 	kind: VoiceInteractionKind;
@@ -9,6 +10,8 @@ export interface VoiceInteractionInput {
 	transcript: string;
 	/** 产出文本（整理结果 / 插入的回复等） */
 	outcome?: string;
+	/** 默认 success；LLM/插入失败时记 failed，供成功率统计 */
+	status?: VoiceInteractionStatus;
 	appName?: string | null;
 	windowTitle?: string | null;
 	contextEvents?: Array<{ type?: string; source?: string; data?: Record<string, unknown> }>;
@@ -31,17 +34,21 @@ export function saveVoiceInteraction(input: VoiceInteractionInput, dataDir?: str
 	const transcript = input.transcript.trim();
 	if (!transcript) return;
 
+	const status: VoiceInteractionStatus = input.status === "failed" ? "failed" : "success";
 	const prefix = kindPrefix(input.kind);
 	const intent = `${prefix}：${transcript.slice(0, 120)}`;
-	const outcome = input.outcome?.trim() || transcript;
+	const outcome =
+		input.outcome?.trim() ||
+		(status === "failed" ? `${prefix}失败` : transcript);
 	const plan: ActionPlan = { goal: intent, steps: [], validate: [] };
 	const steps: EpisodeStep[] = [
 		{
 			stepId: "voice",
 			skill: skillForKind(input.kind),
-			status: "success",
+			status,
 			durationMs: 0,
 			label: prefix,
+			error: status === "failed" ? outcome.slice(0, 200) : undefined,
 		},
 	];
 
@@ -51,7 +58,7 @@ export function saveVoiceInteraction(input: VoiceInteractionInput, dataDir?: str
 			goal: outcome.slice(0, 200),
 			plan,
 			steps,
-			status: "success",
+			status,
 			userVisibleResult: outcome.slice(0, 160),
 			resultDetail: outcome,
 			contextEvents: input.contextEvents?.length

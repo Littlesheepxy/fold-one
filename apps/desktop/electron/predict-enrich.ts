@@ -1,6 +1,6 @@
 import { captureScreenshot } from "@fold/connectors";
 import { createEmptyContext, type LiveContext } from "@fold/context";
-import { formatEntityBrief } from "@fold/memory";
+import { formatEntityBrief, listProductEvents, saveProductEvent } from "@fold/memory";
 import {
 	buildPredictions,
 	buildProfileBrief,
@@ -66,6 +66,32 @@ export function recordPredictCardFeedback(input: {
 	anchor?: string | null;
 }): void {
 	recordPredictFeedback(input);
+	const surface = input.surface ?? "predict";
+	try {
+		if (input.kind === "accept" || input.kind === "edited") {
+			saveProductEvent({
+				name: "reply_draft_inserted",
+				props: { surface, kind: input.kind, edited: input.kind === "edited" },
+			});
+			if (
+				surface === "reply" &&
+				listProductEvents({ name: "first_real_reply_success", limit: 1 }).length === 0
+			) {
+				saveProductEvent({
+					name: "first_real_reply_success",
+					props: { surface, kind: input.kind },
+				});
+			}
+		} else if (input.kind === "reject") {
+			saveProductEvent({ name: "reply_draft_rejected", props: { surface } });
+		} else if (input.kind === "dismiss") {
+			saveProductEvent({ name: "reply_draft_dismissed", props: { surface } });
+		} else if (input.kind === "undo") {
+			saveProductEvent({ name: "reply_draft_undone", props: { surface } });
+		}
+	} catch {
+		// metrics must never block UX
+	}
 }
 
 function draftInputFromEnriched(

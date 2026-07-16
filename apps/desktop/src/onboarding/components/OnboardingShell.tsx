@@ -58,7 +58,7 @@ export function OnboardingShell({
 	backdrop?: OnboardingBackdrop;
 }) {
 	const act = actForStep(step);
-	const acts: OnboardingAct[] = ["setup", "inherit", "experience", "depart"];
+	const acts: OnboardingAct[] = ["setup", "experience", "depart"];
 
 	return (
 		<div className="fold-onboarding-root">

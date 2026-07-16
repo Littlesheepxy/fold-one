@@ -84,7 +84,7 @@ export async function enrichContext(
 			? listChromeTabsViaAppleScript().catch(() => [])
 			: Promise.resolve([]),
 		readAccessibility(),
-		// 日历是「未来」信号：代回/预测/Aha/Agent 都按需拉一次（失败则空）
+		// 日历默认关：需 FOLD_CALENDAR_ENABLED=1（listUpcoming 内部门控）
 		listUpcomingCalendarEvents({ withinHours: 12, limit: 5 }).catch(() => []),
 	]);
 

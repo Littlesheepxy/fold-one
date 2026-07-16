@@ -1,4 +1,7 @@
 import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
 	listActiveMemories,
 	loadProfileMemories,
@@ -6,7 +9,14 @@ import {
 	upsertMemory,
 } from "@fold/memory";
 
-export type PredictFeedbackKind = "dismiss" | "reject" | "accept";
+/** dismiss/ignore 仅落库；reject 才晋升约束；accept/edited/undo 为正/纠偏信号 */
+export type PredictFeedbackKind =
+	| "dismiss"
+	| "reject"
+	| "accept"
+	| "edited"
+	| "undo"
+	| "ignore";
 
 export interface PredictFeedbackInput {
 	kind: PredictFeedbackKind;
@@ -18,8 +28,16 @@ export interface PredictFeedbackInput {
 
 const FEEDBACK_TYPE = "feedback.predict";
 const LOOKBACK_MS = 14 * 24 * 3600 * 1000;
+const VALID_KINDS = new Set<PredictFeedbackKind>([
+	"dismiss",
+	"reject",
+	"accept",
+	"edited",
+	"undo",
+	"ignore",
+]);
 
-/** 记录一次预测交互反馈（关闭 / 明确拒绝 / 采用）。 */
+/** 记录一次预测交互反馈。仅 reject 会触发约束晋升。 */
 export function recordPredictFeedback(
 	input: PredictFeedbackInput,
 	dataDir?: string,
@@ -38,26 +56,27 @@ export function recordPredictFeedback(
 				anchor: clip(input.anchor, 80),
 				at,
 			}),
-			confidence: input.kind === "reject" ? 0.85 : input.kind === "accept" ? 0.9 : 0.55,
+			confidence: confidenceFor(input.kind),
 			source: "predict-feedback",
 		},
 		dataDir,
 	);
 
-	if (input.kind === "reject" || input.kind === "dismiss") {
+	if (input.kind === "reject") {
 		promoteFeedbackConstraints(dataDir);
 	}
 }
 
-/** 把重复拒绝归纳成 profile.constraints，供 buildProfileBrief 注入。 */
+/** 把重复「明确拒绝」归纳成 profile.constraints，供 buildProfileBrief 注入。 */
 export function promoteFeedbackConstraints(dataDir?: string): void {
 	const since = Date.now() - LOOKBACK_MS;
 	const rows = listActiveMemories(FEEDBACK_TYPE, dataDir)
 		.map((m) => parseFeedback(m.value))
 		.filter((f): f is NonNullable<typeof f> => f != null && f.at >= since);
 
-	const rejects = rows.filter((r) => r.kind === "reject" || r.kind === "dismiss");
-	const accepts = rows.filter((r) => r.kind === "accept");
+	// 只统计明确拒绝；dismiss/ignore 不晋升，避免误触/还没看清就关导致学错
+	const rejects = rows.filter((r) => r.kind === "reject");
+	const accepts = rows.filter((r) => r.kind === "accept" || r.kind === "edited");
 	if (rejects.length < 2) return;
 
 	const surfaceCounts = new Map<string, number>();
@@ -116,6 +135,15 @@ export function formatRecentRejectBrief(dataDir?: string, limit = 3): string {
 	return lines.join("\n");
 }
 
+function confidenceFor(kind: PredictFeedbackKind): number {
+	if (kind === "reject") return 0.85;
+	if (kind === "accept") return 0.9;
+	if (kind === "edited") return 0.8;
+	if (kind === "undo") return 0.75;
+	if (kind === "ignore") return 0.3;
+	return 0.55; // dismiss
+}
+
 function parseFeedback(raw: string): {
 	kind: PredictFeedbackKind;
 	surface?: string | null;
@@ -133,9 +161,9 @@ function parseFeedback(raw: string): {
 			anchor?: string | null;
 			at?: number;
 		};
-		if (v.kind !== "dismiss" && v.kind !== "reject" && v.kind !== "accept") return null;
+		if (!v.kind || !VALID_KINDS.has(v.kind as PredictFeedbackKind)) return null;
 		return {
-			kind: v.kind,
+			kind: v.kind as PredictFeedbackKind,
 			surface: v.surface,
 			intent: v.intent,
 			draft: v.draft,
@@ -157,7 +185,7 @@ function hashShort(text: string): string {
 	return createHash("sha1").update(text).digest("hex").slice(0, 8);
 }
 
-/** ponytail: 最小自检 */
+/** ponytail: 最小自检——证明 dismiss 不晋升、reject 晋升 */
 export function runFeedbackRecallSelfCheck(): void {
 	const parsed = parseFeedback(
 		JSON.stringify({
@@ -169,4 +197,31 @@ export function runFeedbackRecallSelfCheck(): void {
 	);
 	console.assert(parsed?.kind === "reject", "parse reject");
 	console.assert(hashShort("abc").length === 8, "hash length");
+	console.assert(parseFeedback(JSON.stringify({ kind: "edited", at: 1 }))?.kind === "edited", "parse edited");
+	console.assert(parseFeedback(JSON.stringify({ kind: "undo", at: 1 }))?.kind === "undo", "parse undo");
+	console.assert(parseFeedback(JSON.stringify({ kind: "ignore", at: 1 }))?.kind === "ignore", "parse ignore");
+
+	const dir = mkdtempSync(join(tmpdir(), "fold-feedback-"));
+	try {
+		recordPredictFeedback({ kind: "dismiss", surface: "reply", draft: "a" }, dir);
+		recordPredictFeedback({ kind: "dismiss", surface: "reply", draft: "b" }, dir);
+		const afterDismiss = loadProfileMemories(dir)?.constraints ?? [];
+		console.assert(
+			!afterDismiss.some((c) => c.includes("代回")),
+			"2× dismiss must NOT promote reply constraint",
+		);
+
+		recordPredictFeedback({ kind: "reject", surface: "reply", draft: "客服腔1" }, dir);
+		recordPredictFeedback({ kind: "reject", surface: "reply", draft: "客服腔2" }, dir);
+		const afterReject = loadProfileMemories(dir)?.constraints ?? [];
+		console.assert(
+			afterReject.some((c) => c.includes("代回")),
+			"2× reject must promote reply constraint",
+		);
+
+		const brief = formatRecentRejectBrief(dir, 3);
+		console.assert(brief.includes("客服腔"), "reject brief includes drafts");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 }

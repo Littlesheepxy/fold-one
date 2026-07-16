@@ -87,6 +87,14 @@ export {
 	type PredictFeedbackKind,
 } from "./feedback-recall.js";
 export {
+	buildWeeklyRecap,
+	currentWeekKey,
+	markWeeklyRecapShown,
+	runWeeklyRecapSelfCheck,
+	shouldShowWeeklyRecap,
+	type WeeklyRecap,
+} from "./weekly-recap.js";
+export {
 	buildResultDetail,
 	buildUserVisibleSummary,
 	formatEpisodeSummaryDisplay,
