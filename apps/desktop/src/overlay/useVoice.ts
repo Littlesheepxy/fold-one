@@ -3,22 +3,70 @@ import {
 	createAliyunAsr,
 	createLocalAsr,
 	createMockAsr,
+	openMicStream,
 	type AsrController,
 } from "@fold/voice";
 import { playFoldSound } from "./sounds";
 
 const WS_BASE = import.meta.env.VITE_ASR_WS_URL ?? "ws://localhost:3003";
+/** keydown 预热的麦克风流未被会话接管时的存活时间 */
+const WARM_STREAM_TTL_MS = 5000;
 
 export function useVoiceHandlers() {
 	const asrRef = useRef<AsrController | null>(null);
 	const wsBaseRef = useRef(WS_BASE);
 	const voiceModeRef = useRef<"structure" | "reply" | "agent">("structure");
+	const warmRef = useRef<{
+		stream: Promise<MediaStream>;
+		timer: ReturnType<typeof setTimeout>;
+	} | null>(null);
 
 	useEffect(() => {
 		void (async () => {
 			const config = await window.fold.getConfig();
 			if (config.asrWsUrl) wsBaseRef.current = config.asrWsUrl;
 		})();
+
+		const dropWarmStream = () => {
+			const warm = warmRef.current;
+			if (!warm) return;
+			warmRef.current = null;
+			clearTimeout(warm.timer);
+			warm.stream
+				.then((stream) => {
+					for (const track of stream.getTracks()) track.stop();
+				})
+				.catch(() => {});
+		};
+
+		/** 会话接管预热流；无预热时返回 undefined，adapter 自己开麦 */
+		const takeWarmStream = () => {
+			const warm = warmRef.current;
+			if (!warm) return undefined;
+			warmRef.current = null;
+			clearTimeout(warm.timer);
+			return warm.stream;
+		};
+
+		const warmMic = async () => {
+			if (asrRef.current || warmRef.current) return;
+			// 未授权时不预热，避免在错误时机弹权限框（正式开麦时再弹）
+			try {
+				const perm = await navigator.permissions.query({
+					name: "microphone" as PermissionName,
+				});
+				if (perm.state !== "granted") return;
+			} catch {
+				return;
+			}
+			if (asrRef.current || warmRef.current) return;
+			const stream = openMicStream();
+			stream.catch(() => {});
+			warmRef.current = {
+				stream,
+				timer: setTimeout(dropWarmStream, WARM_STREAM_TTL_MS),
+			};
+		};
 
 		const startRecording = async (session: {
 			mode: "structure" | "reply" | "agent";
@@ -31,10 +79,16 @@ export function useVoiceHandlers() {
 				if (runtime.provider === "local-whisper" && !runtime.ready) {
 					throw new Error("请先在设置中下载语音包，才能使用本地语音识别。");
 				}
+				// mock 不吃 MediaStream，直接释放预热流防止麦克风悬挂
+				if (runtime.provider !== "local-whisper" && runtime.provider !== "dashscope") {
+					dropWarmStream();
+				}
+				const warmStream = takeWarmStream();
 				const asr =
 					runtime.provider === "local-whisper"
 						? createLocalAsr({
 								workletPath: "/asr-pcm-worklet.js",
+								warmStream,
 								transport: {
 									start: async () => {
 										await window.fold.localAsrStart();
@@ -50,6 +104,7 @@ export function useVoiceHandlers() {
 							? createAliyunAsr({
 									wsBaseUrl: wsBaseRef.current,
 									workletPath: "/asr-pcm-worklet.js",
+									warmStream,
 									mode: session.mode,
 									app: session.app,
 									windowTitle: session.windowTitle,
@@ -68,6 +123,8 @@ export function useVoiceHandlers() {
 						void window.fold.voiceError(err.message);
 					},
 				});
+				// start() resolve = 麦克风已在采集（预缓冲兜底），此刻提示音才是真实的"可以说了"
+				playFoldSound("voiceStart");
 			} catch (err) {
 				asrRef.current?.cancel();
 				asrRef.current = null;
@@ -89,6 +146,17 @@ export function useVoiceHandlers() {
 			try {
 				const result = await asr.stop();
 				asrRef.current = null;
+				if (result.incomplete) {
+					console.warn(
+						`[fold:asr] incomplete result discarded textLen=${result.text.trim().length}`,
+					);
+					await window.fold.voiceError(
+						result.text.trim()
+							? "这段话没有完整识别完，请再按一次重说——不会用残缺结果插入。"
+							: "识别未完成，请重说一遍。",
+					);
+					return;
+				}
 				if (result.text.trim()) {
 					if (mode === "agent") await window.fold.runTask(result.text);
 					else if (mode === "reply") await window.fold.replyVoice(result.text);
@@ -107,20 +175,24 @@ export function useVoiceHandlers() {
 		};
 
 		const unsubs = [
+			window.fold.onVoiceWarm(() => void warmMic()),
 			window.fold.onHotkeyDown((session) => {
 				voiceModeRef.current = session.mode;
-				playFoldSound("voiceStart");
 				void startRecording(session);
 			}),
 			window.fold.onHotkeyUp((mode) => {
 				playFoldSound("startup");
 				void stopRecording(mode);
 			}),
-			window.fold.onHotkeyCancel(cancelRecording),
+			window.fold.onHotkeyCancel(() => {
+				dropWarmStream();
+				cancelRecording();
+			}),
 		];
 
 		return () => {
 			for (const u of unsubs) u();
+			dropWarmStream();
 			asrRef.current?.cancel();
 			asrRef.current = null;
 		};

@@ -154,6 +154,14 @@ import {
 	runOnboardingStructureVoice,
 } from "./onboarding-compare.js";
 
+// dev 下 turbo/vite 先退出会踩断 stdout 管道，console 写入抛 EPIPE → 主进程崩溃弹窗。
+// 日志写不出去可以忍，app 不能死。
+for (const stream of [process.stdout, process.stderr]) {
+	stream.on("error", (err: NodeJS.ErrnoException) => {
+		if (err.code !== "EPIPE") throw err;
+	});
+}
+
 migrateLegacyDataDir();
 applyConfigToEnv();
 
@@ -693,7 +701,8 @@ function clearPredictState(): Partial<FoldStateEvent> {
 function voiceStandbySeconds(): number {
 	const n = loadConfig().voiceStandbySeconds;
 	if (typeof n === "number" && Number.isFinite(n)) return Math.max(0, Math.min(60, Math.round(n)));
-	return 8;
+	// Mac 默认关：全局热键重进成本低，待机复用易插错窗；代码/文档留给 iOS。要开：config.voiceStandbySeconds=8
+	return 0;
 }
 
 function isVoiceStandbyActive(): boolean {
@@ -1982,6 +1991,7 @@ function registerIpc() {
 
 	ipcMain.handle("fold:voice-error", (_e, message: string) => {
 		isRecording = false;
+		console.warn(`[fold:voice-error] ${String(message ?? "")}`);
 		emitState({ status: "error", error: message });
 	});
 
@@ -2018,10 +2028,22 @@ async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 	// Capture synchronously before any async work so the exact focused field is retained.
 	// 待机复用时先不抓，避免覆盖 native 里保留的原目标输入框。
 	let insertionTarget = standbyEligible ? null : captureTextInsertionTarget();
-	await contextEngine.refreshActiveApp();
 	voiceOutcome = outcome;
 	voiceCanUseDirectStructure =
 		outcome === "structure" && resolveAsrRuntime().provider === "dashscope";
+	isRecording = true;
+	// 立刻让渲染层开麦（音频进本地预缓冲），截图/定位等上下文工作并行进行，
+	// 否则串行等下来首音节全部丢失。app/windowTitle 用缓存值即可，仅供 ASR 语境提示。
+	createOverlayWindow();
+	{
+		const cachedCtx = contextEngine.getLiveContext();
+		overlayWindow?.webContents.send("fold:hotkey-down", {
+			mode: outcome,
+			app: cachedCtx.activeApp,
+			windowTitle: cachedCtx.activeWindow,
+		});
+	}
+	await contextEngine.refreshActiveApp();
 	const ctx = contextEngine.getLiveContext();
 	// 待机复用仅当焦点没有主动切到别的真实 App。与进待机时的快照同源比对
 	// （都取 ContextEngine.activeApp，ignoreApps 已滤掉知更自己），
@@ -2045,7 +2067,6 @@ async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 	}
 	clearVoiceStandbyTimer();
 	voiceStandbyUntil = null;
-	isRecording = true;
 
 	// 代回必须在 raise overlay 之前截聊天窗：松手时 frontmost 常是 Electron，
 	// 全屏回退又会落到主屏上一次微信会话。
@@ -2067,8 +2088,6 @@ async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 	} else {
 		voiceReplyScreenshotPath = null;
 	}
-
-	createOverlayWindow();
 
 	const isOnboardingVoiceDemo =
 		(outcome === "structure" && isOnboardingVoiceLiveStep()) ||
@@ -2097,11 +2116,6 @@ async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 			contextPageLabel: null,
 		});
 		if (outcome === "structure") sendOnboardingVoiceEvent({ phase: "listening" });
-		overlayWindow?.webContents.send("fold:hotkey-down", {
-			mode: outcome,
-			app: voiceTargetApp,
-			windowTitle: onboardingVoiceWindowTitle,
-		});
 		return;
 	}
 
@@ -2118,11 +2132,6 @@ async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 		predictRefining: false,
 		...clearPredictState(),
 		...buildVoiceOverlayContext(ctx),
-	});
-	overlayWindow?.webContents.send("fold:hotkey-down", {
-		mode: outcome,
-		app: ctx.activeApp,
-		windowTitle: ctx.activeWindow,
 	});
 }
 
@@ -2199,6 +2208,12 @@ function registerHotkeys() {
 		onAgentToggle: () => {
 			if (isOnboardingHotkeyTestStep()) return;
 			toggleVoiceRecording("agent");
+		},
+		onTriggerDown: () => {
+			if (isOnboardingHotkeyTestStep() || isRecording) return;
+			// keydown 即预热麦克风：短按/长按最终都要开麦，提前 ~300ms 消除开麦死区
+			createOverlayWindow();
+			overlayWindow?.webContents.send("fold:voice-warm");
 		},
 		onStructureToggle: () => {
 			if (isOnboardingHotkeyTestStep()) return;

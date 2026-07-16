@@ -189,29 +189,23 @@ export function getOverlayWorkArea(window: BrowserWindow | null): OverlayWorkAre
 }
 
 function computeVoiceTabPlacement(
-	targetWindow: Rectangle,
+	_targetWindow: Rectangle,
 	overlayBounds: Rectangle,
 	display: Display,
 ): VoiceTabPlacement {
 	const { workArea } = display;
-	const windowBottom = targetWindow.y + targetWindow.height;
 	const workAreaBottom = workArea.y + workArea.height;
-	// 窗口矩形常延伸到 Dock 区域；锚定在可见工作区底边之上
-	const effectiveBottom = Math.min(windowBottom, workAreaBottom);
-	// 水平：当前显示器工作区中心（屏幕视觉中心），非前台窗口中心
+	// 位置恒定：屏幕工作区底部中央（Dock 上方）。
+	// 曾锚定目标窗口底边，小窗浮在屏幕上半部时语音条会悬在屏幕中间，位置不可预期。
 	const centerX = workArea.x + workArea.width / 2;
 	const topY =
-		effectiveBottom -
+		workAreaBottom -
 		PROGRAM_BAR_HEIGHT -
 		VOICE_TAB_ABOVE_BAR -
 		VOICE_TAB_HEIGHT;
-	const clampedTop = Math.min(
-		topY,
-		workAreaBottom - VOICE_TAB_ABOVE_BAR - VOICE_TAB_HEIGHT,
-	);
 	return {
 		left: centerX - overlayBounds.x,
-		top: clampedTop - overlayBounds.y,
+		top: topY - overlayBounds.y,
 	};
 }
 

@@ -99,12 +99,13 @@ export function attachAsrSession(ws: WsServer, deps: SessionDeps) {
 
 	ws.on("message", (data, isBinary) => {
 		if (isBinary) {
-			if (!upstream) return;
-			audioBytes += (data as Buffer).byteLength;
-			if (upstreamSendable) {
-				upstream.sendAudio(data as Buffer);
+			const buf = data as Buffer;
+			audioBytes += buf.byteLength;
+			// upstream 尚未创建时也入队，绝不能静默丢音频
+			if (upstreamSendable && upstream) {
+				upstream.sendAudio(buf);
 			} else {
-				audioQueue.push(data as Buffer);
+				audioQueue.push(buf);
 			}
 			return;
 		}
@@ -171,19 +172,19 @@ export function attachAsrSession(ws: WsServer, deps: SessionDeps) {
 						fullText: string;
 						directStructured?: boolean;
 					}) => {
-						void reportUsageOnce().finally(() => {
-							send({
-								type: "done",
-								fullText: fullText.trim(),
-								directStructured: !!directStructured,
-								model: sessionModel,
-							});
-							try {
-								ws.close();
-							} catch {
-								/* ignore */
-							}
+						// 用量上报绝不能挡 done：foldhub 超时会让客户端 finish 超时 → incomplete → UI 卡住
+						send({
+							type: "done",
+							fullText: fullText.trim(),
+							directStructured: !!directStructured,
+							model: sessionModel,
 						});
+						try {
+							ws.close();
+						} catch {
+							/* ignore */
+						}
+						void reportUsageOnce();
 					});
 					upstream.on("error", (err: Error) => send({ type: "error", message: err.message }));
 					upstream.on("closed", () => {
