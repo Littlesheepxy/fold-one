@@ -23,6 +23,8 @@ export interface VoiceConfig {
 	windowTitle?: string | null;
 	/** Fold Hub tm_ API key for asr-proxy entitlement checks. */
 	authToken?: string;
+	/** keydown 预热的麦克风流：按下即开麦，会话开始时直接接管，消除开麦死区 */
+	warmStream?: Promise<MediaStream>;
 }
 
 export type AsrProvider = "mock" | "dashscope" | "local-whisper";

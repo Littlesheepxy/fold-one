@@ -3,6 +3,17 @@ import type { VoiceAdapter, VoiceConfig, VoiceResult } from "./types.js";
 
 const ASR_FINISH_TIMEOUT_MS = 10_000;
 
+export function openMicStream(): Promise<MediaStream> {
+	return navigator.mediaDevices.getUserMedia({
+		audio: {
+			channelCount: 1,
+			echoCancellation: true,
+			noiseSuppression: true,
+			autoGainControl: true,
+		},
+	});
+}
+
 export interface AsrController extends VoiceAdapter {
 	done: Promise<VoiceResult>;
 }
@@ -192,19 +203,16 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 			if (!resolved) finalize({ text: lastFullText, directStructured });
 		};
 
-		mediaStream = await navigator.mediaDevices.getUserMedia({
-			audio: {
-				channelCount: 1,
-				echoCancellation: true,
-				noiseSuppression: true,
-				autoGainControl: true,
-			},
-		});
-
+		// 开麦与加载 worklet 模块并行，麦一就绪立刻接上，不留串行死区。
+		// keydown 预热流优先：按下瞬间已开麦，这里直接接管。
 		audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)({
 			sampleRate: 16000,
 		});
-		await audioCtx.audioWorklet.addModule(workletPath);
+		const workletLoaded = audioCtx.audioWorklet.addModule(workletPath);
+		mediaStream = config.warmStream
+			? await config.warmStream.catch(() => openMicStream())
+			: await openMicStream();
+		await workletLoaded;
 		hookWorklet();
 	};
 

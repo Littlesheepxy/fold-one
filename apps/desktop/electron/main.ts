@@ -2199,6 +2199,12 @@ function registerHotkeys() {
 			if (isOnboardingHotkeyTestStep()) return;
 			toggleVoiceRecording("agent");
 		},
+		onTriggerDown: () => {
+			if (isOnboardingHotkeyTestStep() || isRecording) return;
+			// keydown 即预热麦克风：短按/长按最终都要开麦，提前 ~300ms 消除开麦死区
+			createOverlayWindow();
+			overlayWindow?.webContents.send("fold:voice-warm");
+		},
 		onStructureToggle: () => {
 			if (isOnboardingHotkeyTestStep()) return;
 			if (isRecording && voiceOutcome === "reply" && replyLatched) {

@@ -405,6 +405,11 @@ contextBridge.exposeInMainWorld("fold", {
 		ipcRenderer.on("fold:hotkey-down", handler);
 		return () => ipcRenderer.removeListener("fold:hotkey-down", handler);
 	},
+	onVoiceWarm(cb: () => void) {
+		const handler = () => cb();
+		ipcRenderer.on("fold:voice-warm", handler);
+		return () => ipcRenderer.removeListener("fold:voice-warm", handler);
+	},
 	onHotkeyUp(cb: (mode: "structure" | "reply" | "agent") => void) {
 		const handler = (_: unknown, mode?: "structure" | "reply" | "agent") => cb(mode ?? "structure");
 		ipcRenderer.on("fold:hotkey-up", handler);

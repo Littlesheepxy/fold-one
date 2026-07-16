@@ -1,5 +1,5 @@
+import { openMicStream, type AsrController } from "./aliyun-asr.js";
 import { pcm16AudioLevel } from "./audio-level.js";
-import type { AsrController } from "./aliyun-asr.js";
 import type { VoiceConfig, VoiceResult } from "./types.js";
 
 export interface LocalAsrTransport {
@@ -49,14 +49,9 @@ export function createLocalAsr(
 					for (const chunk of preBuffer) config.transport.sendAudio(chunk);
 					preBuffer.length = 0;
 				});
-				mediaStream = await navigator.mediaDevices.getUserMedia({
-					audio: {
-						channelCount: 1,
-						echoCancellation: true,
-						noiseSuppression: true,
-						autoGainControl: true,
-					},
-				});
+				mediaStream = config.warmStream
+					? await config.warmStream.catch(() => openMicStream())
+					: await openMicStream();
 				audioCtx = new (
 					window.AudioContext ||
 					(window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
