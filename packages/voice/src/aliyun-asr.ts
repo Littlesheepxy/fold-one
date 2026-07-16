@@ -188,7 +188,7 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 	};
 
 	const hookWorklet = () => {
-		if (aborted || !audioCtx || !mediaStream || workletNode) return;
+		if (aborted || resolved || !audioCtx || !mediaStream || workletNode) return;
 		workletNode = new AudioWorkletNode(audioCtx, "pcm-worklet");
 		workletNode.port.onmessage = (e: MessageEvent<Int16Array>) => {
 			if (aborted || resolved) return;
@@ -303,7 +303,17 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 		mediaStream = config.warmStream
 			? await config.warmStream.catch(() => openMicStream())
 			: await openMicStream();
+		// await 期间 ws 可能已失败并 cleanup 过：此时 ctx 已关闭，
+		// 继续 hookWorklet 会在关闭的 ctx 上构造节点抛错，且刚开的麦克风流会泄漏
+		if (resolved || aborted) {
+			cleanup();
+			return;
+		}
 		await workletLoaded;
+		if (resolved || aborted) {
+			cleanup();
+			return;
+		}
 		hookWorklet();
 	};
 

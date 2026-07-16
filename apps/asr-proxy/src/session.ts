@@ -172,19 +172,19 @@ export function attachAsrSession(ws: WsServer, deps: SessionDeps) {
 						fullText: string;
 						directStructured?: boolean;
 					}) => {
-						void reportUsageOnce().finally(() => {
-							send({
-								type: "done",
-								fullText: fullText.trim(),
-								directStructured: !!directStructured,
-								model: sessionModel,
-							});
-							try {
-								ws.close();
-							} catch {
-								/* ignore */
-							}
+						// 用量上报绝不能挡 done：foldhub 超时会让客户端 finish 超时 → incomplete → UI 卡住
+						send({
+							type: "done",
+							fullText: fullText.trim(),
+							directStructured: !!directStructured,
+							model: sessionModel,
 						});
+						try {
+							ws.close();
+						} catch {
+							/* ignore */
+						}
+						void reportUsageOnce();
 					});
 					upstream.on("error", (err: Error) => send({ type: "error", message: err.message }));
 					upstream.on("closed", () => {

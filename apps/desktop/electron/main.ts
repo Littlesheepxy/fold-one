@@ -154,6 +154,14 @@ import {
 	runOnboardingStructureVoice,
 } from "./onboarding-compare.js";
 
+// dev 下 turbo/vite 先退出会踩断 stdout 管道，console 写入抛 EPIPE → 主进程崩溃弹窗。
+// 日志写不出去可以忍，app 不能死。
+for (const stream of [process.stdout, process.stderr]) {
+	stream.on("error", (err: NodeJS.ErrnoException) => {
+		if (err.code !== "EPIPE") throw err;
+	});
+}
+
 migrateLegacyDataDir();
 applyConfigToEnv();
 

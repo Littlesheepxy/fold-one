@@ -9,6 +9,7 @@ export type EntitlementSnapshot = {
 export async function fetchEntitlements(apiKey: string): Promise<EntitlementSnapshot> {
 	const res = await fetch(`${HUB_URL}/api/billing/entitlements`, {
 		headers: { Authorization: `Bearer ${apiKey}` },
+		signal: AbortSignal.timeout(3000),
 	});
 	if (!res.ok) {
 		throw new Error(`entitlements failed (${res.status})`);
@@ -37,6 +38,7 @@ export async function reportVoiceUsage(input: {
 				mode: input.mode,
 				model: input.model,
 			}),
+			signal: AbortSignal.timeout(3000),
 		});
 	} catch (error) {
 		console.warn("[asr-proxy] voice usage report failed", error);
