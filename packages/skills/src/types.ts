@@ -13,6 +13,8 @@ export interface SkillContext {
 	emit: (event: ProgressEvent) => void;
 	/** Current user utterance for connector routing (e.g. Gmail vs Apple Mail). */
 	taskIntent?: string;
+	/** L2 上下文摘要（AX/日历/置信度）；缺省时 skill 回退 L1 */
+	contextSnapshot?: string;
 }
 
 export type SkillHandler = (

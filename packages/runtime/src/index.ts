@@ -43,7 +43,10 @@ export { hasPlannerApiKey, hasFastVisionApiKey } from "@fold/ai";
 export { inferPredictSurface, surfaceActionLabel, type PredictSurface } from "./predict-surface.js";
 export { predictContextSnippet } from "./predict-fallback.js";
 export {
+	buildAgentPlannerContextSummary,
 	enrichContext,
+	formatEnrichedPlannerSummary,
+	runAgentPlannerContextSelfCheck,
 	type ContextEnrichScope,
 	type EnrichedContext,
 } from "./context-enrich.js";
