@@ -44,10 +44,13 @@ export function createLocalAsr(
 				// transport 启动与开麦并行；未就绪前缓冲，杜绝丢首音节
 				let transportReady = false;
 				const preBuffer: ArrayBuffer[] = [];
+				const PRE_HARD = 32_000 * 60 * 5;
+				let preBytes = 0;
 				const transportStarted = config.transport.start().then(() => {
 					transportReady = true;
 					for (const chunk of preBuffer) config.transport.sendAudio(chunk);
 					preBuffer.length = 0;
+					preBytes = 0;
 				});
 				mediaStream = config.warmStream
 					? await config.warmStream.catch(() => openMicStream())
@@ -64,8 +67,21 @@ export function createLocalAsr(
 					levelCb?.(pcm16AudioLevel(new Uint8Array(chunk.buffer)));
 					const payload = new ArrayBuffer(chunk.byteLength);
 					new Int16Array(payload).set(chunk);
-					if (transportReady) config.transport.sendAudio(payload);
-					else preBuffer.push(payload);
+					if (transportReady) {
+						config.transport.sendAudio(payload);
+						return;
+					}
+					preBuffer.push(payload);
+					preBytes += payload.byteLength;
+					if (preBytes > PRE_HARD) {
+						const reason = new Error(
+							"这段话太长，本地识别还没就绪。请分段再说——已采集的音频不会被悄悄丢掉。",
+						);
+						cancelled = true;
+						cleanup();
+						opts.onError?.(reason);
+						rejectDone(reason);
+					}
 				};
 				sourceNode = audioCtx.createMediaStreamSource(mediaStream);
 				sourceNode.connect(workletNode);
@@ -80,6 +96,13 @@ export function createLocalAsr(
 			}
 		},
 		async stop() {
+			// 先断采集，排空 worklet 消息，再 finish——避免尾音在 cleanup 时被掐断
+			try {
+				sourceNode?.disconnect();
+			} catch {
+				/* ignore */
+			}
+			await new Promise((r) => setTimeout(r, 80));
 			cleanup();
 			try {
 				const fullText = await config.transport.finish();

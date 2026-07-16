@@ -1982,6 +1982,7 @@ function registerIpc() {
 
 	ipcMain.handle("fold:voice-error", (_e, message: string) => {
 		isRecording = false;
+		console.warn(`[fold:voice-error] ${String(message ?? "")}`);
 		emitState({ status: "error", error: message });
 	});
 

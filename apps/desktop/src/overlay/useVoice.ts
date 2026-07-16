@@ -146,6 +146,17 @@ export function useVoiceHandlers() {
 			try {
 				const result = await asr.stop();
 				asrRef.current = null;
+				if (result.incomplete) {
+					console.warn(
+						`[fold:asr] incomplete result discarded textLen=${result.text.trim().length}`,
+					);
+					await window.fold.voiceError(
+						result.text.trim()
+							? "这段话没有完整识别完，请再按一次重说——不会用残缺结果插入。"
+							: "识别未完成，请重说一遍。",
+					);
+					return;
+				}
 				if (result.text.trim()) {
 					if (mode === "agent") await window.fold.runTask(result.text);
 					else if (mode === "reply") await window.fold.replyVoice(result.text);

@@ -1,6 +1,8 @@
 export interface VoiceResult {
 	text: string;
 	directStructured: boolean;
+	/** 识别未完整收尾（超时/断线）；调用方不得当作成功插入 */
+	incomplete?: boolean;
 }
 
 export interface VoiceAdapter {

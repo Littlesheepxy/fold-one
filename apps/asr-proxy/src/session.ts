@@ -99,12 +99,13 @@ export function attachAsrSession(ws: WsServer, deps: SessionDeps) {
 
 	ws.on("message", (data, isBinary) => {
 		if (isBinary) {
-			if (!upstream) return;
-			audioBytes += (data as Buffer).byteLength;
-			if (upstreamSendable) {
-				upstream.sendAudio(data as Buffer);
+			const buf = data as Buffer;
+			audioBytes += buf.byteLength;
+			// upstream 尚未创建时也入队，绝不能静默丢音频
+			if (upstreamSendable && upstream) {
+				upstream.sendAudio(buf);
 			} else {
-				audioQueue.push(data as Buffer);
+				audioQueue.push(buf);
 			}
 			return;
 		}
