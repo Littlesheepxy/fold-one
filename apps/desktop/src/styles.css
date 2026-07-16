@@ -660,6 +660,21 @@ body.fold-home-page #root {
   white-space: nowrap;
 }
 
+.fold-input-standby-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgb(52 199 89 / 0.85);
+  box-shadow: 0 0 0 0 rgb(52 199 89 / 0.45);
+  animation: fold-standby-pulse 1.6s ease-out infinite;
+}
+
+@keyframes fold-standby-pulse {
+  0% { box-shadow: 0 0 0 0 rgb(52 199 89 / 0.45); }
+  70% { box-shadow: 0 0 0 8px rgb(52 199 89 / 0); }
+  100% { box-shadow: 0 0 0 0 rgb(52 199 89 / 0); }
+}
+
 .fold-predict-card-link {
   border: 0;
   background: transparent;

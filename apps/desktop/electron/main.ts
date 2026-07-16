@@ -154,6 +154,14 @@ import {
 	runOnboardingStructureVoice,
 } from "./onboarding-compare.js";
 
+// dev 下 turbo/vite 先退出会踩断 stdout 管道，console 写入抛 EPIPE → 主进程崩溃弹窗。
+// 日志写不出去可以忍，app 不能死。
+for (const stream of [process.stdout, process.stderr]) {
+	stream.on("error", (err: NodeJS.ErrnoException) => {
+		if (err.code !== "EPIPE") throw err;
+	});
+}
+
 migrateLegacyDataDir();
 applyConfigToEnv();
 
@@ -217,6 +225,13 @@ let replyRefineHold = false;
 let voiceTargetApp: string | null = null;
 /** 代回：Overlay 升起前截下的聊天窗，避免松手时截到主屏微信/知更自己 */
 let voiceReplyScreenshotPath: string | null = null;
+/** 语音待机：保留目标 App，超时或 Esc 退出 */
+let voiceStandbyUntil: number | null = null;
+let voiceStandbyTimer: ReturnType<typeof setTimeout> | null = null;
+let voiceStandbyMode: "structure" | "reply" | null = null;
+let voiceStandbyPlacement: { left: number; top: number } | null = null;
+/** 进待机时的 ctx.activeApp 快照；唤起时同源比对，判断焦点是否已切到别的真实 App */
+let voiceStandbyActiveApp: string | null = null;
 let lastIntent = "";
 let lastReplyTranscript = "";
 /** 代回卡片上做过语音 refine 后再插入 → 记 edited 而非 accept */
@@ -683,6 +698,96 @@ function clearPredictState(): Partial<FoldStateEvent> {
 	};
 }
 
+function voiceStandbySeconds(): number {
+	const n = loadConfig().voiceStandbySeconds;
+	if (typeof n === "number" && Number.isFinite(n)) return Math.max(0, Math.min(60, Math.round(n)));
+	// Mac 默认关：全局热键重进成本低，待机复用易插错窗；代码/文档留给 iOS。要开：config.voiceStandbySeconds=8
+	return 0;
+}
+
+function isVoiceStandbyActive(): boolean {
+	return voiceStandbyUntil != null && Date.now() < voiceStandbyUntil;
+}
+
+function clearVoiceStandbyTimer() {
+	if (voiceStandbyTimer) {
+		clearTimeout(voiceStandbyTimer);
+		voiceStandbyTimer = null;
+	}
+}
+
+function exitVoiceStandby(extra: Partial<FoldStateEvent> = {}) {
+	clearVoiceStandbyTimer();
+	voiceStandbyUntil = null;
+	voiceStandbyMode = null;
+	voiceStandbyPlacement = null;
+	voiceStandbyActiveApp = null;
+	voiceTargetApp = null;
+	voiceReplyScreenshotPath = null;
+	clearPredictTargetApp();
+	clearTextInsertionTarget();
+	emitIdleState({ voiceStandbyUntil: null, voiceHint: null, ...extra });
+}
+
+/** 转写/代回一轮后进入待机：保留 target，不把 overlay 缩回主屏 orb */
+function enterVoiceStandby(
+	mode: "structure" | "reply",
+	opts?: {
+		placement?: { left: number; top: number } | null;
+		appName?: string | null;
+		appPath?: string | null;
+		windowTitle?: string | null;
+		keepPredictCard?: boolean;
+	},
+) {
+	const secs = voiceStandbySeconds();
+	if (secs <= 0 || !voiceTargetApp) {
+		if (!opts?.keepPredictCard) emitIdleState({ voiceMode: null, voiceStandbyUntil: null });
+		return;
+	}
+	clearVoiceStandbyTimer();
+	voiceStandbyMode = mode;
+	voiceStandbyUntil = Date.now() + secs * 1000;
+	voiceStandbyActiveApp = contextEngine.getLiveContext().activeApp ?? null;
+	voiceStandbyPlacement =
+		opts?.placement ?? lastOverlayState.voiceTabPlacement ?? voiceStandbyPlacement;
+	if (voiceTargetApp) setPredictTargetApp(voiceTargetApp);
+
+	if (opts?.keepPredictCard) {
+		emitState({
+			...lastOverlayState,
+			voiceStandbyUntil,
+			voiceHint: `待机 ${secs}s · 可继续说`,
+			contextAppName: opts.appName ?? lastOverlayState.contextAppName ?? voiceTargetApp,
+			contextAppPath: opts.appPath ?? lastOverlayState.contextAppPath,
+			contextWindowTitle: opts.windowTitle ?? lastOverlayState.contextWindowTitle,
+			voiceTabPlacement: voiceStandbyPlacement,
+		});
+	} else {
+		restoreOverlayZOrder();
+		emitState({
+			status: "idle",
+			undoAvailable: lastOverlayState.undoAvailable ?? false,
+			verificationChecks: lastOverlayState.verificationChecks,
+			voiceMode: mode,
+			voiceHint: `待机中 · ${secs}s 内可再按快捷键`,
+			voiceStandbyUntil,
+			voiceTabPlacement: voiceStandbyPlacement,
+			widgetDisplayBounds: null,
+			...clearPredictState(),
+			contextAppName: opts?.appName ?? lastOverlayState.contextAppName ?? voiceTargetApp,
+			contextAppPath: opts?.appPath ?? lastOverlayState.contextAppPath ?? null,
+			contextWindowTitle: opts?.windowTitle ?? lastOverlayState.contextWindowTitle ?? null,
+		});
+	}
+
+	voiceStandbyTimer = setTimeout(() => {
+		if (isVoiceStandbyActive() || voiceStandbyUntil != null) {
+			exitVoiceStandby({ voiceMode: null });
+		}
+	}, secs * 1000 + 50);
+}
+
 function emitIdleState(extra: Partial<FoldStateEvent> = {}) {
 	restoreOverlayZOrder();
 	const widgetDisplayBounds = positionOverlayForIdle(overlayWindow);
@@ -692,6 +797,7 @@ function emitIdleState(extra: Partial<FoldStateEvent> = {}) {
 		verificationChecks: undefined,
 		voiceTabPlacement: null,
 		voiceHint: null,
+		voiceStandbyUntil: null,
 		widgetDisplayBounds,
 		...clearPredictState(),
 		...extra,
@@ -848,7 +954,7 @@ async function structureVoiceTranscript(
 			});
 			setTimeout(() => {
 				if (lastOverlayState.status === "done" && lastOverlayState.voiceMode === "structure") {
-					emitIdleState({ voiceMode: null });
+					enterVoiceStandby("structure", { placement: lastOverlayState.voiceTabPlacement });
 				}
 			}, 2500);
 			return;
@@ -912,9 +1018,12 @@ async function structureVoiceTranscript(
 				});
 				setTimeout(() => {
 					if (lastOverlayState.status === "done" && lastOverlayState.voiceMode === "structure") {
-						emitIdleState({ voiceMode: null });
+						enterVoiceStandby("structure", {
+							placement: voiceTabPlacement,
+							appName: targetApp,
+						});
 					}
-				}, 6000);
+				}, 2500);
 			} else {
 				emitState({
 					status: "done",
@@ -942,13 +1051,6 @@ async function structureVoiceTranscript(
 	} catch (err) {
 		emitState({ status: "error", error: (err as Error).message, transcript: text });
 		recordVoiceInteraction("structure", text, (err as Error).message, "failed");
-	} finally {
-		if (
-			loadConfig().structureAutoInsert !== false &&
-			lastOverlayState.structureDraftOpen !== true
-		) {
-			voiceTargetApp = null;
-		}
 	}
 }
 
@@ -1024,6 +1126,16 @@ async function replyVoiceTranscript(transcript: string) {
 			contextAppPath: onboardingReply ? null : card.appPath ?? contextAppPath,
 			contextWindowTitle: sceneTitle,
 		});
+		if (!onboardingReply) {
+			// 保留 voiceTargetApp，进入待机（卡片仍开着）
+			enterVoiceStandby("reply", {
+				placement: voiceTabPlacement,
+				appName: onboardingReply ? contextAppName : card.appName ?? contextAppName,
+				appPath: onboardingReply ? null : card.appPath ?? contextAppPath,
+				windowTitle: sceneTitle,
+				keepPredictCard: true,
+			});
+		}
 	} catch (err) {
 		recordVoiceInteraction("reply", text, (err as Error).message, "failed");
 		emitState({
@@ -1032,8 +1144,6 @@ async function replyVoiceTranscript(transcript: string) {
 			transcript: text,
 			...clearPredictState(),
 		});
-	} finally {
-		voiceTargetApp = null;
 	}
 }
 
@@ -1064,6 +1174,7 @@ const IPC_HANDLE_CHANNELS = [
 	"fold:undo-last-insert",
 	"fold:ask-response",
 	"fold:dismiss",
+	"fold:voice-empty",
 	"fold:toggle-voice",
 	"fold:voice-error",
 	"fold:open-settings",
@@ -1824,7 +1935,7 @@ function registerIpc() {
 		},
 	);
 
-	ipcMain.handle("fold:dismiss", (_e, opts?: { skipFeedback?: boolean }) => {
+	ipcMain.handle("fold:dismiss", (_e, opts?: { skipFeedback?: boolean; soft?: boolean }) => {
 		if (!opts?.skipFeedback && lastOverlayState.status === "predict") {
 			const phase = lastOverlayState.predictPhase;
 			const hasDrafts = (lastOverlayState.predictDrafts?.length ?? 0) > 0;
@@ -1848,10 +1959,30 @@ function registerIpc() {
 			pendingUserAction.reject(new Error("用户取消了授权"));
 			pendingUserAction = null;
 		}
-		clearPredictTargetApp();
-		voiceTargetApp = null;
-		clearTextInsertionTarget();
-		emitIdleState();
+		// 软关闭：只关卡片，待机继续（空 ASR / 关确认卡）
+		if (opts?.soft && isVoiceStandbyActive() && voiceTargetApp) {
+			enterVoiceStandby(voiceStandbyMode ?? "structure", {
+				placement: voiceStandbyPlacement ?? lastOverlayState.voiceTabPlacement,
+				appName: lastOverlayState.contextAppName ?? voiceTargetApp,
+				appPath: lastOverlayState.contextAppPath,
+				windowTitle: lastOverlayState.contextWindowTitle,
+			});
+			return;
+		}
+		exitVoiceStandby();
+	});
+
+	ipcMain.handle("fold:voice-empty", () => {
+		isRecording = false;
+		if (isVoiceStandbyActive() && voiceTargetApp) {
+			enterVoiceStandby(voiceStandbyMode ?? "structure", {
+				placement: voiceStandbyPlacement ?? lastOverlayState.voiceTabPlacement,
+				appName: lastOverlayState.contextAppName ?? voiceTargetApp,
+			});
+			return { ok: true, standby: true };
+		}
+		exitVoiceStandby();
+		return { ok: true, standby: false };
 	});
 
 	ipcMain.handle("fold:toggle-voice", () => {
@@ -1860,6 +1991,7 @@ function registerIpc() {
 
 	ipcMain.handle("fold:voice-error", (_e, message: string) => {
 		isRecording = false;
+		console.warn(`[fold:voice-error] ${String(message ?? "")}`);
 		emitState({ status: "error", error: message });
 	});
 
@@ -1891,34 +2023,71 @@ registerIpc();
 
 async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 	if (isRecording) return;
+	const standbyEligible =
+		outcome !== "agent" && isVoiceStandbyActive() && Boolean(voiceTargetApp);
 	// Capture synchronously before any async work so the exact focused field is retained.
-	const insertionTarget = captureTextInsertionTarget();
-	await contextEngine.refreshActiveApp();
+	// 待机复用时先不抓，避免覆盖 native 里保留的原目标输入框。
+	let insertionTarget = standbyEligible ? null : captureTextInsertionTarget();
 	voiceOutcome = outcome;
 	voiceCanUseDirectStructure =
 		outcome === "structure" && resolveAsrRuntime().provider === "dashscope";
-	const ctx = contextEngine.getLiveContext();
-	voiceTargetApp = insertionTarget?.appName ?? ctx.activeApp ?? null;
 	isRecording = true;
+	// 立刻让渲染层开麦（音频进本地预缓冲），截图/定位等上下文工作并行进行，
+	// 否则串行等下来首音节全部丢失。app/windowTitle 用缓存值即可，仅供 ASR 语境提示。
+	createOverlayWindow();
+	{
+		const cachedCtx = contextEngine.getLiveContext();
+		overlayWindow?.webContents.send("fold:hotkey-down", {
+			mode: outcome,
+			app: cachedCtx.activeApp,
+			windowTitle: cachedCtx.activeWindow,
+		});
+	}
+	await contextEngine.refreshActiveApp();
+	const ctx = contextEngine.getLiveContext();
+	// 待机复用仅当焦点没有主动切到别的真实 App。与进待机时的快照同源比对
+	// （都取 ContextEngine.activeApp，ignoreApps 已滤掉知更自己），
+	// 切走了就跟随当前光标重新锁定（Typeless 语义）。
+	// ponytail: 同 App 内换输入框仍复用旧 target，粒度到 App 为止。
+	let standbyReuse = standbyEligible;
+	if (
+		standbyEligible &&
+		voiceStandbyActiveApp &&
+		ctx.activeApp &&
+		ctx.activeApp !== voiceStandbyActiveApp
+	) {
+		standbyReuse = false;
+		insertionTarget = captureTextInsertionTarget();
+		console.log(
+			`[fold:standby] focus moved ${voiceStandbyActiveApp} -> ${ctx.activeApp}, abandon reuse`,
+		);
+	}
+	if (!standbyReuse) {
+		voiceTargetApp = insertionTarget?.appName ?? ctx.activeApp ?? null;
+	}
+	clearVoiceStandbyTimer();
+	voiceStandbyUntil = null;
 
 	// 代回必须在 raise overlay 之前截聊天窗：松手时 frontmost 常是 Electron，
 	// 全屏回退又会落到主屏上一次微信会话。
-	voiceReplyScreenshotPath = null;
 	if (outcome === "reply") {
-		try {
-			const shot = await captureScreenshot({
-				target: "frontmost",
-			});
-			voiceReplyScreenshotPath = shot.path;
-			console.log(
-				`[fold:reply] precapture screenshot=${shot.path} frontmostApp=${voiceTargetApp ?? "?"}`,
-			);
-		} catch (err) {
-			console.warn("[fold:reply] precapture screenshot failed", err);
+		if (!standbyReuse || !voiceReplyScreenshotPath) {
+			voiceReplyScreenshotPath = null;
+			try {
+				const shot = standbyReuse && voiceTargetApp
+					? await captureScreenshot({ target: "app", appName: voiceTargetApp })
+					: await captureScreenshot({ target: "frontmost" });
+				voiceReplyScreenshotPath = shot.path;
+				console.log(
+					`[fold:reply] precapture screenshot=${shot.path} frontmostApp=${voiceTargetApp ?? "?"} standby=${standbyReuse}`,
+				);
+			} catch (err) {
+				console.warn("[fold:reply] precapture screenshot failed", err);
+			}
 		}
+	} else {
+		voiceReplyScreenshotPath = null;
 	}
-
-	createOverlayWindow();
 
 	const isOnboardingVoiceDemo =
 		(outcome === "structure" && isOnboardingVoiceLiveStep()) ||
@@ -1947,11 +2116,6 @@ async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 			contextPageLabel: null,
 		});
 		if (outcome === "structure") sendOnboardingVoiceEvent({ phase: "listening" });
-		overlayWindow?.webContents.send("fold:hotkey-down", {
-			mode: outcome,
-			app: voiceTargetApp,
-			windowTitle: onboardingVoiceWindowTitle,
-		});
 		return;
 	}
 
@@ -1968,11 +2132,6 @@ async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 		predictRefining: false,
 		...clearPredictState(),
 		...buildVoiceOverlayContext(ctx),
-	});
-	overlayWindow?.webContents.send("fold:hotkey-down", {
-		mode: outcome,
-		app: ctx.activeApp,
-		windowTitle: ctx.activeWindow,
 	});
 }
 
@@ -2035,11 +2194,11 @@ function cancelActiveSession() {
 	if (isRecording) {
 		isRecording = false;
 		overlayWindow?.webContents.send("fold:hotkey-cancel");
-		emitIdleState();
+		exitVoiceStandby();
 		return;
 	}
-	if (lastOverlayState.status === "predict") {
-		emitIdleState();
+	if (isVoiceStandbyActive() || lastOverlayState.status === "predict") {
+		exitVoiceStandby();
 	}
 }
 
@@ -2049,6 +2208,12 @@ function registerHotkeys() {
 		onAgentToggle: () => {
 			if (isOnboardingHotkeyTestStep()) return;
 			toggleVoiceRecording("agent");
+		},
+		onTriggerDown: () => {
+			if (isOnboardingHotkeyTestStep() || isRecording) return;
+			// keydown 即预热麦克风：短按/长按最终都要开麦，提前 ~300ms 消除开麦死区
+			createOverlayWindow();
+			overlayWindow?.webContents.send("fold:voice-warm");
 		},
 		onStructureToggle: () => {
 			if (isOnboardingHotkeyTestStep()) return;

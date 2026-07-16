@@ -90,6 +90,8 @@ export interface FoldStateEvent {
 	widgetDisplayBounds?: { x: number; y: number; width: number; height: number } | null;
 	/** 转写完成且未开启自动插入时，展示可编辑草稿卡 */
 	structureDraftOpen?: boolean;
+	/** 语音待机截止时间戳（ms）；非空且未过期时热键可复用目标 App */
+	voiceStandbyUntil?: number | null;
 }
 
 export interface UserActionOption {

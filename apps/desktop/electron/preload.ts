@@ -376,8 +376,10 @@ contextBridge.exposeInMainWorld("fold", {
 			height: number;
 		}>,
 	getOverlayState: () => ipcRenderer.invoke("fold:get-overlay-state") as Promise<Record<string, unknown>>,
-	dismiss: (opts?: { skipFeedback?: boolean }) =>
+	dismiss: (opts?: { skipFeedback?: boolean; soft?: boolean }) =>
 		ipcRenderer.invoke("fold:dismiss", opts) as Promise<void>,
+	voiceEmpty: () =>
+		ipcRenderer.invoke("fold:voice-empty") as Promise<{ ok: boolean; standby: boolean }>,
 	toggleVoice: () => ipcRenderer.invoke("fold:toggle-voice") as Promise<void>,
 	voiceError: (message: string) => ipcRenderer.invoke("fold:voice-error", message) as Promise<void>,
 	openSettings: (section?: string) =>
@@ -402,6 +404,11 @@ contextBridge.exposeInMainWorld("fold", {
 			);
 		ipcRenderer.on("fold:hotkey-down", handler);
 		return () => ipcRenderer.removeListener("fold:hotkey-down", handler);
+	},
+	onVoiceWarm(cb: () => void) {
+		const handler = () => cb();
+		ipcRenderer.on("fold:voice-warm", handler);
+		return () => ipcRenderer.removeListener("fold:voice-warm", handler);
 	},
 	onHotkeyUp(cb: (mode: "structure" | "reply" | "agent") => void) {
 		const handler = (_: unknown, mode?: "structure" | "reply" | "agent") => cb(mode ?? "structure");

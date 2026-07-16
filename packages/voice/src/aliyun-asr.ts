@@ -1,12 +1,39 @@
 import { pcm16AudioLevel } from "./audio-level.js";
 import type { VoiceAdapter, VoiceConfig, VoiceResult } from "./types.js";
 
-const ASR_FINISH_TIMEOUT_MS = 10_000;
+const ASR_FINISH_BASE_MS = 15_000;
+const ASR_FINISH_PER_AUDIO_SEC_MS = 800;
+const ASR_FINISH_MAX_MS = 120_000;
+/** 16kHz mono PCM16 ≈ 32KB/s；5 分钟硬顶，超出报错而不是丢最旧 */
+const PRE_BUFFER_HARD_MAX_BYTES = 32_000 * 60 * 5;
+
+export function openMicStream(): Promise<MediaStream> {
+	return navigator.mediaDevices.getUserMedia({
+		audio: {
+			channelCount: 1,
+			echoCancellation: true,
+			noiseSuppression: true,
+			autoGainControl: true,
+		},
+	});
+}
+
+function copyPcm(buf: ArrayBufferLike): ArrayBuffer {
+	const src = new Uint8Array(buf);
+	const out = new ArrayBuffer(src.byteLength);
+	new Uint8Array(out).set(src);
+	return out;
+}
 
 export interface AsrController extends VoiceAdapter {
 	done: Promise<VoiceResult>;
 }
 
+/**
+ * 铁律：已采集的用户语音不得静默丢弃。
+ * - ready 前全部进本地缓冲；超硬顶 → 显式报错（不分段丢最旧）
+ * - finish 超时 / 断线 → incomplete，由 UI 提示重说，禁止当作成功插入
+ */
 export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 	const wsBase =
 		config.wsBaseUrl ??
@@ -27,6 +54,14 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 	let levelCb: ((level: number) => void) | null = null;
 	let onPartialCb: ((text: string) => void) | null = null;
 	let onErrorCb: ((err: Error) => void) | null = null;
+	let sessionReady = false;
+	let finishRequested = false;
+	let preBufferBytes = 0;
+	let capturedAudioBytes = 0;
+	const preBuffer: ArrayBuffer[] = [];
+	/** ready 后若 socket 背压过大，暂存再送，避免浏览器丢帧 */
+	const sendQueue: ArrayBuffer[] = [];
+	let drainScheduled = false;
 
 	let resolveDone!: (r: VoiceResult) => void;
 	let rejectDone!: (e: Error) => void;
@@ -74,17 +109,104 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 		rejectDone(e);
 	};
 
+	const enqueueOrSend = (chunk: ArrayBuffer) => {
+		capturedAudioBytes += chunk.byteLength;
+		if (!sessionReady || ws?.readyState !== WebSocket.OPEN) {
+			preBuffer.push(chunk);
+			preBufferBytes += chunk.byteLength;
+			if (preBufferBytes > PRE_BUFFER_HARD_MAX_BYTES) {
+				fail(
+					new Error(
+						"这段话太长，识别会话还没建好。请分段再说，或检查网络后重试——已采集的音频不会被悄悄丢掉。",
+					),
+				);
+			}
+			return;
+		}
+		// 背压：超过 ~1s 未发出的量就排队，避免同步塞爆
+		if (ws.bufferedAmount > 64_000 || sendQueue.length > 0) {
+			sendQueue.push(chunk);
+			scheduleDrain();
+			return;
+		}
+		ws.send(chunk);
+	};
+
+	const scheduleDrain = () => {
+		if (drainScheduled) return;
+		drainScheduled = true;
+		const tick = () => {
+			drainScheduled = false;
+			while (
+				sendQueue.length > 0 &&
+				ws?.readyState === WebSocket.OPEN &&
+				ws.bufferedAmount < 64_000
+			) {
+				ws.send(sendQueue.shift()!);
+			}
+			if (sendQueue.length > 0 && ws?.readyState === WebSocket.OPEN) {
+				drainScheduled = true;
+				setTimeout(tick, 16);
+			}
+		};
+		setTimeout(tick, 0);
+	};
+
+	const flushPreBuffer = () => {
+		if (ws?.readyState !== WebSocket.OPEN) return;
+		for (const chunk of preBuffer) {
+			if (ws.bufferedAmount > 64_000) {
+				sendQueue.push(chunk);
+			} else {
+				ws.send(chunk);
+			}
+		}
+		preBuffer.length = 0;
+		preBufferBytes = 0;
+		if (sendQueue.length) scheduleDrain();
+	};
+
+	const sendFinishWhenDrained = () => {
+		if (!finishRequested || ws?.readyState !== WebSocket.OPEN) return;
+		const startedAt = Date.now();
+		const trySend = () => {
+			if (resolved || aborted) return;
+			flushPreBuffer();
+			scheduleDrain();
+			// 只等我们自己的预缓冲/发送队列；bufferedAmount 不阻塞 finish（已在浏览器发送队列）
+			if ((preBuffer.length > 0 || sendQueue.length > 0) && Date.now() - startedAt < 2000) {
+				setTimeout(trySend, 30);
+				return;
+			}
+			try {
+				ws?.send(JSON.stringify({ type: "finish" }));
+			} catch {
+				/* ignore */
+			}
+		};
+		trySend();
+	};
+
 	const hookWorklet = () => {
-		if (aborted || !audioCtx || !mediaStream) return;
+		if (aborted || resolved || !audioCtx || !mediaStream || workletNode) return;
 		workletNode = new AudioWorkletNode(audioCtx, "pcm-worklet");
 		workletNode.port.onmessage = (e: MessageEvent<Int16Array>) => {
-			if (aborted || ws?.readyState !== WebSocket.OPEN) return;
+			if (aborted || resolved) return;
 			const buf = e.data;
 			if (levelCb) levelCb(pcm16AudioLevel(new Uint8Array(buf.buffer)));
-			ws.send(buf.buffer);
+			// worklet 已 transfer 所有权；再 copy 一份入队，避免后续引用踩空
+			enqueueOrSend(copyPcm(buf.buffer));
 		};
 		sourceNode = audioCtx.createMediaStreamSource(mediaStream);
 		sourceNode.connect(workletNode);
+	};
+
+	const finishTimeoutMs = () => {
+		const audioSec = capturedAudioBytes / 32_000;
+		return Math.min(
+			ASR_FINISH_MAX_MS,
+			Math.max(ASR_FINISH_BASE_MS, Math.ceil(audioSec * ASR_FINISH_PER_AUDIO_SEC_MS) + ASR_FINISH_BASE_MS),
+		);
 	};
 
 	const startSession = async (opts: {
@@ -98,20 +220,12 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 		resolved = false;
 		lastFullText = "";
 		directStructured = false;
-
-		mediaStream = await navigator.mediaDevices.getUserMedia({
-			audio: {
-				channelCount: 1,
-				echoCancellation: true,
-				noiseSuppression: true,
-				autoGainControl: true,
-			},
-		});
-
-		audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)({
-			sampleRate: 16000,
-		});
-		await audioCtx.audioWorklet.addModule(workletPath);
+		sessionReady = false;
+		finishRequested = false;
+		capturedAudioBytes = 0;
+		preBufferBytes = 0;
+		preBuffer.length = 0;
+		sendQueue.length = 0;
 
 		ws = new WebSocket(`${wsBase}/asr/stream`);
 		ws.binaryType = "arraybuffer";
@@ -148,7 +262,9 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 			}
 			switch (msg.type) {
 				case "ready":
-					hookWorklet();
+					sessionReady = true;
+					flushPreBuffer();
+					if (finishRequested) sendFinishWhenDrained();
 					break;
 				case "partial":
 					lastFullText = msg.text ?? "";
@@ -167,8 +283,38 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 
 		ws.onerror = () => fail(new Error("ASR WebSocket error"));
 		ws.onclose = () => {
-			if (!resolved) finalize({ text: lastFullText, directStructured });
+			if (resolved) return;
+			// finish 之后 proxy 会主动 close，这是常态。
+			// 绝不能在这里抢先 finalize(incomplete)，否则会盖掉随后到达的 done。
+			// 收尾交给 done 消息；若 done 丢失，由 stop() 的超时路径标 incomplete。
+			if (finishRequested) return;
+			if (lastFullText.trim()) {
+				finalize({ text: lastFullText, directStructured, incomplete: true });
+				return;
+			}
+			fail(new Error("识别连接已断开，请重说一遍。"));
 		};
+
+		audioCtx = new (window.AudioContext ||
+			(window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)({
+			sampleRate: 16000,
+		});
+		const workletLoaded = audioCtx.audioWorklet.addModule(workletPath);
+		mediaStream = config.warmStream
+			? await config.warmStream.catch(() => openMicStream())
+			: await openMicStream();
+		// await 期间 ws 可能已失败并 cleanup 过：此时 ctx 已关闭，
+		// 继续 hookWorklet 会在关闭的 ctx 上构造节点抛错，且刚开的麦克风流会泄漏
+		if (resolved || aborted) {
+			cleanup();
+			return;
+		}
+		await workletLoaded;
+		if (resolved || aborted) {
+			cleanup();
+			return;
+		}
+		hookWorklet();
 	};
 
 	return {
@@ -185,30 +331,33 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 			finalize({ text: "", directStructured: false });
 		},
 		async stop() {
-			if (ws?.readyState === WebSocket.OPEN) {
-				try {
-					ws.send(JSON.stringify({ type: "finish" }));
-				} catch {
-					/* ignore */
-				}
+			finishRequested = true;
+			// 先断采集入口，排空 worklet 队列后再 finish，避免尾音丢失
+			try {
+				sourceNode?.disconnect();
+			} catch {
+				/* ignore */
 			}
+			await new Promise((r) => setTimeout(r, 80));
+			if (sessionReady) sendFinishWhenDrained();
+			const timeoutMs = finishTimeoutMs();
 			let timeoutId: ReturnType<typeof setTimeout> | undefined;
 			const timeout = new Promise<VoiceResult>((_, reject) => {
 				timeoutId = setTimeout(
 					() => reject(new Error("ASR finish timeout")),
-					ASR_FINISH_TIMEOUT_MS,
+					timeoutMs,
 				);
 			});
 			try {
 				return await Promise.race([done, timeout]);
 			} catch {
-				try {
-					ws?.send(JSON.stringify({ type: "abort" }));
-				} catch {
-					/* socket already closed */
-				}
 				cleanup();
-				return { text: lastFullText, directStructured };
+				// 绝不当作完整成功：有部分文本也标 incomplete，由 UI 拦截插入
+				return {
+					text: lastFullText,
+					directStructured,
+					incomplete: true,
+				};
 			} finally {
 				if (timeoutId) clearTimeout(timeoutId);
 			}

@@ -322,6 +322,7 @@ export function OverlayApp() {
 		predictRefining,
 		voiceTabPlacement,
 		voiceHint,
+		voiceStandbyUntil,
 		widgetDisplayBounds,
 		structureDraftOpen,
 		voiceLevel,
@@ -479,9 +480,14 @@ export function OverlayApp() {
 		contextPageLabel,
 		contextWindowTitle,
 	});
+	const isVoiceStandby =
+		status === "idle" &&
+		typeof voiceStandbyUntil === "number" &&
+		voiceStandbyUntil > Date.now();
 	const inputScene =
-		isVoiceAssist &&
-		(status === "listening" || isVoiceFormatting || status === "done");
+		(isVoiceAssist &&
+			(status === "listening" || isVoiceFormatting || status === "done")) ||
+		isVoiceStandby;
 	const replyPredictScene =
 		status === "predict" && predictSurface === "reply" && Boolean(voiceTabPlacement);
 	const voiceTabAnchorScene = inputScene || replyPredictScene;
@@ -509,7 +515,8 @@ export function OverlayApp() {
 			: isStructureDraftCard && typeof window !== "undefined"
 				? { x: window.innerWidth / 2, y: window.innerHeight - 120 }
 				: null;
-	const collapsed = (status === "idle" && !panelOpen) || isPredictCard || isStructureDraftCard;
+	const collapsed =
+		(status === "idle" && !panelOpen && !isVoiceStandby) || isPredictCard || isStructureDraftCard;
 	const dockedSide = collapsed ? anchorPosition.snapSide : null;
 	const idleShellWidth = idleRailOpen ? 424 : 360;
 	const shellWidth = inputScene
@@ -733,7 +740,7 @@ export function OverlayApp() {
 								exit={{ opacity: 0, x: -4 }}
 								transition={{ duration: 0.16, delay: 0.06 }}
 							>
-								{status === "idle" && (
+								{status === "idle" && !isVoiceStandby && (
 									<>
 										<div className="min-w-0 flex-1">
 											<p className="text-sm font-medium whitespace-nowrap">{PRODUCT_NAME} 准备好了</p>
@@ -763,9 +770,9 @@ export function OverlayApp() {
 									/>
 								)}
 
-								{status === "listening" && (
+								{(status === "listening" || isVoiceStandby) && (
 									inputScene ? (
-										<div className={voiceHint ? "fold-input-tab-stack" : undefined}>
+										<div className={voiceHint || isVoiceStandby ? "fold-input-tab-stack" : undefined}>
 											<div className="fold-input-tab-row">
 												{contextAppName || contextPageUrl ? (
 													<span className="fold-input-app-icon" aria-hidden="true">
@@ -779,21 +786,26 @@ export function OverlayApp() {
 												) : null}
 												<span
 													className="fold-input-mode max-w-[132px] truncate"
-													title={voiceSurface}
+													title={isVoiceStandby ? "待机" : voiceSurface}
 												>
-													{voiceSurface}
+													{isVoiceStandby ? "待机" : voiceSurface}
 												</span>
 							<span className="fold-input-separator" />
-							<VoiceWave level={voiceLevel} />
+							{isVoiceStandby ? (
+								<span className="fold-input-standby-dot" aria-hidden="true" />
+							) : (
+								<VoiceWave level={voiceLevel} />
+							)}
 							<button
 								type="button"
 								className="fold-input-close"
 								onClick={(event) => {
 									event.stopPropagation();
-									void window.fold.toggleVoice();
+									if (isVoiceStandby) void window.fold.dismiss();
+									else void window.fold.toggleVoice();
 								}}
-								aria-label="结束并转写"
-								title="结束并转写"
+								aria-label={isVoiceStandby ? "结束待机" : "结束并转写"}
+								title={isVoiceStandby ? "结束待机" : "结束并转写"}
 							>
 								<X size={14} strokeWidth={2.2} />
 							</button>
@@ -1024,9 +1036,9 @@ export function OverlayApp() {
 							draft: predictDrafts?.[0]?.text,
 							anchor: predictAnchor,
 						});
-						void window.fold.dismiss({ skipFeedback: true });
+						void window.fold.dismiss({ skipFeedback: true, soft: true });
 					}}
-					onDismiss={() => void window.fold.dismiss()}
+					onDismiss={() => void window.fold.dismiss({ soft: true })}
 				/>
 			)}
 
@@ -1040,7 +1052,7 @@ export function OverlayApp() {
 					appPath={contextAppPath}
 					pageUrl={contextPageUrl}
 					onInsert={(text) => window.fold.structureInsertDraft(text, contextAppName)}
-					onDismiss={() => void window.fold.dismiss()}
+					onDismiss={() => void window.fold.dismiss({ soft: true })}
 				/>
 			)}
 		</div>

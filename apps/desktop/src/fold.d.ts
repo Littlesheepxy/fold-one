@@ -271,7 +271,8 @@ interface FoldApi {
 		height: number;
 	}>;
 	getOverlayState(): Promise<FoldStateEvent>;
-	dismiss(opts?: { skipFeedback?: boolean }): Promise<void>;
+	dismiss(opts?: { skipFeedback?: boolean; soft?: boolean }): Promise<void>;
+	voiceEmpty(): Promise<{ ok: boolean; standby: boolean }>;
 	toggleVoice(): Promise<void>;
 	voiceError(message: string): Promise<void>;
 	openSettings(section?: string): Promise<void>;
@@ -282,6 +283,7 @@ interface FoldApi {
 	exportInputHabitsRime(): Promise<Record<string, unknown> & { canceled?: boolean }>;
 	quit(): Promise<void>;
 	onHotkeyDown(cb: (session: VoiceSessionStart) => void): () => void;
+	onVoiceWarm(cb: () => void): () => void;
 	onHotkeyUp(cb: (mode: "structure" | "reply" | "agent") => void): () => void;
 	onHotkeyCancel(cb: () => void): () => void;
 	onHomeNavigate(cb: (section: string) => void): () => void;
