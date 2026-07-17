@@ -303,6 +303,7 @@ export function OverlayApp() {
 		askMessage,
 		askHint,
 		askOptions,
+		interaction,
 		voiceMode,
 		predictMode,
 		predictPhase,
@@ -342,6 +343,7 @@ export function OverlayApp() {
 	const [anchorPosition, setAnchorPosition] = useState(initialPosition.current);
 	const [hovered, setHovered] = useState(false);
 	const [idleRailOpen, setIdleRailOpen] = useState(false);
+	const [interactionCollapsed, setInteractionCollapsed] = useState(false);
 	const prevStatusRef = useRef(status);
 	const dragMovedRef = useRef(false);
 
@@ -447,6 +449,10 @@ export function OverlayApp() {
 	}, [status, voiceMode]);
 
 	useEffect(() => {
+		if (status === "ask") setInteractionCollapsed(false);
+	}, [interaction?.id, status]);
+
+	useEffect(() => {
 		const handler = (e: Event) => {
 			const level = (e as CustomEvent<number>).detail;
 			if (typeof level === "number") setVoiceLevel(level);
@@ -460,8 +466,9 @@ export function OverlayApp() {
 	}, [setVoiceLevel]);
 
 	useEffect(() => {
-		if (status !== "listening") setVoiceLevel(0);
-	}, [status, setVoiceLevel]);
+		const hitlListening = status === "ask" && Boolean(interaction?.listening);
+		if (status !== "listening" && !hitlListening) setVoiceLevel(0);
+	}, [status, interaction?.listening, setVoiceLevel]);
 
 	const isAgentExecuting =
 		status === "understanding" || status === "planning" || status === "working";
@@ -516,10 +523,15 @@ export function OverlayApp() {
 				? { x: window.innerWidth / 2, y: window.innerHeight - 120 }
 				: null;
 	const collapsed =
-		(status === "idle" && !panelOpen && !isVoiceStandby) || isPredictCard || isStructureDraftCard;
-	const dockedSide = collapsed ? anchorPosition.snapSide : null;
+		(status === "ask" && interactionCollapsed) ||
+		(status === "idle" && !panelOpen && !isVoiceStandby) ||
+		isPredictCard ||
+		isStructureDraftCard;
+	const dockedSide = collapsed && status !== "ask" ? anchorPosition.snapSide : null;
 	const idleShellWidth = idleRailOpen ? 424 : 360;
-	const shellWidth = inputScene
+	const shellWidth = status === "ask" && interactionCollapsed
+		? 268
+		: inputScene
 		? isVoiceFormattingActive
 			? 96
 			: status === "done"
@@ -548,7 +560,7 @@ export function OverlayApp() {
 				: status === "done"
 					? 320
 				: status === "ask"
-					? 400
+					? 440
 				: status === "listening"
 					? 320
 					: 390;
@@ -666,8 +678,12 @@ export function OverlayApp() {
 				className={`${voiceTabAnchorScene ? "fold-input-tab-anchor" : "absolute"} pointer-events-auto select-none`}
 			>
 				<motion.div
-					className={`fold-shell ${collapsed ? "fold-shell-collapsed" : ""} ${
+				className={`fold-shell ${collapsed ? "fold-shell-collapsed" : ""} ${
 						inputScene ? "fold-input-tab" : ""
+					} ${
+						status === "ask" ? "fold-hitl-shell" : ""
+					} ${
+						status === "ask" && interactionCollapsed ? "fold-hitl-shell-collapsed" : ""
 					} ${
 						isProcessingFill ? "fold-shell-fill" : ""
 					} ${
@@ -695,10 +711,28 @@ export function OverlayApp() {
 							: undefined
 					}
 					onClick={() => {
-						if (collapsed && !dragMovedRef.current) setPanelOpen(true);
+						if (!collapsed || dragMovedRef.current) return;
+						if (status === "ask") setInteractionCollapsed(false);
+						else setPanelOpen(true);
 					}}
 				>
 					{isAuthPrompt && <MultiColorBorderBeam duration={5} />}
+
+					{isAuthPrompt && interactionCollapsed ? (
+						<button
+							type="button"
+							className="fold-hitl-collapsed"
+							onClick={(event) => {
+								event.stopPropagation();
+								setInteractionCollapsed(false);
+							}}
+						>
+							<ZhigengLogoMark className="fold-hitl-collapsed-logo" size={28} mono />
+							<span className="fold-hitl-status-dot" aria-hidden="true" />
+							<span className="fold-hitl-collapsed-copy">1 个任务等待你</span>
+							<span className="fold-hitl-collapsed-open">展开</span>
+						</button>
+					) : null}
 
 					{!inputScene && !isExecuting && !isAuthPrompt && status !== "done" && (
 						<button
@@ -913,11 +947,15 @@ export function OverlayApp() {
 
 								{status === "ask" && askOptions && askOptions.length > 0 && (
 									<AskOptions
+										interaction={interaction}
 										title={askTitle}
 										message={askMessage}
 										hint={askHint}
-										options={askOptions}
-										onSelect={(id) => void window.fold.askResponse(id)}
+										options={interaction?.options ?? askOptions}
+										voiceLevel={voiceLevel}
+										onRespond={(response) => void window.fold.askResponse(response)}
+										onToggleVoice={() => void window.fold.toggleInteractionVoice()}
+										onCollapse={() => setInteractionCollapsed(true)}
 									/>
 								)}
 							</motion.div>
