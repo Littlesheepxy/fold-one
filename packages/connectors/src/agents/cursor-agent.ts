@@ -1,5 +1,5 @@
 import { runShellDetailed } from "../shell.js";
-import { LOCAL_TASK_RETURN_INSTRUCTIONS } from "../task-events.js";
+import { buildAgentPrompt } from "./prompt.js";
 import type { AgentConnector, AgentResult, AgentTask } from "./types.js";
 
 function parseAgentJson(stdout: string): { result?: string } {
@@ -26,12 +26,13 @@ export const cursorAgentConnector: AgentConnector = {
 	},
 
 	async execute(task: AgentTask): Promise<AgentResult> {
-		const args = ["-p", "--output-format", "json", buildPrompt(task)];
+		const args = ["-p", "--output-format", "json", buildAgentPrompt(task)];
 		if (task.allowEdits) args.splice(1, 0, "--force");
 		else args.splice(1, 0, "--mode", "ask");
 
 		const result = await runShellDetailed("agent", args, task.timeoutMs ?? 180_000, task.cwd, {
 			closeStdin: true,
+			signal: task.signal,
 		});
 		const parsed = parseAgentJson(result.stdout);
 		const summary = parsed.result?.trim() || result.stdout.trim() || result.stderr.trim();
@@ -49,12 +50,3 @@ export const cursorAgentConnector: AgentConnector = {
 		};
 	},
 };
-
-function buildPrompt(task: AgentTask): string {
-	const parts = [task.brief.trim()];
-	if (task.contextSnapshot?.trim()) {
-		parts.push("", "Fold context:", task.contextSnapshot.trim());
-	}
-	parts.push("", LOCAL_TASK_RETURN_INSTRUCTIONS);
-	return parts.join("\n");
-}

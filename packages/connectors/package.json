@@ -6,8 +6,11 @@
   "exports": {
     ".": "./src/index.ts"
   },
-  "scripts": {
-    "typecheck": "tsc --noEmit",
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test:agent-prompt": "pnpm exec tsx src/agents/prompt.self-check.ts",
+		"test:shell-cancel": "pnpm exec tsx src/shell.self-check.ts",
+		"test:office-args": "pnpm exec tsx src/office/index.self-check.ts",
     "test:task-events": "tsx src/task-events.self-check.ts"
   },
   "dependencies": {

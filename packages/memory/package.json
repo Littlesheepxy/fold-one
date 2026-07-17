@@ -7,7 +7,8 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+	"typecheck": "tsc --noEmit",
+	"test:run-store": "pnpm exec tsx src/run.self-check.ts"
   },
   "dependencies": {
     "@fold/ai": "workspace:*",

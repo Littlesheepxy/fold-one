@@ -11,6 +11,7 @@ export {
 	type FrontWindowAccessibility,
 } from "./accessibility.js";
 export {
+	calendarBinaryCandidates,
 	formatCalendarBrief,
 	isCalendarFeatureEnabled,
 	listUpcomingCalendarEvents,

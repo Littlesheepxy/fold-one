@@ -1,5 +1,5 @@
 import { runShellDetailed } from "../shell.js";
-import { LOCAL_TASK_RETURN_INSTRUCTIONS } from "../task-events.js";
+import { buildAgentPrompt } from "./prompt.js";
 import type { AgentConnector, AgentResult, AgentTask } from "./types.js";
 
 function parseClaudeJson(stdout: string): { result?: string; session_id?: string; total_cost_usd?: number } {
@@ -36,16 +36,19 @@ export const claudeCodeConnector: AgentConnector = {
 		const args = [
 			"--bare",
 			"-p",
-			buildPrompt(task),
+			buildAgentPrompt(task),
 			"--output-format",
 			"json",
 			"--allowedTools",
 			task.allowEdits ? "Read,Edit,Bash" : "Read,Bash",
 		];
+		const resumeSessionId = task.envelope?.resumeSessionId?.trim();
+		if (resumeSessionId) args.push("--resume", resumeSessionId);
 		if (task.maxTurns) args.push("--max-turns", String(task.maxTurns));
 
 		const result = await runShellDetailed("claude", args, task.timeoutMs ?? 180_000, task.cwd, {
 			closeStdin: true,
+			signal: task.signal,
 		});
 		const parsed = parseClaudeJson(result.stdout);
 		const summary =
@@ -68,12 +71,3 @@ export const claudeCodeConnector: AgentConnector = {
 		};
 	},
 };
-
-function buildPrompt(task: AgentTask): string {
-	const parts = [task.brief.trim()];
-	if (task.contextSnapshot?.trim()) {
-		parts.push("", "Fold context:", task.contextSnapshot.trim());
-	}
-	parts.push("", LOCAL_TASK_RETURN_INSTRUCTIONS);
-	return parts.join("\n");
-}

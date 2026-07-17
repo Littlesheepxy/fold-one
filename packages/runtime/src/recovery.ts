@@ -76,6 +76,13 @@ export function isNativeGuiContext(intent: string, context: LiveContext): boolea
 
 export function classifyFailure(failure: StepFailure): string {
 	const message = failure.error ?? "";
+	if (
+		/unknown (option|argument|command)|unrecognized (option|argument)|invalid (option|argument)|unexpected argument|usage:/i.test(
+			message,
+		)
+	) {
+		return "tool.contract";
+	}
 	if (/timeout/i.test(message)) return "timeout";
 	if (/not found|enoent/i.test(message)) return "entity.notFound";
 	if (/permission|denied|sandbox/i.test(message)) return "permission.denied";
@@ -120,6 +127,7 @@ export function selectRepairBackend(ctx: RecoveryContext, attempt: number): Repa
 		return "screenshot";
 	}
 	if (ctx.cdpConnected) return "browser";
+	if (ctx.agentsEnabled && ctx.availableAgents.length > 0) return "agent";
 
 	return "screenshot";
 }
@@ -140,9 +148,6 @@ export function resolveRepairBudget(ctx: RecoveryContext): RepairBudget {
 		if (ctx.cdpConnected || ctx.uitarsEnabled || ctx.workbuddyAvailable) {
 			return GUI_REPAIR_BUDGET;
 		}
-	}
-	if (ctx.agentsEnabled && ctx.availableAgents.length > 0) {
-		return GUI_REPAIR_BUDGET;
 	}
 	return DEFAULT_REPAIR_BUDGET;
 }
@@ -202,7 +207,32 @@ export function handleFailure(ctx: RecoveryContext): RecoveryAction | null {
 		};
 	}
 
+	if (backend === "agent") {
+		return {
+			type: "repair",
+			backend: "agent",
+			agent: ctx.availableAgents[0] ?? "auto",
+			brief: buildAgentRepairBrief(ctx),
+			budget,
+		};
+	}
+
 	return { type: "abort", reason: primary?.error ?? "validation failed" };
+}
+
+function buildAgentRepairBrief(ctx: RecoveryContext): string {
+	const failures = ctx.failures
+		.map((failure) => `- ${failure.skill}: ${failure.error ?? "failed"}`)
+		.join("\n");
+	return [
+		`Complete the Fold user intent: ${ctx.intent}`,
+		"",
+		"The fast path failed:",
+		failures || "- Validation failed without a step error.",
+		"",
+		"Inspect the real tool or CLI contract, perform the smallest safe repair, and then complete the original intent.",
+		"Before repeating any side effect, check whether the failed path already produced evidence of success.",
+	].join("\n");
 }
 
 export function buildRecoveryPlan(

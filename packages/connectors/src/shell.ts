@@ -78,18 +78,23 @@ export async function runShellDetailed(
 	args: string[],
 	timeoutMs = 10000,
 	cwd?: string,
-	_options?: { closeStdin?: boolean },
+	options?: { closeStdin?: boolean; signal?: AbortSignal },
 ): Promise<ShellResult> {
 	const searchDirs = executableSearchDirs();
 	const executable = await resolveExecutable(command, searchDirs);
+	if (options?.signal?.aborted) {
+		return { stdout: "", stderr: `Command canceled: ${command}`, exitCode: 130 };
+	}
 	return new Promise((resolve) => {
 		let stdout = "";
 		let stderr = "";
 		let settled = false;
+		let removeAbortListener = () => {};
 		const finish = (result: ShellResult) => {
 			if (settled) return;
 			settled = true;
 			clearTimeout(timer);
+			removeAbortListener();
 			resolve(result);
 		};
 		const child = spawn(executable, args, {
@@ -102,6 +107,14 @@ export async function runShellDetailed(
 			child.kill("SIGTERM");
 			finish({ stdout, stderr: stderr || `Command timed out: ${command}`, exitCode: 124 });
 		}, timeoutMs);
+		if (options?.signal) {
+			const onAbort = () => {
+				child.kill("SIGTERM");
+				finish({ stdout, stderr: stderr || `Command canceled: ${command}`, exitCode: 130 });
+			};
+			options.signal.addEventListener("abort", onAbort, { once: true });
+			removeAbortListener = () => options.signal?.removeEventListener("abort", onAbort);
+		}
 		const append = (current: string, chunk: Buffer): string => {
 			const next = current + chunk.toString("utf8");
 			return next.length > 10 * 1024 * 1024 ? next.slice(0, 10 * 1024 * 1024) : next;

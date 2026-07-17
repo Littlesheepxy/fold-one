@@ -46,6 +46,7 @@ export interface Episode {
 	agentEventsJson?: string;
 	artifactsJson?: string;
 	memoryCandidatesJson?: string;
+	taskMomentJson?: string;
 	durationMs: number;
 }
 
@@ -76,6 +77,7 @@ type EpisodeRow = {
 	agent_events_json: string | null;
 	artifacts_json: string | null;
 	memory_candidates_json: string | null;
+	task_moment_json: string | null;
 	duration_ms: number | null;
 };
 
@@ -98,6 +100,7 @@ function mapEpisodeRow(row: EpisodeRow): Episode {
 		agentEventsJson: row.agent_events_json ?? undefined,
 		artifactsJson: row.artifacts_json ?? undefined,
 		memoryCandidatesJson: row.memory_candidates_json ?? undefined,
+		taskMomentJson: row.task_moment_json ?? undefined,
 		durationMs: row.duration_ms ?? 0,
 	};
 }
@@ -105,7 +108,7 @@ function mapEpisodeRow(row: EpisodeRow): Episode {
 const EPISODE_SELECT = `
 	SELECT id, timestamp, intent, goal, status, summary, summary_json, plan_json, steps_json,
 		probe_summary, validation_json, context_events_json, thinking_text, result_detail,
-		agent_events_json, artifacts_json, memory_candidates_json, duration_ms
+		agent_events_json, artifacts_json, memory_candidates_json, task_moment_json, duration_ms
 	FROM episodes`;
 
 export interface MemoryRecord {
@@ -195,6 +198,7 @@ export function getDb(dataDir?: string): Database.Database {
 	ensureColumn(db, "episodes", "agent_events_json", "TEXT");
 	ensureColumn(db, "episodes", "artifacts_json", "TEXT");
 	ensureColumn(db, "episodes", "memory_candidates_json", "TEXT");
+	ensureColumn(db, "episodes", "task_moment_json", "TEXT");
 	return db;
 }
 
@@ -386,6 +390,8 @@ export function saveEpisode(
 		artifacts?: unknown[];
 		/** Stored for review only; saveEpisode never promotes these into active memories. */
 		memoryCandidates?: unknown[];
+		/** Task-scoped voice/clipboard/AX context with raw-event provenance. */
+		taskMoment?: unknown;
 	},
 	dataDir?: string,
 ): Episode {
@@ -403,15 +409,16 @@ export function saveEpisode(
 	const agentEventsJson = asJson(input.agentEvents ?? []);
 	const artifactsJson = asJson(input.artifacts ?? []);
 	const memoryCandidatesJson = asJson(input.memoryCandidates ?? []);
+	const taskMomentJson = asJson(input.taskMoment ?? null);
 
 	conn
 		.prepare(
 			`INSERT INTO episodes (
 				id, timestamp, intent, goal, status, summary, summary_json, plan_json, steps_json,
 				probe_summary, validation_json, context_events_json, thinking_text, result_detail,
-				agent_events_json, artifacts_json, memory_candidates_json, duration_ms
+				agent_events_json, artifacts_json, memory_candidates_json, task_moment_json, duration_ms
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		)
 		.run(
 			id,
@@ -431,6 +438,7 @@ export function saveEpisode(
 			agentEventsJson,
 			artifactsJson,
 			memoryCandidatesJson,
+			taskMomentJson,
 			durationMs,
 		);
 
@@ -452,6 +460,7 @@ export function saveEpisode(
 		agentEventsJson,
 		artifactsJson,
 		memoryCandidatesJson,
+		taskMomentJson,
 		durationMs,
 	};
 }

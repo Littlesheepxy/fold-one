@@ -105,17 +105,20 @@ function buildProfileLine(
 function taskStats(episodes: EpisodeSummary[]) {
 	let success = 0;
 	let partial = 0;
+	let recovered = 0;
 	for (const ep of episodes) {
 		const s = ep.status.toLowerCase();
 		if (s === "success") success += 1;
+		else if (s === "recovered") recovered += 1;
 		else if (s === "partial") partial += 1;
 	}
-	return { total: episodes.length, success, partial };
+	return { total: episodes.length, success, recovered, partial };
 }
 
 function statusLabel(status: string) {
 	const s = status.toLowerCase();
 	if (s === "success") return "成功";
+	if (s === "recovered") return "恢复完成";
 	if (s === "partial") return "需要继续";
 	return status;
 }
@@ -176,7 +179,7 @@ export function ProfileSection({
 	const followUps = dedupeFollowUpIntents(episodes
 		.filter((episode) => {
 			// 已完成的任务不需要跟进；空口令（如「代回：.」）没有可跟进的内容
-			if (episode.status.toLowerCase() === "success") return false;
+			if (["success", "recovered"].includes(episode.status.toLowerCase())) return false;
 			if (episode.intent.replace(/^(代回|转写)：/, "").replace(/[\s.。，,、…]+/g, "").length < 2) return false;
 			return FOLLOW_UP_PATTERN.test(`${episode.intent} ${episode.summary}`);
 		}));
@@ -377,7 +380,7 @@ export function ProfileSection({
 						) : null}
 						<div>
 							<strong>任务记录</strong>
-							<span>{stats.total} 次，{stats.success} 次成功{stats.partial > 0 ? `，${stats.partial} 次部分完成` : ""}</span>
+							<span>{stats.total} 次，{stats.success} 次成功{stats.recovered > 0 ? `，${stats.recovered} 次恢复完成` : ""}{stats.partial > 0 ? `，${stats.partial} 次部分完成` : ""}</span>
 						</div>
 					</div>
 					<button type="button" className="fold-profile-action-btn primary" onClick={() => setImportOpen(true)}>

@@ -3,7 +3,9 @@ import { mockActionPlan } from "@fold/ai";
 import type { AgentId } from "@fold/connectors";
 import {
 	isCodeRepairHint,
+	extractFeishuSelfMessageText,
 	isFeishuIntent,
+	isFeishuSelfMessageIntent,
 	isBrowserIntent,
 	isGmailIntent,
 	isMailCountIntent,
@@ -41,6 +43,47 @@ function isComplexIntent(intent: string): boolean {
 
 /** Tier 0: deterministic compiled plans (no LLM). */
 export function tryCompiledPlan(intent: string) {
+	if (isFeishuSelfMessageIntent(intent)) {
+		const text = extractFeishuSelfMessageText(intent);
+		if (text) {
+			return {
+				goal: `通过飞书给用户自己发送消息：${text}`,
+				steps: [
+					{
+						id: "feishu-self",
+						skill: "office.cli",
+						args: {
+							channel: "feishu",
+							args: ["contact", "+get-user", "--as", "user", "--format", "json"],
+						},
+						retryable: true,
+						timeout: 10_000,
+					},
+					{
+						id: "feishu-send-self",
+						skill: "office.cli",
+						args: {
+							channel: "feishu",
+							args: [
+								"im",
+								"+messages-send",
+								"--as",
+								"user",
+								"--user-id",
+								"{{steps.feishu-self.stdout.data.user.open_id}}",
+								"--text",
+								text,
+							],
+						},
+						dependsOn: ["feishu-self"],
+						retryable: true,
+						timeout: 15_000,
+					},
+				],
+				validate: ["office.cli.exitOk"],
+			};
+		}
+	}
 	if (isMailCountIntent(intent) || isPdfDownloadCountIntent(intent) || isPdfMailDemoIntent(intent)) {
 		return mockActionPlan(intent);
 	}

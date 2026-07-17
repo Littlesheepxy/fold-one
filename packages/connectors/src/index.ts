@@ -67,7 +67,9 @@ export {
 	type AgentId,
 	type AgentProbeStatus,
 	type AgentResult,
+	type AgentResultEnvelope,
 	type AgentTask,
+	type AgentTaskEnvelope,
 	type SubagentHandoff,
 } from "./agents/index.js";
 export {
@@ -137,6 +139,7 @@ export {
 } from "./slack/index.js";
 export {
 	isOfficeChannelId,
+	normalizeOfficeCliArgs,
 	openOfficeSetupInTerminal,
 	probeOfficeChannels,
 	runOfficeCli,
@@ -167,6 +170,7 @@ export {
 } from "./office/auth-flow.js";
 export {
 	captureScreenshot,
+	calendarBinaryCandidates,
 	formatCalendarBrief,
 	isCalendarFeatureEnabled,
 	listUpcomingCalendarEvents,

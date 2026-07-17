@@ -7,7 +7,11 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+		"typecheck": "tsc --noEmit",
+		"test:context-assembler": "pnpm exec tsx src/context-assembler.self-check.ts",
+		"test:format-result": "pnpm exec tsx src/format-result.self-check.ts",
+		"test:validator": "pnpm exec tsx src/validator.self-check.ts",
+		"test:recovery": "pnpm exec tsx src/recovery.self-check.ts"
   },
   "dependencies": {
     "@fold/ai": "workspace:*",
@@ -16,8 +20,8 @@
     "@fold/memory": "workspace:*",
     "@fold/skills": "workspace:*"
   },
-  "devDependencies": {
-    "@types/node": "^24.3.0",
+	"devDependencies": {
+		"@types/node": "^24.3.0",
     "typescript": "5.9.2"
   }
 }

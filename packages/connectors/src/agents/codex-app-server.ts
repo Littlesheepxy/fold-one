@@ -59,6 +59,11 @@ export async function resolveCodexBinary(): Promise<string | null> {
 	const home = homedir();
 	const candidates = [
 		process.env.CODEX_BIN,
+		process.env.FOLD_CODEX_BINARY,
+		"/Applications/ChatGPT.app/Contents/Resources/codex",
+		"/Applications/Codex.app/Contents/Resources/codex",
+		join(home, "Applications", "ChatGPT.app", "Contents", "Resources", "codex"),
+		join(home, "Applications", "Codex.app", "Contents", "Resources", "codex"),
 		"/opt/homebrew/bin/codex",
 		"/usr/local/bin/codex",
 		join(home, ".local", "bin", "codex"),
@@ -139,7 +144,10 @@ export class CodexAppServerClient {
 	}
 
 	async request<T = unknown>(method: string, params?: unknown, timeoutMs = 30_000): Promise<T> {
-		await this.start();
+		// boot() itself sends initialize through this method. Waiting on start()
+		// unconditionally here would make initialize await the very boot promise
+		// that is waiting for initialize, deadlocking every App Server launch.
+		if (!this.proc?.stdin.writable) await this.start();
 		if (!this.proc?.stdin.writable) throw new Error("Codex app-server 未就绪");
 
 		const id = this.nextId++;
@@ -228,13 +236,27 @@ export class CodexAppServerClient {
 		return id;
 	}
 
+	async resumePersistentThread(threadId: string): Promise<string> {
+		const result = await this.request<{ thread?: { id?: string } }>(
+			"thread/resume",
+			{ threadId },
+			60_000,
+		);
+		const id = result.thread?.id;
+		if (!id) throw new Error("thread/resume 未返回 thread.id");
+		return id;
+	}
+
 	async runTurn(input: {
 		threadId: string;
 		text: string;
 		timeoutMs?: number;
+		signal?: AbortSignal;
 	}): Promise<{ ok: boolean; summary: string; turnStatus?: string }> {
 		let agentText = "";
 		let turnStatus = "unknown";
+		let turnId: string | undefined;
+		let interruptRequested = false;
 
 		const off = this.onNotification((msg) => {
 			if (msg.method === "item/agentMessage/delta") {
@@ -252,7 +274,7 @@ export class CodexAppServerClient {
 		});
 
 		try {
-			await this.request(
+			const started = await this.request<{ turn?: { id?: string } }>(
 				"turn/start",
 				{
 					threadId: input.threadId,
@@ -260,9 +282,22 @@ export class CodexAppServerClient {
 				},
 				30_000,
 			);
+			turnId = started.turn?.id;
 
 			const deadline = Date.now() + (input.timeoutMs ?? 180_000);
 			while (Date.now() < deadline) {
+				if (input.signal?.aborted && !interruptRequested) {
+					interruptRequested = true;
+					if (turnId) {
+						await this.request(
+							"turn/interrupt",
+							{ threadId: input.threadId, turnId },
+							5_000,
+						).catch(() => undefined);
+					}
+					turnStatus = "interrupted";
+					break;
+				}
 				if (turnStatus === "completed" || turnStatus === "failed" || turnStatus === "interrupted") {
 					break;
 				}
@@ -272,7 +307,13 @@ export class CodexAppServerClient {
 			const summary = agentText.trim();
 			return {
 				ok: turnStatus === "completed" && Boolean(summary),
-				summary: summary || (turnStatus === "failed" ? "Codex 执行失败" : "Codex 未返回结果"),
+				summary:
+					summary ||
+					(turnStatus === "failed"
+						? "Codex 执行失败"
+						: turnStatus === "interrupted"
+							? "Codex 任务已取消"
+							: "Codex 未返回结果"),
 				turnStatus,
 			};
 		} finally {

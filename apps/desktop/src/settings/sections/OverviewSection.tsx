@@ -545,7 +545,7 @@ export function OverviewSection({
 										</span>
 										<time>{formatActivityTime(episode.timestamp)}</time>
 										<span className={`fold-activity-state is-${episode.status}`}>
-											{episode.status === "success" ? <Check size={14} strokeWidth={2.4} /> : null}
+											{episode.status === "success" || episode.status === "recovered" ? <Check size={14} strokeWidth={2.4} /> : null}
 										</span>
 									</button>
 								);

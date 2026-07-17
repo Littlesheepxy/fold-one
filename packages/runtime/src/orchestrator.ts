@@ -7,19 +7,36 @@ import {
 import type { LiveContext } from "@fold/context";
 import {
 	isAgentSubagentsEnabled,
+	type AgentTaskEnvelope,
 	type LocalTaskArtifact,
 	type LocalTaskEvent,
 	type MemoryCandidate,
 } from "@fold/connectors";
-import { saveEpisode } from "@fold/memory";
-import { buildSkillCatalog, labelForStep } from "@fold/skills";
+import {
+	appendRunEvent,
+	getSideEffectReceipt,
+	saveEpisode,
+	saveTaskCheckpoint,
+	startTaskRun,
+	updateTaskRun,
+	upsertSideEffectReceipt,
+	type RunEventType,
+} from "@fold/memory";
+import { buildSkillCatalog, labelForStep, type SkillContext } from "@fold/skills";
 import { ensureExecutionPrerequisites } from "./auth-gate.js";
 import { formatCapabilityBrief } from "./capability-brief.js";
-import { formatRelevantEpisodes } from "./episode-context.js";
-import { formatPlannerMemory } from "./trace-retrieval.js";
-import { buildAgentPlannerContextSummary } from "./context-enrich.js";
+import {
+	assembleTaskContext,
+	type AssembledTaskContext,
+} from "./context-assembler.js";
 import { buildResultDetail, buildUserVisibleSummary, formatThinkingText } from "./format-result.js";
-import { runPlan } from "./executor.js";
+import {
+	runPlan,
+	TaskCanceledError,
+	throwIfTaskCanceled,
+	type ExecutorCheckpoint,
+	type RunPlanOptions,
+} from "./executor.js";
 import { formatProbeSummary, runProbes, type ProbeRunResult } from "./probe-runner.js";
 import { buildReactAgentPlan } from "./repair.js";
 import { getAgentProbe, getCdpConnected, runRecoveryLoop } from "./recovery-runner.js";
@@ -27,8 +44,22 @@ import { resolveTier, tryCompiledPlan } from "./router.js";
 import type { OrchestratorDeps, StateEmitter, TaskResult } from "./types.js";
 import { needsVisualRead } from "./capability-resolver.js";
 import { validatePlan, type ValidationResult } from "./validator.js";
+import { createTaskMoment, type TaskMoment } from "./task-moment.js";
 
 export type { OrchestratorDeps } from "./types.js";
+
+function recordRunEvent(
+	runId: string,
+	type: RunEventType,
+	payload: Record<string, unknown>,
+	dataDir?: string,
+): void {
+	try {
+		appendRunEvent({ runId, type, payload }, dataDir);
+	} catch {
+		// Event persistence is diagnostic/durable state and must not break the live fast path.
+	}
+}
 
 function collectLocalTaskEvidence(steps: Array<{ output?: unknown }>): {
 	agentEvents: LocalTaskEvent[];
@@ -50,12 +81,62 @@ function collectLocalTaskEvidence(steps: Array<{ output?: unknown }>): {
 	return { agentEvents, artifacts, memoryCandidates };
 }
 
+function findAgentSessionId(steps: Array<{ output?: unknown }>): string | undefined {
+	for (let i = steps.length - 1; i >= 0; i -= 1) {
+		const output = steps[i]?.output;
+		if (!output || typeof output !== "object") continue;
+		const record = output as Record<string, unknown>;
+		if (typeof record.sessionId === "string" && record.sessionId) return record.sessionId;
+		const handoff = record.handoff;
+		if (handoff && typeof handoff === "object") {
+			const sessionId = (handoff as Record<string, unknown>).sessionId;
+			if (typeof sessionId === "string" && sessionId) return sessionId;
+		}
+	}
+	return undefined;
+}
+
+function buildAgentTaskEnvelope(
+	intent: string,
+	plan: ActionPlan,
+	moment: TaskMoment,
+	assembled?: AssembledTaskContext,
+): AgentTaskEnvelope {
+	return {
+		runId: moment.taskId,
+		goal: intent,
+		currentState: "ready_to_execute",
+		context: {
+			workingContext: assembled?.contextSummary,
+			taskMoment: moment,
+		},
+		relevantMemories: assembled?.memoryBrief ? [assembled.memoryBrief] : [],
+		previousAttempts: [],
+		availableCapabilities: [...new Set(plan.steps.map((step) => step.skill))],
+		constraints: [
+			"Do not repeat a side effect when evidence shows it already succeeded.",
+			"Do not expose secrets, credentials, tokens, or unrelated private content.",
+			"Prefer the smallest change or action that satisfies the user intent.",
+		],
+		acceptanceCriteria: [
+			...plan.validate,
+			"Return concrete evidence for every claimed side effect.",
+		],
+		idempotencyKey: `fold:${moment.taskId}`,
+	};
+}
+
 export async function runTask(
 	intent: string,
 	emit: StateEmitter,
 	deps: OrchestratorDeps,
 ): Promise<TaskResult> {
 	const context = deps.getLiveContext();
+	let taskMoment = createTaskMoment(intent, context);
+	startTaskRun(
+		{ id: taskMoment.taskId, intent, taskMoment, phase: "understanding" },
+		deps.dataDir,
+	);
 
 	emit({ status: "understanding", transcript: intent });
 
@@ -63,9 +144,13 @@ export async function runTask(
 	let probeSummary = "";
 	let probeResult: ProbeRunResult | undefined;
 	let plannerContextSummary: string | undefined;
+	let assembledContext: AssembledTaskContext | undefined;
 	try {
+		updateTaskRun(taskMoment.taskId, { phase: "planning" }, deps.dataDir);
 		emit({ status: "planning" });
+		throwIfTaskCanceled(deps.signal);
 		probeResult = await runProbes(intent, context);
+		throwIfTaskCanceled(deps.signal);
 		probeSummary = formatProbeSummary(probeResult);
 		const route = resolveTier(intent, context, probeResult);
 		if (route.tier === "react") {
@@ -80,8 +165,14 @@ export async function runTask(
 					`此任务需要 Tier 2，但未检测到可用的本地 Agent CLI（claude / codex / agent）。`,
 				);
 			}
-			const built = await buildAgentPlannerContextSummary(context);
-			plannerContextSummary = built.summary;
+			assembledContext = await assembleTaskContext(
+				intent,
+				context,
+				deps.dataDir,
+				taskMoment.taskId,
+			);
+			taskMoment = assembledContext.moment;
+			plannerContextSummary = assembledContext.agentContext;
 			plan = buildReactAgentPlan(
 				intent,
 				agentProbe.preferred ?? "auto",
@@ -90,34 +181,56 @@ export async function runTask(
 		} else if (route.tier === "compiled") {
 			plan = tryCompiledPlan(intent) ?? mockActionPlan(intent);
 		} else if (hasPlannerApiKey()) {
-			const { summary: contextSummary, enriched } = await buildAgentPlannerContextSummary(context);
-			plannerContextSummary = contextSummary;
+			assembledContext = await assembleTaskContext(
+				intent,
+				context,
+				deps.dataDir,
+				taskMoment.taskId,
+			);
+			taskMoment = assembledContext.moment;
+			plannerContextSummary = assembledContext.agentContext;
 			plan = await generateActionPlan({
 				intent,
-				contextSummary,
+				contextSummary: assembledContext.contextSummary,
 				skillCatalog: buildSkillCatalog(),
 				probeSummary,
-				relevantEpisodes: formatPlannerMemory(
-					intent,
-					context,
-					formatRelevantEpisodes(intent, deps.dataDir),
-					deps.dataDir,
-					enriched.screenSnippet || intent,
-				),
+				relevantEpisodes: assembledContext.memoryBrief,
 			});
 		} else {
 			plan = mockActionPlan(intent);
 		}
 	} catch (e) {
-		emit({ status: "error", error: (e as Error).message });
+		const canceled = deps.signal?.aborted || e instanceof TaskCanceledError;
+		const error = canceled ? "任务已取消" : (e as Error).message;
+		updateTaskRun(
+			taskMoment.taskId,
+			{
+				status: canceled ? "canceled" : "failed",
+				phase: canceled ? "canceled" : "planning_failed",
+				error,
+				completedAt: Date.now(),
+			},
+			deps.dataDir,
+		);
+		recordRunEvent(taskMoment.taskId, canceled ? "run.canceled" : "run.completed", {
+			status: canceled ? "canceled" : "failed", error,
+		}, deps.dataDir);
+		emit({ status: "error", error });
 		return {
-			status: "failed",
+			runId: taskMoment.taskId,
+			status: canceled ? "canceled" : "failed",
 			intent,
 			plan: mockActionPlan(intent),
 			steps: [],
-			error: (e as Error).message,
+			error,
 		};
 	}
+	updateTaskRun(
+		taskMoment.taskId,
+		{ phase: "planned", plan, taskMoment },
+		deps.dataDir,
+	);
+	recordRunEvent(taskMoment.taskId, "plan.created", { plan }, deps.dataDir);
 
 	const capabilityBrief = probeResult
 		? formatCapabilityBrief(intent, plan, probeResult)
@@ -138,56 +251,206 @@ export async function runTask(
 
 	if (probeResult) {
 		try {
+			throwIfTaskCanceled(deps.signal);
 			await ensureExecutionPrerequisites(intent, plan, probeResult, deps);
+			throwIfTaskCanceled(deps.signal);
 		} catch (e) {
-			emit({ status: "error", error: (e as Error).message });
+			const canceled = deps.signal?.aborted || e instanceof TaskCanceledError;
+			const error = canceled ? "任务已取消" : (e as Error).message;
+			updateTaskRun(
+				taskMoment.taskId,
+				{
+					status: canceled ? "canceled" : "failed",
+					phase: canceled ? "canceled" : "prerequisite_failed",
+					error,
+					completedAt: Date.now(),
+				},
+				deps.dataDir,
+			);
+			recordRunEvent(taskMoment.taskId, canceled ? "run.canceled" : "run.completed", {
+				status: canceled ? "canceled" : "failed", error,
+			}, deps.dataDir);
+			emit({ status: "error", error });
 			return {
-				status: "failed",
+				runId: taskMoment.taskId,
+				status: canceled ? "canceled" : "failed",
 				intent,
 				plan,
 				steps: [],
-				error: (e as Error).message,
+				error,
 			};
 		}
 	}
 
-	const skillCtx = {
+	const skillCtx: SkillContext = {
 		liveContext: context,
 		previousResults: new Map<string, unknown>(),
 		emit: () => {},
 		taskIntent: intent,
 		contextSnapshot: plannerContextSummary,
+		agentTaskEnvelope: buildAgentTaskEnvelope(intent, plan, taskMoment, assembledContext),
+		signal: deps.signal,
+		lookupSideEffectReceipt: (idempotencyKey) => getSideEffectReceipt(idempotencyKey, deps.dataDir),
+		recordSideEffectRequest: (input) => {
+			upsertSideEffectReceipt({
+				runId: taskMoment.taskId,
+				...input,
+				status: "requested",
+			}, deps.dataDir);
+			recordRunEvent(taskMoment.taskId, "action.requested", input, deps.dataDir);
+		},
+	};
+	const executionOptions: RunPlanOptions = {
+		signal: deps.signal,
+		onCheckpoint: (checkpoint: ExecutorCheckpoint) => {
+			try {
+				saveTaskCheckpoint(
+					{
+						runId: taskMoment.taskId,
+						phase: checkpoint.phase,
+						stepId: checkpoint.stepId,
+						skill: checkpoint.skill,
+						status: checkpoint.status,
+						payload: {
+							durationMs: checkpoint.durationMs,
+							error: checkpoint.error,
+							output: checkpoint.output,
+						},
+					},
+					deps.dataDir,
+				);
+				const output = checkpoint.output as Record<string, unknown> | undefined;
+				if (checkpoint.phase === "step_completed" || checkpoint.phase === "step_failed") {
+					recordRunEvent(taskMoment.taskId, "action.observed", {
+						stepId: checkpoint.stepId,
+						skill: checkpoint.skill,
+						ok: checkpoint.phase === "step_completed",
+						error: checkpoint.error,
+						externalRef: output?.externalRef,
+						idempotencyKey: output?.idempotencyKey,
+					}, deps.dataDir);
+				}
+				if (
+					(checkpoint.phase === "step_completed" || checkpoint.phase === "step_failed") &&
+					typeof output?.idempotencyKey === "string" &&
+					typeof output.inputHash === "string"
+				) {
+					upsertSideEffectReceipt({
+						runId: taskMoment.taskId,
+						idempotencyKey: output.idempotencyKey,
+						connector: String(output.channel ?? checkpoint.skill),
+						operation: String(output.operation ?? "execute"),
+						targetFingerprint: String(output.targetFingerprint ?? "unknown"),
+						inputHash: output.inputHash,
+						status: checkpoint.phase === "step_completed" ? "confirmed" : "uncertain",
+						externalRef: typeof output.externalRef === "string" ? output.externalRef : undefined,
+						verification: output,
+					}, deps.dataDir);
+				}
+			} catch {
+				// A non-serializable skill result must not stop the user task.
+			}
+		},
 	};
 
-	const { steps: initialSteps, failures: initialFailures } = await runPlan(plan, skillCtx, emit);
-	const initialValidation = validatePlan(plan, initialSteps);
-	let steps = initialSteps;
-	let validation = initialValidation;
-
+	let steps;
+	let validation;
+	let neededRecovery = false;
 	let abortReason: string | undefined;
-	if (!validation.ok || initialFailures.length > 0) {
-		const recovery = await runRecoveryLoop({
-			intent,
+	try {
+		updateTaskRun(taskMoment.taskId, { phase: "executing" }, deps.dataDir);
+		const { steps: initialSteps, failures: initialFailures } = await runPlan(
 			plan,
-			context,
-			probeResult: probeResult ?? { probes: [] },
 			skillCtx,
 			emit,
-			initialSteps,
-			initialFailures,
-			initialValidation,
-		});
-		steps = recovery.steps;
-		validation = recovery.validation;
-		const lastAbort = [...recovery.actions].reverse().find((a) => a.type === "abort");
-		abortReason = lastAbort?.type === "abort" ? lastAbort.reason : undefined;
+			executionOptions,
+		);
+		const initialValidation = validatePlan(plan, initialSteps);
+		steps = initialSteps;
+		validation = initialValidation;
+		neededRecovery = !initialValidation.ok || initialFailures.length > 0;
+
+		if (!validation.ok || initialFailures.length > 0) {
+			updateTaskRun(taskMoment.taskId, { phase: "recovering" }, deps.dataDir);
+		// Keep the compiled fast path fast; only deepen AX/memory context after it actually fails.
+			if (!assembledContext) {
+				try {
+					assembledContext = await assembleTaskContext(
+						intent,
+						context,
+						deps.dataDir,
+						taskMoment.taskId,
+					);
+					taskMoment = assembledContext.moment;
+					skillCtx.contextSnapshot = assembledContext.agentContext;
+					skillCtx.agentTaskEnvelope = buildAgentTaskEnvelope(
+						intent,
+						plan,
+						taskMoment,
+						assembledContext,
+					);
+					updateTaskRun(taskMoment.taskId, { taskMoment }, deps.dataDir);
+				} catch {
+					// Recovery can still run with the bounded L1 TaskMoment.
+				}
+			}
+			const recovery = await runRecoveryLoop({
+				intent,
+				plan,
+				context,
+				probeResult: probeResult ?? { probes: [] },
+				skillCtx,
+				emit,
+				initialSteps,
+				initialFailures,
+				initialValidation,
+				executionOptions,
+			});
+			steps = recovery.steps;
+			validation = recovery.validation;
+			const lastAbort = [...recovery.actions].reverse().find((a) => a.type === "abort");
+			abortReason = lastAbort?.type === "abort" ? lastAbort.reason : undefined;
+		}
+	} catch (error) {
+		const canceled = deps.signal?.aborted || error instanceof TaskCanceledError;
+		const message = canceled ? "任务已取消" : (error as Error).message;
+		updateTaskRun(
+			taskMoment.taskId,
+			{
+				status: canceled ? "canceled" : "failed",
+				phase: canceled ? "canceled" : "execution_failed",
+				error: message,
+				completedAt: Date.now(),
+			},
+			deps.dataDir,
+		);
+		recordRunEvent(taskMoment.taskId, canceled ? "run.canceled" : "run.completed", {
+			status: canceled ? "canceled" : "failed", error: message,
+		}, deps.dataDir);
+		emit({ status: "error", error: message });
+		return {
+			runId: taskMoment.taskId,
+			status: canceled ? "canceled" : "failed",
+			intent,
+			plan,
+			steps: [],
+			error: message,
+		};
 	}
 
 	validation = softenValidationForVisualAnswer(intent, steps, validation);
 
-	const userVisibleResult = buildUserVisibleSummary(intent, steps, validation.ok);
-	const resultDetail = buildResultDetail(intent, steps);
+	const recovered = neededRecovery && validation.ok;
+	const baseUserVisibleResult = buildUserVisibleSummary(intent, steps, validation.ok);
+	const userVisibleResult = recovered
+		? `恢复完成 · ${baseUserVisibleResult.split("\n")[0]?.slice(0, 200) || intent}`
+		: baseUserVisibleResult;
+	const baseResultDetail = buildResultDetail(intent, steps);
+	const resultDetail = recovered
+		? `• 执行路径：主路径失败，已通过恢复路径完成\n${baseResultDetail}`
+		: baseResultDetail;
 	const localTaskEvidence = collectLocalTaskEvidence(steps);
+	const agentSessionId = findAgentSessionId(steps);
 
 	const episode = saveEpisode(
 		{
@@ -202,7 +465,7 @@ export async function runTask(
 				durationMs: s.durationMs,
 				error: s.error,
 			})),
-			status: validation.ok ? "success" : "partial",
+			status: recovered ? "recovered" : validation.ok ? "success" : "partial",
 			userVisibleResult,
 			probeSummary,
 			validationChecks: validation.checks,
@@ -212,11 +475,31 @@ export async function runTask(
 			agentEvents: localTaskEvidence.agentEvents,
 			artifacts: localTaskEvidence.artifacts,
 			memoryCandidates: localTaskEvidence.memoryCandidates,
+			taskMoment,
 		},
 		deps.dataDir,
 	);
 
 	if (validation.ok) {
+		updateTaskRun(
+			taskMoment.taskId,
+			{
+				status: "success",
+				phase: "completed",
+				taskMoment,
+				episodeId: episode.id,
+				agentSessionId,
+				result: { steps, validation, userVisibleResult },
+				completedAt: Date.now(),
+			},
+			deps.dataDir,
+		);
+		if (agentSessionId) {
+			recordRunEvent(taskMoment.taskId, "worker.session.bound", { sessionId: agentSessionId }, deps.dataDir);
+		}
+		recordRunEvent(taskMoment.taskId, "run.completed", {
+			status: "success", episodeId: episode.id,
+		}, deps.dataDir);
 		emit({
 			status: "done",
 			transcript: intent,
@@ -233,7 +516,14 @@ export async function runTask(
 				status: steps.find((r) => r.stepId === s.id)?.status === "success" ? "done" : "failed",
 			})),
 		});
-		return { status: "success", intent, plan, steps, episodeId: episode.id };
+		return {
+			runId: taskMoment.taskId,
+			status: "success",
+			intent,
+			plan,
+			steps,
+			episodeId: episode.id,
+		};
 	}
 
 	const failedCheckMessage =
@@ -254,7 +544,28 @@ export async function runTask(
 			status: steps.find((r) => r.stepId === s.id)?.status === "success" ? "done" : "failed",
 		})),
 	});
+	updateTaskRun(
+		taskMoment.taskId,
+		{
+			status: "partial",
+			phase: "completed",
+			taskMoment,
+			episodeId: episode.id,
+			agentSessionId,
+			result: { steps, validation, userVisibleResult },
+			error: failedCheckMessage,
+			completedAt: Date.now(),
+		},
+		deps.dataDir,
+	);
+	if (agentSessionId) {
+		recordRunEvent(taskMoment.taskId, "worker.session.bound", { sessionId: agentSessionId }, deps.dataDir);
+	}
+	recordRunEvent(taskMoment.taskId, "run.completed", {
+		status: "partial", episodeId: episode.id, error: failedCheckMessage,
+	}, deps.dataDir);
 	return {
+		runId: taskMoment.taskId,
 		status: "partial",
 		intent,
 		plan,

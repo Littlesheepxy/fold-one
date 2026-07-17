@@ -28,6 +28,22 @@ export function isFeishuIntent(intent: string): boolean {
 	return FEISHU_HINTS.test(intent);
 }
 
+/** 飞书自聊发送可走稳定的 Tier 0 计划，避免 LLM 拼通用 API 查询参数。 */
+export function isFeishuSelfMessageIntent(intent: string): boolean {
+	if (!isFeishuIntent(intent) || !/(消息|信息)/.test(intent)) return false;
+	return (
+		/(?:给|发给).{0,8}(?:我自己|自己|本人).{0,12}(?:发|发送|消息)/.test(intent) ||
+		/(?:发|发送).{0,8}(?:消息|信息).{0,8}(?:给)?(?:我自己|自己|本人)/.test(intent)
+	);
+}
+
+export function extractFeishuSelfMessageText(intent: string): string | null {
+	const quoted = intent.match(/内容(?:是|为|：|:)?\s*[「“\"]([\s\S]+?)[」”\"]/);
+	if (quoted?.[1]?.trim()) return quoted[1].trim();
+	const plain = intent.match(/内容(?:是|为|：|:)\s*([^，。]+)[。]?$/);
+	return plain?.[1]?.trim() || null;
+}
+
 export function isBrowserIntent(intent: string): boolean {
 	return BROWSER_HINTS.test(intent);
 }

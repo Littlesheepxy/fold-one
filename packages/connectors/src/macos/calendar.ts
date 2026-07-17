@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, statSync } from "node:fs";
+import { constants, existsSync, mkdirSync, statSync } from "node:fs";
+import { access } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runShell, runShellDetailed } from "../shell.js";
@@ -20,7 +21,73 @@ const NATIVE_DIR = join(HERE, "../../native/fold-calendar");
 const SOURCE = join(NATIVE_DIR, "main.swift");
 const BINARY = join(NATIVE_DIR, "fold-calendar");
 
+type ElectronProcess = NodeJS.Process & { resourcesPath?: string };
+
+function asarUnpackedPath(path: string): string | null {
+	if (!path.includes(".asar/")) return null;
+	return path.replace(".asar/", ".asar.unpacked/");
+}
+
+/**
+ * Electron 打包后 helper 必须在 asar 外执行。查找顺序：显式覆盖 →
+ * Contents/Resources extraResources → asarUnpack → Vite 主进程产物旁 → 开发源码。
+ */
+export function calendarBinaryCandidates(input?: {
+	explicitPath?: string | null;
+	resourcesPath?: string | null;
+	moduleDir?: string;
+	cwd?: string;
+}): string[] {
+	const moduleDir = input?.moduleDir ?? HERE;
+	const cwd = input?.cwd ?? process.cwd();
+	const resourcesPath =
+		input?.resourcesPath ?? (process as ElectronProcess).resourcesPath ?? null;
+	const explicitPath = input?.explicitPath ?? process.env.FOLD_CALENDAR_BINARY ?? null;
+	const candidates = [
+		explicitPath,
+		resourcesPath ? join(resourcesPath, "fold-calendar", "fold-calendar") : null,
+		resourcesPath
+			? join(
+					resourcesPath,
+					"app.asar.unpacked",
+					"dist-electron",
+					"fold-calendar",
+					"fold-calendar",
+				)
+			: null,
+		join(moduleDir, "fold-calendar", "fold-calendar"),
+		join(moduleDir, "../resources/fold-calendar/fold-calendar"),
+		join(cwd, "resources/fold-calendar/fold-calendar"),
+		join(cwd, "apps/desktop/resources/fold-calendar/fold-calendar"),
+		BINARY,
+	];
+	for (const path of [...candidates]) {
+		if (!path) continue;
+		const unpacked = asarUnpackedPath(path);
+		if (unpacked) candidates.push(unpacked);
+	}
+	return [...new Set(candidates.filter((path): path is string => Boolean(path)))];
+}
+
+async function firstExecutable(paths: string[]): Promise<string | null> {
+	for (const path of paths) {
+		try {
+			await access(path, constants.X_OK);
+			return path;
+		} catch {
+			/* try next packaged/dev location */
+		}
+	}
+	return null;
+}
+
 async function ensureCalendarBinary(): Promise<string> {
+	// 源码 helper 仍需走下面的 mtime 检查；这里只有预编译/打包位置可直接返回。
+	const packaged = await firstExecutable(
+		calendarBinaryCandidates().filter((path) => path !== BINARY),
+	);
+	if (packaged) return packaged;
+
 	const infoPlist = join(NATIVE_DIR, "Info.plist");
 	const needsBuild =
 		!existsSync(BINARY) ||
@@ -50,12 +117,18 @@ async function ensureCalendarBinary(): Promise<string> {
 			() => undefined,
 		);
 	}
-	return BINARY;
+	const compiled = await firstExecutable([BINARY]);
+	if (!compiled) {
+		throw new Error(
+			`fold-calendar helper missing or not executable; searched: ${calendarBinaryCandidates().join(", ")}`,
+		);
+	}
+	return compiled;
 }
 
 /**
  * 列出未来若干小时内的日程（EventKit CLI）。
- * 需显式开启：FOLD_CALENDAR_ENABLED=1（打包路径未稳前默认关闭，避免静默空结果假装有日历上下文）。
+ * 需显式开启：FOLD_CALENDAR_ENABLED=1（默认关闭，避免未授权时静默空结果假装有日历上下文）。
  * 首次会弹系统日历授权；拒绝或失败时返回空数组。
  */
 export function isCalendarFeatureEnabled(): boolean {
@@ -148,6 +221,21 @@ function formatWhen(startAt: number, now: number): string {
 /** ponytail: 最小自检，不依赖系统日历授权 */
 export function runCalendarBriefSelfCheck(): void {
 	console.assert(typeof isCalendarFeatureEnabled() === "boolean", "calendar flag");
+	const packaged = calendarBinaryCandidates({
+		explicitPath: "/tmp/custom-calendar",
+		resourcesPath: "/Applications/Fold.app/Contents/Resources",
+		moduleDir: "/Applications/Fold.app/Contents/Resources/app.asar/dist-electron",
+		cwd: "/tmp/fold",
+	});
+	console.assert(packaged[0] === "/tmp/custom-calendar", "calendar explicit path first");
+	console.assert(
+		packaged.includes("/Applications/Fold.app/Contents/Resources/fold-calendar/fold-calendar"),
+		"calendar extraResources path",
+	);
+	console.assert(
+		packaged.some((path) => path.includes("app.asar.unpacked")),
+		"calendar asar unpack path",
+	);
 	const now = Date.parse("2026-07-15T10:00:00");
 	const brief = formatCalendarBrief(
 		[

@@ -3,11 +3,18 @@ import type { AgentId, SubagentHandoff } from "@fold/connectors";
 import type { LiveContext } from "@fold/context";
 import { isAgentSubagentsEnabled } from "@fold/connectors";
 import type { ValidationResult } from "./validator.js";
-import { runPlan, retryFailedSteps, type StepFailure } from "./executor.js";
+import {
+	runPlan,
+	retryFailedSteps,
+	TaskCanceledError,
+	type RunPlanOptions,
+	type StepFailure,
+} from "./executor.js";
 import { formatProbeSummary, type ProbeRunResult } from "./probe-runner.js";
 import { buildAgentPlannerContextSummary } from "./context-enrich.js";
 import {
 	buildRecoveryPlan,
+	classifyFailure,
 	DEFAULT_REPAIR_BUDGET,
 	handleFailure,
 	resolveRepairBudget,
@@ -131,6 +138,7 @@ async function tryLlmReplan(
 		probeResult: ProbeRunResult;
 		skillCtx: SkillContext;
 		emit: StateEmitter;
+		executionOptions?: RunPlanOptions;
 	},
 	failures: StepFailure[],
 	validation: ValidationResult,
@@ -165,7 +173,7 @@ async function tryLlmReplan(
 		if (plan.validate.length === 0) return null;
 
 		input.emit({ status: "working" });
-		const run = await runPlan(plan, input.skillCtx, input.emit);
+		const run = await runPlan(plan, input.skillCtx, input.emit, input.executionOptions);
 		const agentOutput = run.steps.find((s) => s.skill === "agent.execute")?.output as
 			| { handoff?: SubagentHandoff }
 			| undefined;
@@ -181,7 +189,10 @@ async function tryLlmReplan(
 			validation: validatePlan(plan, run.steps),
 			handoff: agentOutput?.handoff,
 		};
-	} catch {
+	} catch (error) {
+		if (input.executionOptions?.signal?.aborted || error instanceof TaskCanceledError) {
+			throw new TaskCanceledError();
+		}
 		return null;
 	}
 }
@@ -231,9 +242,16 @@ export async function runRecoveryLoop(input: {
 	initialSteps: StepResult[];
 	initialFailures: StepFailure[];
 	initialValidation: ValidationResult;
+	executionOptions?: RunPlanOptions;
 }): Promise<RecoveryRunResult> {
 	const actions: RecoveryAction[] = [];
-	let steps = await retryFailedSteps(input.plan, input.skillCtx, input.emit, input.initialSteps);
+	let steps = await retryFailedSteps(
+		input.plan,
+		input.skillCtx,
+		input.emit,
+		input.initialSteps,
+		input.executionOptions,
+	);
 	let validation = validatePlan(input.plan, steps);
 	let failures = steps.filter((s): s is StepFailure => s.status === "failed");
 	let handoff: SubagentHandoff | undefined;
@@ -241,7 +259,10 @@ export async function runRecoveryLoop(input: {
 	let lastSignature = failureSignature(failures, validation);
 
 	// 第一优先：LLM 重规划（有 planner key 时）。失败不计入规则式预算，直接回落。
-	if (!validation.ok && hasPlannerApiKey()) {
+	const hasContractFailure = failures.some(
+		(failure) => classifyFailure(failure) === "tool.contract",
+	);
+	if (!validation.ok && hasPlannerApiKey() && !hasContractFailure) {
 		for (let attempt = 0; attempt < 2 && !validation.ok; attempt += 1) {
 			const replan = await tryLlmReplan(input, failures, validation);
 			if (!replan) break;
@@ -316,10 +337,20 @@ export async function runRecoveryLoop(input: {
 			failures.map((failure) => `${failure.skill}: ${failure.error ?? "failed"}`),
 		);
 		input.emit({ status: "working" });
-		const repairRun = await runPlan(repairPlan, input.skillCtx, input.emit);
+		const repairRun = await runPlan(
+			repairPlan,
+			input.skillCtx,
+			input.emit,
+			input.executionOptions,
+		);
 		steps = [...steps, ...repairRun.steps];
-		// 规则修复只验原目标；不能用 browser.page.ready 等无关规则盖掉主计划失败
-		validation = validatePlan(input.plan, steps);
+		// Agent can complete the original intent outside the failed skill path. Its structured
+		// handoff/evidence is the recovery boundary; other repair backends must still satisfy
+		// the original plan validators.
+		validation =
+			action.backend === "agent"
+				? validatePlan(repairPlan, repairRun.steps)
+				: validatePlan(input.plan, steps);
 		failures = steps.filter((s): s is StepFailure => s.status === "failed");
 
 		const agentOutput = repairRun.steps.find((s) => s.skill === "agent.execute")?.output as

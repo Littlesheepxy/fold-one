@@ -12,6 +12,21 @@ export async function agentExecute(args: Record<string, unknown>, ctx: SkillCont
 	const failedSteps = Array.isArray(args.failedSteps)
 		? args.failedSteps.map((step) => String(step))
 		: [];
+	const baseEnvelope = ctx.agentTaskEnvelope;
+	const envelope = baseEnvelope
+		? {
+				...baseEnvelope,
+				goal: brief,
+				currentState: failedSteps.length ? "recovering_after_failed_plan" : baseEnvelope.currentState,
+				previousAttempts: [
+					...baseEnvelope.previousAttempts,
+					...failedSteps.map((error, index) => ({
+						step: `failed-step-${index + 1}`,
+						error,
+					})),
+				],
+			}
+		: undefined;
 
 	const agentLabel = agent === "auto" ? "自动" : agent;
 	ctx.emit({
@@ -21,20 +36,29 @@ export async function agentExecute(args: Record<string, unknown>, ctx: SkillCont
 
 	const result = await executeAgent(
 		{
+			taskId: envelope?.runId,
 			brief,
 			contextSnapshot: ctx.contextSnapshot?.trim() || formatContextSummary(ctx.liveContext),
+			envelope,
 			cwd,
 			agent,
 			maxTurns: typeof args.maxTurns === "number" ? args.maxTurns : 10,
 			timeoutMs: typeof args.timeoutMs === "number" ? args.timeoutMs : 180_000,
 			allowEdits,
+			signal: ctx.signal,
 			onEvent: (taskEvent) =>
 				ctx.emit({ type: "progress", message: taskEvent.message, taskEvent }),
 		},
 		failedSteps,
 	);
 	if (!result.ok) {
-		throw new Error(result.summary || result.stderr || "本地 Agent 执行失败");
+		const error = new Error(result.summary || result.stderr || "本地 Agent 执行失败") as Error & {
+			stepOutput?: unknown;
+		};
+		// Preserve the worker envelope/session even on failure so the harness can
+		// checkpoint it and resume the same thread during repair.
+		error.stepOutput = result;
+		throw error;
 	}
 	return result;
 }

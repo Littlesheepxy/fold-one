@@ -1,5 +1,5 @@
 import type { LiveContext } from "@fold/context";
-import type { LocalTaskEvent } from "@fold/connectors";
+import type { AgentTaskEnvelope, LocalTaskEvent } from "@fold/connectors";
 
 export interface ProgressEvent {
 	type: "progress";
@@ -15,6 +15,21 @@ export interface SkillContext {
 	taskIntent?: string;
 	/** L2 上下文摘要（AX/日历/置信度）；缺省时 skill 回退 L1 */
 	contextSnapshot?: string;
+	/** Fold-owned task/memory contract passed unchanged to local Agent workers. */
+	agentTaskEnvelope?: AgentTaskEnvelope;
+	/** Shared cancellation signal for this Fold run. */
+	signal?: AbortSignal;
+	lookupSideEffectReceipt?: (idempotencyKey: string) => {
+		status: "requested" | "confirmed" | "uncertain" | "failed";
+		verification?: unknown;
+	} | null;
+	recordSideEffectRequest?: (input: {
+		idempotencyKey: string;
+		connector: string;
+		operation: string;
+		targetFingerprint: string;
+		inputHash: string;
+	}) => void;
 }
 
 export type SkillHandler = (

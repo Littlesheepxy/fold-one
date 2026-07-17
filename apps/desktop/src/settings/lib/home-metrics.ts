@@ -17,7 +17,7 @@ export function estimateHomeMetrics(episodes: Array<Pick<HomeEpisode, "intent" |
 		0,
 	);
 	const replies = weekly.filter((episode) => REPLY_HINT.test(episode.intent)).length;
-	const actions = weekly.filter((episode) => episode.status === "success").length;
+	const actions = weekly.filter((episode) => episode.status === "success" || episode.status === "recovered").length;
 	const savedMinutes = Math.max(actions * 8 + replies * 3, characters ? 4 : 0);
 	return { characters, replies, actions, savedMinutes };
 }

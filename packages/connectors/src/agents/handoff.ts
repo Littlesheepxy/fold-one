@@ -3,6 +3,7 @@ import type { LocalTaskArtifact, LocalTaskEvent, MemoryCandidate } from "../task
 
 /** Compacted handoff from subagent → Fold main orchestrator (not full chat log). */
 export interface SubagentHandoff {
+	runId: string;
 	goal: string;
 	currentState: string;
 	completedSteps: string[];
@@ -14,10 +15,14 @@ export interface SubagentHandoff {
 	agentId: AgentId;
 	exitCode: number;
 	ok: boolean;
+	sessionId?: string;
 	events: LocalTaskEvent[];
 	artifacts: LocalTaskArtifact[];
 	memoryCandidates: MemoryCandidate[];
 }
+
+/** Stable Fold-facing result contract; SubagentHandoff is kept as a compatibility name. */
+export type AgentResultEnvelope = SubagentHandoff;
 
 export function buildSubagentHandoff(
 	task: AgentTask,
@@ -34,6 +39,7 @@ export function buildSubagentHandoff(
 	if (result.stderr) evidence.push({ type: "stderr", value: result.stderr.slice(0, 500) });
 
 	return {
+		runId: task.envelope?.runId ?? task.taskId ?? "unknown",
 		goal: task.brief,
 		currentState: result.ok ? "subagent_completed" : "subagent_failed",
 		completedSteps: result.ok ? ["subagent.run"] : [],
@@ -47,6 +53,7 @@ export function buildSubagentHandoff(
 		agentId: result.agentId,
 		exitCode: result.exitCode,
 		ok: result.ok,
+		sessionId: result.sessionId,
 		events: result.events,
 		artifacts: result.artifacts,
 		memoryCandidates: result.memoryCandidates,

@@ -19,6 +19,25 @@ export {
 } from "./episode.js";
 export { saveVoiceInteraction, type VoiceInteractionKind, type VoiceInteractionStatus } from "./voice-interaction.js";
 export {
+	appendRunEvent,
+	getReducedTaskRunState,
+	getSideEffectReceipt,
+	getTaskRun,
+	listRunEvents,
+	listTaskCheckpoints,
+	saveTaskCheckpoint,
+	startTaskRun,
+	updateTaskRun,
+	upsertSideEffectReceipt,
+	type RunEvent,
+	type RunEventType,
+	type SideEffectReceipt,
+	type TaskCheckpoint,
+	type TaskRunRecord,
+	type TaskRunStatus,
+	type TaskRunState,
+} from "./run.js";
+export {
 	listProductEvents,
 	runProductEventsSelfCheck,
 	saveProductEvent,

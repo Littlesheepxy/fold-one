@@ -1,6 +1,6 @@
 import { runShellDetailed } from "../shell.js";
-import { LOCAL_TASK_RETURN_INSTRUCTIONS } from "../task-events.js";
 import { getSharedCodexAppServer } from "./codex-app-server.js";
+import { buildAgentPrompt } from "./prompt.js";
 import type { AgentConnector, AgentResult, AgentTask } from "./types.js";
 
 function lastAgentMessage(stdout: string): string {
@@ -25,24 +25,16 @@ function lastAgentMessage(stdout: string): string {
 	return stdout.trim();
 }
 
-function buildPrompt(task: AgentTask): string {
-	const parts = [task.brief.trim()];
-	if (task.contextSnapshot?.trim()) {
-		parts.push("", "Fold context:", task.contextSnapshot.trim());
-	}
-	parts.push("", LOCAL_TASK_RETURN_INSTRUCTIONS);
-	return parts.join("\n");
-}
-
 /** 旧路径：codex exec。保留 prevent_idle_sleep；不再用 --ephemeral，方便日后 resume。 */
 async function executeViaExec(task: AgentTask): Promise<AgentResult> {
-	const args = ["exec", "--enable", "prevent_idle_sleep", "--json", buildPrompt(task)];
+	const args = ["exec", "--enable", "prevent_idle_sleep", "--json", buildAgentPrompt(task)];
 	if (task.allowEdits) {
 		args.splice(2, 0, "--sandbox", "workspace-write");
 	}
 
 	const result = await runShellDetailed("codex", args, task.timeoutMs ?? 180_000, task.cwd, {
 		closeStdin: true,
+		signal: task.signal,
 	});
 	const summary = lastAgentMessage(result.stdout) || result.stderr.trim();
 
@@ -65,15 +57,19 @@ async function executeViaExec(task: AgentTask): Promise<AgentResult> {
 async function executeViaPersistentThread(task: AgentTask): Promise<AgentResult> {
 	const client = getSharedCodexAppServer();
 	await client.start();
-	const threadId = await client.startPersistentThread({
-		cwd: task.cwd,
-		sandbox: task.allowEdits ? "workspaceWrite" : "readOnly",
-		approvalPolicy: "never",
-	});
+	const resumeSessionId = task.envelope?.resumeSessionId?.trim();
+	const threadId = resumeSessionId
+		? await client.resumePersistentThread(resumeSessionId)
+		: await client.startPersistentThread({
+				cwd: task.cwd,
+				sandbox: task.allowEdits ? "workspaceWrite" : "readOnly",
+				approvalPolicy: "never",
+			});
 	const turn = await client.runTurn({
 		threadId,
-		text: buildPrompt(task),
+		text: buildAgentPrompt(task),
 		timeoutMs: task.timeoutMs ?? 180_000,
+		signal: task.signal,
 	});
 
 	return {
@@ -81,7 +77,7 @@ async function executeViaPersistentThread(task: AgentTask): Promise<AgentResult>
 		agentId: "codex",
 		summary: turn.summary,
 		sessionId: threadId,
-		exitCode: turn.ok ? 0 : 1,
+		exitCode: turn.ok ? 0 : turn.turnStatus === "interrupted" ? 130 : 1,
 		events: [],
 		artifacts: [],
 		memoryCandidates: [],
@@ -102,6 +98,17 @@ export const codexConnector: AgentConnector = {
 		try {
 			return await executeViaPersistentThread(task);
 		} catch (error) {
+			if (task.signal?.aborted) {
+				return {
+					ok: false,
+					agentId: "codex",
+					summary: "Codex 任务已取消",
+					exitCode: 130,
+					events: [],
+					artifacts: [],
+					memoryCandidates: [],
+				};
+			}
 			// App Server / Remote Control API 不可用（旧版 CLI、二进制损坏）时回退
 			const fallback = await executeViaExec(task);
 			if (!fallback.ok && error instanceof Error) {

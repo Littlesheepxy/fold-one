@@ -33,6 +33,7 @@ function formatDuration(ms: number) {
 function statusBadge(status: string) {
 	const normalized = status.toLowerCase();
 	if (normalized === "success") return { label: "成功", className: "fold-home-badge fold-home-badge-ok" };
+	if (normalized === "recovered") return { label: "恢复完成", className: "fold-home-badge fold-home-badge-warn" };
 	if (normalized === "partial") return { label: "部分完成", className: "fold-home-badge fold-home-badge-warn" };
 	return { label: status || "失败", className: "fold-home-badge fold-home-badge-error" };
 }

@@ -1,3 +1,4 @@
+import { chmodSync, copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
@@ -7,6 +8,27 @@ import electron from "vite-plugin-electron/simple";
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
 const foldSrc = (name: string) => resolve(rootDir, `../../packages/${name}/src/index.ts`);
+const calendarHelper = resolve(rootDir, "resources/fold-calendar/fold-calendar");
+const calendarInfoPlist = resolve(rootDir, "resources/fold-calendar/Info.plist");
+const calendarBuildDir = resolve(rootDir, "dist-electron/fold-calendar");
+
+function stageCalendarHelper() {
+	return {
+		name: "fold-stage-calendar-helper",
+		writeBundle() {
+			if (!existsSync(calendarHelper)) {
+				throw new Error("日历 helper 未准备；先运行 pnpm run prepare:calendar");
+			}
+			mkdirSync(calendarBuildDir, { recursive: true });
+			const output = resolve(calendarBuildDir, "fold-calendar");
+			copyFileSync(calendarHelper, output);
+			chmodSync(output, 0o755);
+			if (existsSync(calendarInfoPlist)) {
+				copyFileSync(calendarInfoPlist, resolve(calendarBuildDir, "Info.plist"));
+			}
+		},
+	};
+}
 
 const foldAliases = {
 	"@fold/ai": foldSrc("ai"),
@@ -65,6 +87,7 @@ export default defineConfig({
 				},
 				vite: {
 					resolve: { alias: foldAliases },
+					plugins: [stageCalendarHelper()],
 					build: {
 						outDir: "dist-electron",
 						rollupOptions: {
