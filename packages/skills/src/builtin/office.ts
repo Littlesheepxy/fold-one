@@ -10,6 +10,9 @@ const CHANNEL_LABELS: Record<string, string> = {
 	slack: "Slack",
 };
 
+/** receipt 重放保护窗口：超过则视为有意重发，不再拦截。 */
+const RECEIPT_REPLAY_WINDOW_MS = 15 * 60_000;
+
 export function describeOfficeOperation(channel: string, args: string[]): string {
 	const command = args.slice(0, 4).join(" ").toLowerCase();
 	const full = args.join(" ").toLowerCase();
@@ -66,13 +69,65 @@ export async function officeCli(args: Record<string, unknown>, ctx: SkillContext
 		const existingIndex = cliArgs.indexOf("--idempotency-key");
 		idempotencyKey = existingIndex >= 0 ? cliArgs[existingIndex + 1] : undefined;
 		if (!idempotencyKey) {
-			const runKey = ctx.agentTaskEnvelope?.idempotencyKey ?? "fold:unscoped";
-			idempotencyKey = `${runKey}:${inputHash.slice(0, 16)}`;
+			// 稳定派生：同一发送意图跨进程/跨重启得到同一 key，崩溃重启后才能命中旧 receipt；
+			// 不再用 per-run taskId 前缀（重启即换新 key，必然查不到旧记录而重复发送）。
+			idempotencyKey = `fold:${channel}:${operation}:${inputHash.slice(0, 16)}`;
 			cliArgs = [...cliArgs, "--idempotency-key", idempotencyKey];
 		}
 		const existing = ctx.lookupSideEffectReceipt?.(idempotencyKey);
-		if (existing?.status === "confirmed" && existing.verification && typeof existing.verification === "object") {
-			return { ...(existing.verification as Record<string, unknown>), reusedReceipt: true };
+		// 只有新鲜 receipt 参与重放保护；过期记录视为新的发送意图（允许有意重发同文）。
+		const receiptFresh =
+			typeof existing?.updatedAt !== "number" || Date.now() - existing.updatedAt <= RECEIPT_REPLAY_WINDOW_MS;
+		if (existing && receiptFresh) {
+			if (existing.status === "confirmed" && existing.verification && typeof existing.verification === "object") {
+				return { ...(existing.verification as Record<string, unknown>), reusedReceipt: true };
+			}
+			if (existing.status === "requested" || existing.status === "uncertain") {
+				// 崩溃窗口：消息可能已发出但状态未落定，盲目重发必然重复。
+				const verdict = await ctx.verifySideEffectReceipt?.({
+					idempotencyKey,
+					connector: channel,
+					operation,
+					targetFingerprint: targetFingerprint ?? "unknown",
+					inputHash,
+				});
+				if (verdict === "delivered") {
+					return {
+						...(existing.verification && typeof existing.verification === "object"
+							? (existing.verification as Record<string, unknown>)
+							: {}),
+						ok: true,
+						channel,
+						stdout: "",
+						stderr: "",
+						exitCode: 0,
+						operation,
+						idempotencyKey,
+						targetFingerprint,
+						inputHash,
+						reusedReceipt: true,
+						receiptStatus: "confirmed",
+					};
+				}
+				if (verdict !== "not_delivered") {
+					// 无法核对（unknown / 未接 verifier）：宁可不发，也不重复发，交人工确认。
+					return {
+						ok: true,
+						channel,
+						stdout: "",
+						stderr: "",
+						exitCode: 0,
+						operation,
+						idempotencyKey,
+						targetFingerprint,
+						inputHash,
+						reusedReceipt: true,
+						receiptStatus: "uncertain",
+						note: "存在未确认的发送记录，为避免重复发送已跳过，请人工确认后重试",
+					};
+				}
+				// verdict === "not_delivered"：确认未发出，落入下方正常发送路径。
+			}
 		}
 		ctx.recordSideEffectRequest?.({
 			idempotencyKey,
@@ -86,7 +141,8 @@ export async function officeCli(args: Record<string, unknown>, ctx: SkillContext
 		type: "progress",
 		message: `${CHANNEL_LABELS[channel] ?? channel}：${operation}…`,
 	});
-	const result = await runOfficeCli(channel, cliArgs, 60_000, ctx.signal);
+	const runImpl = ctx.runOfficeCliImpl ?? runOfficeCli;
+	const result = await runImpl(channel, cliArgs, 60_000, ctx.signal);
 	if (!result.ok) {
 		// 非零退出必须成为步骤失败，避免依赖步骤拿坏输出继续执行。
 		const error = new Error(failureMessage(channel, result.stderr, result.stdout, result.exitCode)) as Error & {

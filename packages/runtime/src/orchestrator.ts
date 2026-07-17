@@ -342,7 +342,10 @@ export async function runTask(
 						operation: String(output.operation ?? "execute"),
 						targetFingerprint: String(output.targetFingerprint ?? "unknown"),
 						inputHash: output.inputHash,
-						status: checkpoint.phase === "step_completed" ? "confirmed" : "uncertain",
+						status:
+							checkpoint.phase === "step_completed" && output.receiptStatus !== "uncertain"
+								? "confirmed"
+								: "uncertain",
 						externalRef: typeof output.externalRef === "string" ? output.externalRef : undefined,
 						verification: output,
 					}, deps.dataDir);

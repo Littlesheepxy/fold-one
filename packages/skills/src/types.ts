@@ -1,5 +1,5 @@
 import type { LiveContext } from "@fold/context";
-import type { AgentTaskEnvelope, LocalTaskEvent } from "@fold/connectors";
+import type { AgentTaskEnvelope, LocalTaskEvent, OfficeCliResult } from "@fold/connectors";
 
 export interface ProgressEvent {
 	type: "progress";
@@ -22,6 +22,8 @@ export interface SkillContext {
 	lookupSideEffectReceipt?: (idempotencyKey: string) => {
 		status: "requested" | "confirmed" | "uncertain" | "failed";
 		verification?: unknown;
+		/** 最近一次 receipt 更新时间（epoch ms）；用于限定重放保护窗口 */
+		updatedAt?: number;
 	} | null;
 	recordSideEffectRequest?: (input: {
 		idempotencyKey: string;
@@ -30,6 +32,28 @@ export interface SkillContext {
 		targetFingerprint: string;
 		inputHash: string;
 	}) => void;
+	/**
+	 * 崩溃窗口核对：requested/uncertain 的副作用是否真的已生效。
+	 * delivered → 复用不重发；not_delivered → 允许重发；unknown/缺省 → 保守跳过。
+	 */
+	verifySideEffectReceipt?: (input: {
+		idempotencyKey: string;
+		connector: string;
+		operation: string;
+		targetFingerprint: string;
+		inputHash: string;
+	}) =>
+		| Promise<"delivered" | "not_delivered" | "unknown">
+		| "delivered"
+		| "not_delivered"
+		| "unknown";
+	/** 测试注入：替换 office CLI 的真实执行。 */
+	runOfficeCliImpl?: (
+		channel: string,
+		args: string[],
+		timeoutMs: number,
+		signal?: AbortSignal,
+	) => Promise<OfficeCliResult>;
 }
 
 export type SkillHandler = (
