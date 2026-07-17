@@ -9,7 +9,15 @@ export function buildReactAgentPlan(
 	intent: string,
 	agent: AgentId | "auto" = "auto",
 	cdpConnected = false,
+	cwd?: string,
 ): ActionPlan {
+	const agentArgs: Record<string, unknown> = {
+		brief: intent,
+		agent,
+		allowEdits: true,
+	};
+	if (cwd) agentArgs.cwd = cwd;
+
 	if (cdpConnected && isGuiIntent(intent)) {
 		return {
 			goal: intent,
@@ -25,13 +33,12 @@ export function buildReactAgentPlan(
 					id: "react-agent",
 					skill: "agent.execute",
 					args: {
+						...agentArgs,
 						brief: [
 							intent,
 							"",
 							"A CDP-connected browser is available. Inspect the current page before acting.",
 						].join("\n"),
-						agent,
-						allowEdits: true,
 					},
 					dependsOn: ["react-browser"],
 					retryable: false,
@@ -48,11 +55,7 @@ export function buildReactAgentPlan(
 			{
 				id: "react-1",
 				skill: "agent.execute",
-				args: {
-					brief: intent,
-					agent,
-					allowEdits: true,
-				},
+				args: agentArgs,
 				retryable: false,
 				timeout: 180_000,
 			},

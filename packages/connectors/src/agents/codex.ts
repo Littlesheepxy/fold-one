@@ -8,29 +8,41 @@ function lastAgentMessage(stdout: string): string {
 		.split(/\r?\n/)
 		.map((line) => line.trim())
 		.filter(Boolean);
+	let lastError = "";
 	for (let i = lines.length - 1; i >= 0; i--) {
 		const line = lines[i]!;
 		try {
 			const event = JSON.parse(line) as {
 				type?: string;
-				item?: { type?: string; text?: string };
+				message?: string;
+				item?: { type?: string; text?: string; message?: string };
+				error?: { message?: string };
 			};
 			if (event.type === "item.completed" && event.item?.type === "agent_message" && event.item.text) {
 				return event.item.text.trim();
+			}
+			if (!lastError) {
+				const err =
+					event.error?.message ||
+					(event.type === "error" ? event.message : undefined) ||
+					(event.item?.type === "error" ? event.item.message : undefined);
+				if (err?.trim()) lastError = err.trim();
 			}
 		} catch {
 			// not jsonl
 		}
 	}
-	return stdout.trim();
+	return lastError || stdout.trim();
 }
 
 /** 旧路径：codex exec。保留 prevent_idle_sleep；不再用 --ephemeral，方便日后 resume。 */
 async function executeViaExec(task: AgentTask): Promise<AgentResult> {
-	const args = ["exec", "--enable", "prevent_idle_sleep", "--json", buildAgentPrompt(task)];
+	const args = ["exec"];
 	if (task.allowEdits) {
-		args.splice(2, 0, "--sandbox", "workspace-write");
+		args.push("--sandbox", "workspace-write");
 	}
+	// 临时目录 / 非 git 仓库会拒跑；Fold 委派任务由调用方约束 cwd
+	args.push("--skip-git-repo-check", "--enable", "prevent_idle_sleep", "--json", buildAgentPrompt(task));
 
 	const result = await runShellDetailed("codex", args, task.timeoutMs ?? 180_000, task.cwd, {
 		closeStdin: true,
@@ -39,15 +51,22 @@ async function executeViaExec(task: AgentTask): Promise<AgentResult> {
 	const summary = lastAgentMessage(result.stdout) || result.stderr.trim();
 
 	return {
-		ok: result.exitCode === 0 && Boolean(summary),
+		ok: result.exitCode === 0 && Boolean(summary) && !isJsonlNoise(summary),
 		agentId: "codex",
-		summary: summary || "Codex 未返回结果",
+		summary: isJsonlNoise(summary) ? "Codex 未返回结果" : summary || "Codex 未返回结果",
 		exitCode: result.exitCode,
 		stderr: result.stderr.trim() || undefined,
 		events: [],
 		artifacts: [],
 		memoryCandidates: [],
 	};
+}
+
+/** stdout 全是 JSONL 事件、没有 agent_message 时，不当成可读摘要。 */
+function isJsonlNoise(text: string): boolean {
+	const trimmed = text.trim();
+	if (!trimmed.startsWith("{")) return false;
+	return /"type"\s*:\s*"(thread\.|turn\.|item\.)/.test(trimmed);
 }
 
 /**
@@ -62,7 +81,7 @@ async function executeViaPersistentThread(task: AgentTask): Promise<AgentResult>
 		? await client.resumePersistentThread(resumeSessionId)
 		: await client.startPersistentThread({
 				cwd: task.cwd,
-				sandbox: task.allowEdits ? "workspaceWrite" : "readOnly",
+				sandbox: task.allowEdits ? "workspace-write" : "read-only",
 				approvalPolicy: "never",
 			});
 	const turn = await client.runTurn({

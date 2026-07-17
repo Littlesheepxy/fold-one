@@ -152,7 +152,7 @@ export async function runTask(
 		updateTaskRun(taskMoment.taskId, { phase: "planning" }, deps.dataDir);
 		emit({ status: "planning" });
 		throwIfTaskCanceled(deps.signal);
-		probeResult = await runProbes(intent, context);
+		probeResult = await runProbes(intent, context, deps.dataDir);
 		throwIfTaskCanceled(deps.signal);
 		probeSummary = formatProbeSummary(probeResult);
 		const route = resolveTier(intent, context, probeResult, deps.dataDir);
@@ -180,6 +180,7 @@ export async function runTask(
 				intent,
 				agentProbe.preferred ?? "auto",
 				getCdpConnected(probeResult),
+				deps.agentCwd,
 			);
 		} else if (route.tier === "compiled") {
 			const compiled = tryCompiledPlan(intent, deps.dataDir);
@@ -461,6 +462,7 @@ export async function runTask(
 				initialFailures: recoveryFailures,
 				initialValidation: recoveryValidation,
 				executionOptions,
+				dataDir: deps.dataDir,
 			});
 			steps = recovery.steps;
 			validation = recovery.validation;

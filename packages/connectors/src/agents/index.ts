@@ -99,6 +99,12 @@ async function resolveConnector(agent?: AgentId | "auto"): Promise<AgentConnecto
 		return connector;
 	}
 
+	const preferred = process.env.FOLD_PREFERRED_EXECUTOR?.trim();
+	if (preferred === "claude-code" || preferred === "codex" || preferred === "cursor") {
+		const hit = CONNECTORS.find((c) => c.id === preferred);
+		if (hit && (await hit.isAvailable())) return hit;
+	}
+
 	for (const connector of CONNECTORS) {
 		if (await connector.isAvailable()) return connector;
 	}

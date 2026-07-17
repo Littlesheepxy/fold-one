@@ -3,23 +3,41 @@
  *
  * - journey-quote: 初次使用（冷启动）→ 后续「上次那个…」续接，验证 episode 召回
  * - journey-feishu: 飞书自聊 + 追发 + 多维表格（真发消息，默认 SKIP，FOLD_STRESS_REAL=1 开启）
+ * - journey-workbuddy: 难任务分流路由骨架；live 需网关 + FOLD_STRESS_WORKBUDDY=1
+ * - journey-fastpath: compiled 自聊延迟 + recipe 二次日历命中
+ * - journey-local-agent: 难意图经 runTask 分流到本地 Agent 并回传（FOLD_STRESS_LIVE_AGENT=1）
  *
  * 邮件固定走 FOLD_MAIL_PROVIDER=file，不打开 Mail.app。
  */
 import { spawnSync } from "node:child_process";
-import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { ContextStore } from "@fold/context";
-import { probeOfficeChannels } from "@fold/connectors";
+import { ContextStore, createEmptyContext } from "@fold/context";
+import {
+	probeAllAgents,
+	probeOfficeChannels,
+	probeWorkBuddyGateway,
+	workbuddyToolsFitIntent,
+} from "@fold/connectors";
 import { hasPlannerApiKey } from "@fold/ai";
 import { listRecentEpisodes } from "@fold/memory";
 import {
 	formatRelevantEpisodes,
+	resolveTier,
 	runTask,
+	selectRepairBackend,
+	tryCompiledPlan,
 	type StateEmitter,
 } from "@fold/runtime";
 import { check, type Check, type Scenario, type ScenarioCtx, type TurnResult } from "./types.ts";
+
+/** 难任务：命中 workflow，但若 MCP 无对应工具则不应硬塞。 */
+const WORKBUDDY_HARD_INTENT =
+	"把这篇会议纪要同步进我的 Obsidian vault，并按项目名归档";
+
+/** 与当前常见 WorkBuddy（Ardot）工具集匹配的 live 意图（不点名 WorkBuddy，测工具匹配）。 */
+const WORKBUDDY_FIT_INTENT = "帮我在 Ardot 里新建一个空白设计稿";
 
 interface TurnRun {
 	status: string;
@@ -37,6 +55,7 @@ async function playTurn(opts: {
 	store: ContextStore;
 	timeoutMs?: number;
 	envPatches?: Record<string, string>;
+	agentCwd?: string;
 	log?: (line: string) => void;
 }): Promise<TurnRun> {
 	const prevEnv: Record<string, string | undefined> = {};
@@ -77,6 +96,7 @@ async function playTurn(opts: {
 				getLiveContext: () => opts.store.get(),
 				dataDir: opts.dataDir,
 				signal: ac.signal,
+				agentCwd: opts.agentCwd,
 				requestUserAction: async (req) => {
 					asks.push(req.title);
 					log(`  … HITL: ${req.title}`);
@@ -164,7 +184,7 @@ function cleanupSeed(path: string): void {
 	}
 }
 
-function turnChecks(label: string, run: TurnRun, extra: Check[] = []): TurnResult {
+function turnChecks(label: string, run: TurnRun, extra: Check[] = [], maxMs = 120_000): TurnResult {
 	return {
 		label,
 		status: run.status,
@@ -174,7 +194,7 @@ function turnChecks(label: string, run: TurnRun, extra: Check[] = []): TurnResul
 				["success", "partial", "failed"].includes(run.status),
 				`${run.status} ${run.error ?? ""} steps=${run.stepStatuses.join(",")}`,
 			),
-			check(`${label}.bounded`, run.elapsedMs < 120_000, `${run.elapsedMs}ms`),
+			check(`${label}.bounded`, run.elapsedMs < maxMs, `${run.elapsedMs}ms`),
 			...extra,
 		],
 	};
@@ -559,9 +579,488 @@ async function runJourneyAttach(ctx: ScenarioCtx): Promise<TurnResult[]> {
 	}
 }
 
+/** 旅程：难任务 → WorkBuddy 分流（默认只验路由 + 探活；live 需网关） */
+async function runJourneyWorkbuddy(ctx: ScenarioCtx): Promise<TurnResult[]> {
+	const turns: TurnResult[] = [];
+	const simulatedFail = {
+		stepId: "seed",
+		skill: "office.cli",
+		status: "failed" as const,
+		durationMs: 1,
+		error: "simulated fold failure for workbuddy routing",
+		retryable: true,
+	};
+	const baseCtx = {
+		liveContext: createEmptyContext(),
+		failures: [simulatedFail],
+		validationFailed: true,
+		agentsEnabled: false,
+		availableAgents: [] as [],
+		cdpConnected: false,
+		uitarsEnabled: false,
+		uitarsAvailable: false,
+		screenCaptureAvailable: false,
+		screenshotSucceeded: false,
+		repairAttempts: 0,
+		maxRepairAttempts: 2,
+	};
+	const whenAvailable = selectRepairBackend(
+		{ ...baseCtx, intent: WORKBUDDY_HARD_INTENT, workbuddyAvailable: true, workbuddyToolNames: [] },
+		0,
+	);
+	const whenUnavailable = selectRepairBackend(
+		{ ...baseCtx, intent: WORKBUDDY_HARD_INTENT, workbuddyAvailable: false },
+		0,
+	);
+	const whenMismatched = selectRepairBackend(
+		{
+			...baseCtx,
+			intent: WORKBUDDY_HARD_INTENT,
+			workbuddyAvailable: true,
+			workbuddyToolNames: ["ardot_create_design", "conversation_search"],
+		},
+		0,
+	);
+	const whenMatched = selectRepairBackend(
+		{
+			...baseCtx,
+			intent: WORKBUDDY_FIT_INTENT,
+			workbuddyAvailable: true,
+			workbuddyToolNames: ["ardot_create_design", "conversation_search"],
+		},
+		0,
+	);
+	turns.push({
+		label: "workbuddy.routing",
+		checks: [
+			check(
+				"workbuddy.routing.prefersWhenAvailable",
+				whenAvailable === "workbuddy",
+				whenAvailable,
+			),
+			check(
+				"workbuddy.routing.notWhenUnavailable",
+				whenUnavailable !== "workbuddy",
+				whenUnavailable,
+			),
+			check(
+				"workbuddy.routing.skipsToolMismatch",
+				whenMismatched !== "workbuddy",
+				whenMismatched,
+			),
+			check(
+				"workbuddy.routing.prefersWhenToolsFit",
+				whenMatched === "workbuddy",
+				whenMatched,
+			),
+		],
+	});
+
+	const probe = await probeWorkBuddyGateway({ requireEnabled: false });
+	const toolNames = probe.toolNames ?? [];
+	const hardFits = workbuddyToolsFitIntent(WORKBUDDY_HARD_INTENT, toolNames);
+	const fitFits = workbuddyToolsFitIntent(WORKBUDDY_FIT_INTENT, toolNames);
+	ctx.log(
+		`workbuddy probe: available=${probe.available} tools=${toolNames.length} hardFits=${hardFits} fitFits=${fitFits} error=${probe.error ?? ""}`,
+	);
+	turns.push({
+		label: "workbuddy.probe",
+		checks: [
+			check(
+				"workbuddy.probe.completed",
+				true,
+				JSON.stringify({
+					available: probe.available,
+					enabled: probe.enabled,
+					toolCount: probe.toolCount ?? toolNames.length,
+					hardFits,
+					fitFits,
+					error: probe.error ?? null,
+				}),
+			),
+		],
+	});
+
+	if (!probe.available) {
+		turns.push({
+			label: "journey-workbuddy.live",
+			skipped: `WorkBuddy 网关不可用（${probe.error ?? "unavailable"}）— 安装登录后设 FOLD_STRESS_WORKBUDDY=1 跑 live`,
+			checks: [check("journey.skipped", true, "SKIP")],
+		});
+		return turns;
+	}
+
+	if (process.env.FOLD_STRESS_WORKBUDDY !== "1") {
+		turns.push({
+			label: "journey-workbuddy.live",
+			skipped: "网关可用；设 FOLD_STRESS_WORKBUDDY=1 跑 live 难任务分流",
+			checks: [check("journey.skipped", true, "SKIP")],
+		});
+		return turns;
+	}
+
+	if (!hasPlannerApiKey()) {
+		turns.push({
+			label: "journey-workbuddy.live",
+			skipped: "no planner API key",
+			checks: [check("journey.skipped", true, "SKIP")],
+		});
+		return turns;
+	}
+
+	const liveIntent = fitFits
+		? WORKBUDDY_FIT_INTENT
+		: hardFits
+			? WORKBUDDY_HARD_INTENT
+			: null;
+	if (!liveIntent) {
+		turns.push({
+			label: "journey-workbuddy.live",
+			skipped: `MCP 工具与压测意图都不匹配（tools=${toolNames.slice(0, 8).join(",") || "none"}）`,
+			checks: [check("journey.skipped", true, "SKIP")],
+		});
+		return turns;
+	}
+
+	const store = new ContextStore();
+	ctx.log(`workbuddy live starting: ${liveIntent}`);
+	const t1 = await playTurn({
+		intent: liveIntent,
+		dataDir: ctx.dataDir,
+		store,
+		timeoutMs: 180_000,
+		envPatches: { FOLD_EXECUTION_MODE: "auto" },
+		log: ctx.log,
+	});
+	ctx.log(
+		`workbuddy live: ${t1.status} ${t1.elapsedMs}ms skills=${t1.skills.join(",")} result=${t1.resultText}`,
+	);
+	const usedWorkbuddy =
+		t1.skills.includes("workbuddy.run") ||
+		/WorkBuddy|正在调用 WorkBuddy/i.test(
+			`${t1.resultText ?? ""} ${t1.asks.join(" ")} ${t1.stepStatuses.join(" ")}`,
+		);
+	turns.push(
+		turnChecks("workbuddy.live", t1, [
+			check("workbuddy.live.usedOrMentioned", usedWorkbuddy, t1.skills.join(",")),
+			check(
+				"workbuddy.live.notHardFail",
+				t1.status === "success" || t1.status === "partial" || usedWorkbuddy,
+				`${t1.status} ${t1.error ?? ""}`,
+			),
+		]),
+	);
+	return turns;
+}
+
+/** compiled 自聊应秒级；日历第二次应走 recipe 且明显快于冷启动 planner。 */
+async function runJourneyFastpath(ctx: ScenarioCtx): Promise<TurnResult[]> {
+	const channels = await probeOfficeChannels();
+	const feishu = channels.find((c) => c.id === "feishu");
+	if (!feishu?.installed || !feishu.authed) {
+		return [
+			{
+				label: "journey-fastpath",
+				skipped: `lark-cli 未就绪: installed=${feishu?.installed} authed=${feishu?.authed}`,
+				checks: [check("journey.skipped", true, "SKIP")],
+			},
+		];
+	}
+
+	const turns: TurnResult[] = [];
+	const store = new ContextStore();
+	const stamp = `Fold快路径${Date.now()}`;
+	const selfIntent = `在飞书给我自己发一条消息：${stamp}`;
+
+	const pre = tryCompiledPlan(selfIntent, ctx.dataDir);
+	turns.push({
+		label: "fastpath.compiled.pre",
+		checks: [
+			check("fastpath.compiled.isHardcoded", pre?.source === "hardcoded", pre?.source ?? "null"),
+		],
+	});
+
+	ctx.log(`fastpath compiled turn1: ${selfIntent}`);
+	const t1 = await playTurn({
+		intent: selfIntent,
+		dataDir: ctx.dataDir,
+		store,
+		timeoutMs: 30_000,
+		log: ctx.log,
+	});
+	ctx.log(`fastpath turn1: ${t1.status} ${t1.elapsedMs}ms`);
+	turns.push(
+		turnChecks("fastpath.compiled.t1", t1, [
+			check("fastpath.compiled.t1.success", t1.status === "success", `${t1.status} ${t1.error ?? ""}`),
+			check(
+				"fastpath.compiled.t1.under8s",
+				t1.elapsedMs < 8_000,
+				`${t1.elapsedMs}ms (expect <8000)`,
+			),
+		]),
+	);
+
+	const selfIntent2 = `在飞书给我自己发一条消息：${stamp} 再发`;
+	const t2 = await playTurn({
+		intent: selfIntent2,
+		dataDir: ctx.dataDir,
+		store,
+		timeoutMs: 30_000,
+		log: ctx.log,
+	});
+	ctx.log(`fastpath turn2: ${t2.status} ${t2.elapsedMs}ms`);
+	turns.push(
+		turnChecks("fastpath.compiled.t2", t2, [
+			check("fastpath.compiled.t2.success", t2.status === "success", `${t2.status} ${t2.error ?? ""}`),
+			check(
+				"fastpath.compiled.t2.under8s",
+				t2.elapsedMs < 8_000,
+				`${t2.elapsedMs}ms (expect <8000)`,
+			),
+		]),
+	);
+
+	if (!hasPlannerApiKey()) {
+		turns.push({
+			label: "fastpath.recipe",
+			skipped: "no planner API key — 跳过日历 recipe 冷/热对比",
+			checks: [check("journey.skipped", true, "SKIP")],
+		});
+		return turns;
+	}
+
+	const start = new Date();
+	start.setDate(start.getDate() + 1);
+	start.setHours(16, 0, 0, 0);
+	const end = new Date(start.getTime() + 60 * 60 * 1000);
+	const calCold = `用飞书日历创建一个日程：标题「${stamp}冷」，开始时间 ${start.toISOString()}，结束时间 ${end.toISOString()}，说明里写「快路径冷」`;
+	ctx.log(`fastpath calendar cold: ${calCold}`);
+	const cold = await playTurn({
+		intent: calCold,
+		dataDir: ctx.dataDir,
+		store,
+		timeoutMs: 120_000,
+		log: ctx.log,
+	});
+	ctx.log(`fastpath cold: ${cold.status} ${cold.elapsedMs}ms skills=${cold.skills.join(",")}`);
+	turns.push(
+		turnChecks("fastpath.recipe.cold", cold, [
+			check(
+				"fastpath.recipe.cold.ok",
+				cold.status === "success" || cold.status === "partial",
+				`${cold.status} ${cold.error ?? ""}`,
+			),
+		]),
+	);
+
+	const start2 = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+	const end2 = new Date(start2.getTime() + 60 * 60 * 1000);
+	const calWarm = `用飞书日历创建一个日程：标题「${stamp}热」，开始时间 ${start2.toISOString()}，结束时间 ${end2.toISOString()}，说明里写「快路径热」`;
+	const recipeHit = tryCompiledPlan(calWarm, ctx.dataDir);
+	turns.push({
+		label: "fastpath.recipe.match",
+		checks: [
+			check(
+				"fastpath.recipe.hit",
+				recipeHit?.source === "recipe",
+				recipeHit?.source ?? "null",
+			),
+		],
+	});
+
+	if (recipeHit?.source !== "recipe") {
+		turns.push({
+			label: "fastpath.recipe.warm",
+			skipped: "冷启动后未晋升 recipe（可能校验未过），跳过热路径",
+			checks: [check("journey.skipped", true, "SKIP")],
+		});
+		return turns;
+	}
+
+	ctx.log(`fastpath calendar warm: ${calWarm}`);
+	const warm = await playTurn({
+		intent: calWarm,
+		dataDir: ctx.dataDir,
+		store,
+		timeoutMs: 60_000,
+		log: ctx.log,
+	});
+	ctx.log(`fastpath warm: ${warm.status} ${warm.elapsedMs}ms`);
+	turns.push(
+		turnChecks("fastpath.recipe.warm", warm, [
+			check(
+				"fastpath.recipe.warm.ok",
+				warm.status === "success" || warm.status === "partial",
+				`${warm.status} ${warm.error ?? ""}`,
+			),
+			check(
+				"fastpath.recipe.warm.under15s",
+				warm.elapsedMs < 15_000,
+				`${warm.elapsedMs}ms (expect <15000)`,
+			),
+			check(
+				"fastpath.recipe.warmVsCold",
+				warm.elapsedMs <= cold.elapsedMs,
+				`warm=${warm.elapsedMs}ms cold=${cold.elapsedMs}ms`,
+			),
+		]),
+	);
+	return turns;
+}
+
+/**
+ * 难意图 → resolveTier(react) → runTask → agent.execute → 回传。
+ * 默认 SKIP（碰钥匙串）；FOLD_STRESS_LIVE_AGENT=1 开启。
+ */
+async function runJourneyLocalAgent(ctx: ScenarioCtx): Promise<TurnResult[]> {
+	if (process.env.FOLD_STRESS_LIVE_AGENT !== "1") {
+		return [
+			{
+				label: "journey-local-agent",
+				skipped:
+					"set FOLD_STRESS_LIVE_AGENT=1 to route hard intent via runTask → local Agent (may prompt Keychain)",
+				checks: [check("journey.skipped", true, "SKIP")],
+			},
+		];
+	}
+
+	const turns: TurnResult[] = [];
+	const prevAllow = process.env.FOLD_ALLOW_AGENT_SUBAGENTS;
+	const prevMode = process.env.FOLD_EXECUTION_MODE;
+	process.env.FOLD_ALLOW_AGENT_SUBAGENTS = "1";
+	process.env.FOLD_EXECUTION_MODE = "local_agent";
+
+	try {
+		const probes = await probeAllAgents();
+		const available = probes.filter((p) => p.available);
+		turns.push({
+			label: "local-agent.probe",
+			checks: [
+				check(
+					"local-agent.probe.hasCli",
+					available.length > 0,
+					probes.map((p) => `${p.id}:${p.available}`).join(",") || "none",
+				),
+			],
+		});
+		if (available.length === 0) {
+			turns.push({
+				label: "journey-local-agent.live",
+				skipped: "no local agent CLI available (claude/codex/agent)",
+				checks: [check("journey.skipped", true, "SKIP")],
+			});
+			return turns;
+		}
+
+		const repoDir = join(ctx.dataDir, "hard-agent-repo");
+		mkdirSync(repoDir, { recursive: true });
+		const readmePath = join(repoDir, "README.md");
+		writeFileSync(readmePath, "FoldStres\n", "utf8");
+
+		const hardIntent = `帮我修一下这个仓库里的 bug：把 ${readmePath} 第一行的拼写错误 FoldStres 改成 FoldStress，只改这一处，不要改其他文件`;
+
+		const route = resolveTier(
+			hardIntent,
+			createEmptyContext(),
+			{
+				probes: [
+					{
+						id: "agent.available",
+						status: "ok",
+						exclusiveResource: "none",
+						sideEffect: "none",
+						value: {
+							enabled: true,
+							agents: available.map((p) => p.id),
+							preferred: available[0]!.id,
+						},
+					},
+					{
+						id: "skill.registry",
+						status: "ok",
+						exclusiveResource: "none",
+						sideEffect: "none",
+						value: { skills: ["agent.execute", "office.cli"] },
+					},
+				],
+			},
+			ctx.dataDir,
+		);
+		turns.push({
+			label: "local-agent.route",
+			checks: [
+				check("local-agent.route.react", route.tier === "react", `${route.tier}: ${route.reason}`),
+			],
+		});
+
+		const store = new ContextStore();
+		ctx.log(`local-agent live: ${hardIntent}`);
+		const t1 = await playTurn({
+			intent: hardIntent,
+			dataDir: ctx.dataDir,
+			store,
+			timeoutMs: 180_000,
+			agentCwd: repoDir,
+			envPatches: {
+				FOLD_EXECUTION_MODE: "local_agent",
+				FOLD_ALLOW_AGENT_SUBAGENTS: "1",
+			},
+			log: ctx.log,
+		});
+		ctx.log(
+			`local-agent live: ${t1.status} ${t1.elapsedMs}ms skills=${t1.skills.join(",")} result=${t1.resultText}`,
+		);
+
+		const usedAgent = t1.skills.includes("agent.execute");
+		const after = readFileSync(readmePath, "utf8");
+		const fixed = /^\s*FoldStress\s*$/m.test(after);
+		turns.push(
+			turnChecks(
+				"local-agent.live",
+				t1,
+				[
+					check("local-agent.live.usedAgent", usedAgent, t1.skills.join(",")),
+					check(
+						"local-agent.live.returned",
+						t1.status === "success" || t1.status === "partial",
+						`${t1.status} ${t1.error ?? ""} ${t1.resultText ?? ""}`,
+					),
+					check(
+						"local-agent.live.fileFixed",
+						fixed,
+						`README after fix: ${JSON.stringify(after.slice(0, 80))}`,
+					),
+				],
+				180_000,
+			),
+		);
+		return turns;
+	} finally {
+		if (prevAllow === undefined) delete process.env.FOLD_ALLOW_AGENT_SUBAGENTS;
+		else process.env.FOLD_ALLOW_AGENT_SUBAGENTS = prevAllow;
+		if (prevMode === undefined) delete process.env.FOLD_EXECUTION_MODE;
+		else process.env.FOLD_EXECUTION_MODE = prevMode;
+	}
+}
+
 export const journeyScenarios: Scenario[] = [
 	{ id: "journey-quote", name: "旅程：飞书自聊 + 续接读金额", run: runJourneyQuote },
 	{ id: "journey-calendar", name: "旅程：飞书日历建日程", run: runJourneyCalendar },
 	{ id: "journey-attach", name: "旅程：带上前面的 PDF 附件发给自己", run: runJourneyAttach },
 	{ id: "journey-feishu", name: "旅程：飞书自聊 + 多维表格（真实）", run: runJourneyFeishu },
+	{
+		id: "journey-workbuddy",
+		name: "旅程：难任务分流 WorkBuddy（骨架）",
+		run: runJourneyWorkbuddy,
+	},
+	{
+		id: "journey-fastpath",
+		name: "旅程：compiled 延迟 + recipe 热路径",
+		run: runJourneyFastpath,
+	},
+	{
+		id: "journey-local-agent",
+		name: "旅程：难意图分流本地 Agent 并回传",
+		run: runJourneyLocalAgent,
+	},
 ];

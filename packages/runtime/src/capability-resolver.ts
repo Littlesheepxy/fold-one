@@ -99,11 +99,13 @@ export type OfficeChannelHint = {
 
 /**
  * 发送渠道：点名 IM → 邮件词 → 已连接 office → none（只整理，不擅自发邮件）。
+ * officeOrder：平票排序（默认 feishu→dingtalk→wecom；调用方可传入 episode 亲和度序）。
  */
 export function resolveSendChannel(
 	intent: string,
 	officeChannels?: OfficeChannelHint[],
 	_mailProvider?: string,
+	officeOrder: Array<"feishu" | "dingtalk" | "wecom"> = ["feishu", "dingtalk", "wecom"],
 ): SendChannel {
 	if (/(钉钉|dingtalk)/i.test(intent)) return "dingtalk";
 	if (/(企微|企业微信|wecom|wechat\s*work)/i.test(intent)) return "wecom";
@@ -116,9 +118,9 @@ export function resolveSendChannel(
 
 	const ready = (id: string) =>
 		officeChannels?.some((c) => c.id === id && c.installed && c.authed) ?? false;
-	if (ready("feishu")) return "feishu";
-	if (ready("dingtalk")) return "dingtalk";
-	if (ready("wecom")) return "wecom";
+	for (const id of officeOrder) {
+		if (ready(id)) return id;
+	}
 	return "none";
 }
 
@@ -172,7 +174,7 @@ export function needsReactGui(intent: string): boolean {
 // ---- 修复 / 恢复 ----
 
 const CODE_REPAIR_HINTS = /(代码|仓库|repo|项目|修复|fix|bug|测试|test|refactor|implement)/i;
-const WORKFLOW_HINTS = /(workflow|工作流|obsidian|vault|workbuddy|待办|笔记同步|知识库)/i;
+const WORKFLOW_HINTS = /(workflow|工作流|obsidian|vault|workbuddy|待办|笔记同步|知识库|ardot|设计稿)/i;
 const NATIVE_APP_HINTS = /(微信|wechat|飞书|feishu|lark|slack|finder|访达)/i;
 
 /** text 可以是 intent，也可以是 intent + 错误信息的拼接。 */

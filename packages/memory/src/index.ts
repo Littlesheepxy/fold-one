@@ -18,6 +18,17 @@ export {
 	type RawContextEventInput,
 } from "./episode.js";
 export {
+	AGENT_AFFINITY_IDS,
+	OFFICE_AFFINITY_IDS,
+	pickPreferredAgent,
+	rankAgents,
+	rankOfficeChannels,
+	scoreAgentAffinity,
+	scoreOfficeAffinity,
+	type AgentAffinityId,
+	type OfficeAffinityId,
+} from "./affinity.js";
+export {
 	classifyTaskClass,
 	clusterKeyFromSkills,
 	fillRecipePlan,

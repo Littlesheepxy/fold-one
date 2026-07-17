@@ -1,5 +1,5 @@
 import type { ActionPlan } from "@fold/ai";
-import type { AgentId } from "@fold/connectors";
+import { workbuddyToolsFitIntent, type AgentId } from "@fold/connectors";
 import type { LiveContext } from "@fold/context";
 import {
 	hasNativeAppHint,
@@ -60,6 +60,8 @@ export interface RecoveryContext {
 	uitarsEnabled: boolean;
 	uitarsAvailable: boolean;
 	workbuddyAvailable: boolean;
+	/** MCP 工具名；有域词时用于粗匹配，避免不合适硬塞 */
+	workbuddyToolNames?: string[];
 	screenCaptureAvailable: boolean;
 	screenshotSucceeded: boolean;
 	repairAttempts: number;
@@ -92,7 +94,10 @@ export function classifyFailure(failure: StepFailure): string {
 }
 
 export function selectRepairBackend(ctx: RecoveryContext, attempt: number): RepairBackend {
-	if (isWorkflowIntent(ctx.intent) && ctx.workbuddyAvailable && attempt === 0) {
+	const workbuddyFits =
+		ctx.workbuddyAvailable &&
+		workbuddyToolsFitIntent(ctx.intent, ctx.workbuddyToolNames ?? []);
+	if (isWorkflowIntent(ctx.intent) && workbuddyFits && attempt === 0) {
 		return "workbuddy";
 	}
 

@@ -221,12 +221,12 @@ export class CodexAppServerClient {
 	/** 持久线程（非 ephemeral），手机 Remote Control 可接管。 */
 	async startPersistentThread(opts: {
 		cwd?: string;
-		sandbox?: "readOnly" | "workspaceWrite" | "dangerFullAccess";
+		sandbox?: "read-only" | "workspace-write" | "danger-full-access";
 		approvalPolicy?: "untrusted" | "onFailure" | "onRequest" | "never";
 	}): Promise<string> {
 		const result = await this.request<{ thread?: { id?: string } }>("thread/start", {
 			cwd: opts.cwd,
-			sandbox: opts.sandbox ?? "workspaceWrite",
+			sandbox: opts.sandbox ?? "workspace-write",
 			approvalPolicy: opts.approvalPolicy ?? "never",
 			serviceName: this.clientName,
 			// 明确不要 ephemeral：默认持久，可供 Remote Control 查看
@@ -255,6 +255,7 @@ export class CodexAppServerClient {
 	}): Promise<{ ok: boolean; summary: string; turnStatus?: string }> {
 		let agentText = "";
 		let turnStatus = "unknown";
+		let turnError = "";
 		let turnId: string | undefined;
 		let interruptRequested = false;
 
@@ -267,9 +268,20 @@ export class CodexAppServerClient {
 				const item = (msg.params as { item?: { type?: string; text?: string } } | undefined)?.item;
 				if (item?.type === "agentMessage" && item.text) agentText = item.text;
 			}
+			if (msg.method === "error") {
+				const err = (msg.params as { error?: { message?: string }; message?: string } | undefined)
+					?.error?.message
+					?? (msg.params as { message?: string } | undefined)?.message;
+				if (typeof err === "string" && err.trim()) turnError = err.trim();
+			}
 			if (msg.method === "turn/completed") {
-				const turn = (msg.params as { turn?: { status?: string } } | undefined)?.turn;
+				const turn = (
+					msg.params as {
+						turn?: { status?: string; error?: { message?: string } };
+					} | undefined
+				)?.turn;
 				turnStatus = turn?.status ?? "completed";
+				if (turn?.error?.message) turnError = turn.error.message;
 			}
 		});
 
@@ -309,6 +321,7 @@ export class CodexAppServerClient {
 				ok: turnStatus === "completed" && Boolean(summary),
 				summary:
 					summary ||
+					turnError ||
 					(turnStatus === "failed"
 						? "Codex 执行失败"
 						: turnStatus === "interrupted"

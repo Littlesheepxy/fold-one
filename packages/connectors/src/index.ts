@@ -93,6 +93,7 @@ export {
 	type WorkBuddyRunInput,
 	type WorkBuddyRunResult,
 } from "./workbuddy/index.js";
+export { workbuddyToolsFitIntent } from "./workbuddy/fit.js";
 export { discoverWorkBuddyAppPath, isWorkBuddyAppInstalled, openWorkBuddyApp } from "./workbuddy/app.js";
 export { discoverCodexAppPath, isCodexAppInstalled, openCodexApp } from "./agents/codex-app.js";
 export {

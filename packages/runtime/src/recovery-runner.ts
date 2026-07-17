@@ -2,6 +2,7 @@ import { generateRecoveryPlan, hasPlannerApiKey, type ActionPlan } from "@fold/a
 import type { AgentId, SubagentHandoff } from "@fold/connectors";
 import type { LiveContext } from "@fold/context";
 import { isAgentSubagentsEnabled } from "@fold/connectors";
+import { rankAgents } from "@fold/memory";
 import type { ValidationResult } from "./validator.js";
 import {
 	runPlan,
@@ -73,12 +74,18 @@ export function getUitarsProbe(probeResult: ProbeRunResult): {
 export function getWorkbuddyProbe(probeResult: ProbeRunResult): {
 	enabled: boolean;
 	available: boolean;
+	toolNames: string[];
 } {
 	const probe = probeResult.probes.find((p) => p.id === "workbuddy.available");
-	const value = probe?.value as { enabled?: boolean; available?: boolean } | undefined;
+	const value = probe?.value as
+		| { enabled?: boolean; available?: boolean; toolNames?: string[] }
+		| undefined;
 	return {
 		enabled: Boolean(value?.enabled),
 		available: Boolean(value?.available),
+		toolNames: Array.isArray(value?.toolNames)
+			? value.toolNames.filter((name): name is string => typeof name === "string")
+			: [],
 	};
 }
 
@@ -213,18 +220,32 @@ function buildRecoveryContext(
 	uitarsProbe: ReturnType<typeof getUitarsProbe>,
 	workbuddyProbe: ReturnType<typeof getWorkbuddyProbe>,
 	screenCaptureProbe: ReturnType<typeof getScreenCaptureProbe>,
+	dataDir?: string,
 ) {
+	const preferredRaw = process.env.FOLD_PREFERRED_EXECUTOR?.trim();
+	const preferred =
+		preferredRaw === "claude-code" || preferredRaw === "codex" || preferredRaw === "cursor"
+			? preferredRaw
+			: agentProbe.preferred;
+	const ranked = rankAgents(agentProbe.agents, dataDir);
+	const availableAgents = (
+		preferred && ranked.includes(preferred)
+			? [preferred, ...ranked.filter((id) => id !== preferred)]
+			: ranked
+	) as AgentId[];
+
 	return {
 		intent: input.intent,
 		liveContext: input.context,
 		failures: input.failures,
 		validationFailed: input.validationFailed,
 		agentsEnabled: isAgentSubagentsEnabled(),
-		availableAgents: agentProbe.agents,
+		availableAgents,
 		cdpConnected,
 		uitarsEnabled: uitarsProbe.enabled,
 		uitarsAvailable: uitarsProbe.available,
 		workbuddyAvailable: workbuddyProbe.available,
+		workbuddyToolNames: workbuddyProbe.toolNames,
 		screenCaptureAvailable: screenCaptureProbe.available,
 		screenshotSucceeded: input.screenshotSucceeded,
 		repairAttempts: input.repairAttempts,
@@ -243,6 +264,7 @@ export async function runRecoveryLoop(input: {
 	initialFailures: StepFailure[];
 	initialValidation: ValidationResult;
 	executionOptions?: RunPlanOptions;
+	dataDir?: string;
 }): Promise<RecoveryRunResult> {
 	const actions: RecoveryAction[] = [];
 	let steps = await retryFailedSteps(
@@ -303,6 +325,7 @@ export async function runRecoveryLoop(input: {
 		uitarsProbe,
 		workbuddyProbe,
 		screenCaptureProbe,
+		input.dataDir,
 	);
 	const maxAttempts = resolveRepairBudget(recoverySeed).maxAttempts;
 
@@ -324,6 +347,7 @@ export async function runRecoveryLoop(input: {
 				uitarsProbe,
 				workbuddyProbe,
 				screenCaptureProbe,
+				input.dataDir,
 			),
 		});
 		if (!action) break;

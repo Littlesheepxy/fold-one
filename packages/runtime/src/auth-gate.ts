@@ -6,6 +6,7 @@ import {
 	resolveMailConnector,
 	type GmailCliProbe,
 } from "@fold/connectors";
+import { rankOfficeChannels } from "@fold/memory";
 import {
 	isGmailIntent,
 	mayNeedScreenPermission,
@@ -293,7 +294,8 @@ export async function ensureExecutionPrerequisites(
 
 	const mailProvider = process.env.FOLD_MAIL_PROVIDER ?? "auto";
 	const officeChannels = probeValue<OfficeChannelHint[]>(probeResult, "office.channels");
-	const sendChannel = resolveSendChannel(intent, officeChannels, mailProvider);
+	const officeOrder = rankOfficeChannels(["feishu", "dingtalk", "wecom"], deps.dataDir);
+	const sendChannel = resolveSendChannel(intent, officeChannels, mailProvider, officeOrder);
 	const mailConnector = resolveMailConnector(undefined, {
 		intent,
 		activeApp: undefined,

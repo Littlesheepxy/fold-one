@@ -172,6 +172,8 @@ export interface OrchestratorDeps {
 	runUserAction?: (optionId: string, context?: Record<string, unknown>) => Promise<void>;
 	/** Abort the active run and any cooperative local worker processes. */
 	signal?: AbortSignal;
+	/** Optional cwd for Tier-2 agent.execute (e.g. stress repo). */
+	agentCwd?: string;
 }
 
 export type StateEmitter = (event: FoldStateEvent) => void;
