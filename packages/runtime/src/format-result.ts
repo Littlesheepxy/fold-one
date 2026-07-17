@@ -11,6 +11,10 @@ type OfficeCliOutput = {
 	stdout?: string;
 	stderr?: string;
 	exitCode?: number;
+	receiptStatus?: string;
+	reusedReceipt?: boolean;
+	externalRef?: string;
+	note?: string;
 };
 
 const OFFICE_CHANNEL_LABELS: Record<string, string> = {
@@ -99,7 +103,13 @@ export function formatOfficeCliFeedback(output: OfficeCliOutput): string {
 	const list = findNestedArray(payload);
 
 	if (operation === "发送消息") {
-		const receipt = shortReceipt(messageId);
+		if (output.receiptStatus === "uncertain" || /跳过|未确认/.test(output.note ?? output.stderr ?? "")) {
+			return `${label}：发送已跳过（待确认，未重复发送）`;
+		}
+		const receipt = shortReceipt(messageId ?? output.externalRef);
+		if (!receipt && !output.reusedReceipt) {
+			return `${label}：发送完成但无回执，请在飞书确认`;
+		}
 		return `${label}：消息已发送${receipt ? `（回执 ${receipt}）` : ""}`;
 	}
 	if (operation === "获取本人信息") {
@@ -117,6 +127,22 @@ export function formatOfficeCliFeedback(output: OfficeCliOutput): string {
 	}
 	if (operation === "创建表格") {
 		return `${label}：表格已创建${typeof appUrl === "string" ? ` · ${appUrl}` : ""}`;
+	}
+	if (operation === "创建日程") {
+		const eventId = findNestedValue(
+			payload,
+			new Set(["event_id", "eventId", "uid", "id"]),
+		);
+		const receipt = shortReceipt(eventId);
+		return `${label}：日程已创建${receipt ? `（${receipt}）` : ""}`;
+	}
+	if (operation === "上传文件") {
+		const url = findNestedValue(payload, new Set(["url"]));
+		const name = findNestedValue(payload, new Set(["file_name", "fileName", "name"]));
+		if (typeof url === "string" && url) {
+			return `${label}：文件已上传${typeof name === "string" ? `「${name}」` : ""} · ${url}`;
+		}
+		return `${label}：文件已上传`;
 	}
 	if (operation.includes("文档")) {
 		const receipt = shortReceipt(documentId);
@@ -222,7 +248,17 @@ export function buildUserVisibleSummary(
 
 	const recallStep = steps.find((s) => s.skill === "clipboard.recall" && s.status === "success");
 	const recallOutput = recallStep?.output as { summary?: string; ok?: boolean } | undefined;
-	if (recallStep && recallOutput?.summary) {
+	const hasDeliverable = steps.some(
+		(s) =>
+			s.status === "success" &&
+			["mail.draft", "pdf.extract", "office.cli", "finder.latestDownload"].includes(s.skill),
+	);
+	if (
+		recallStep &&
+		recallOutput?.ok === true &&
+		recallOutput.summary &&
+		!hasDeliverable
+	) {
 		return recallOutput.summary.split("\n")[0] ?? recallOutput.summary;
 	}
 

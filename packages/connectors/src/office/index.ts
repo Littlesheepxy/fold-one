@@ -219,6 +219,7 @@ export async function runOfficeCli(
 	args: string[],
 	timeoutMs = 60_000,
 	signal?: AbortSignal,
+	cwd?: string,
 ): Promise<OfficeCliResult> {
 	const spec = getChannel(channelId);
 	const normalizedArgs = normalizeOfficeCliArgs(channelId, args);
@@ -228,7 +229,7 @@ export async function runOfficeCli(
 		if (!probe.available || !probe.backend) throw new Error(probe.error ?? "Slack CLI 不可用");
 		binary = probe.backend;
 	}
-	const result = await runShellDetailed(binary, normalizedArgs, timeoutMs, undefined, { signal });
+	const result = await runShellDetailed(binary, normalizedArgs, timeoutMs, cwd, { signal });
 	return {
 		ok: result.exitCode === 0,
 		channel: spec.id,

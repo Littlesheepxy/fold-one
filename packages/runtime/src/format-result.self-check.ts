@@ -51,4 +51,31 @@ const steps = [
 assert.equal(buildUserVisibleSummary("给自己发条测试消息", steps), "飞书：消息已发送（回执 om_1234567890）");
 assert.match(buildResultDetail("给自己发条测试消息", steps), /消息已发送/);
 
+// clipboard.recall ok:false must not steal summary from pdf+mail.draft
+const polluted = [
+	{
+		skill: "clipboard.recall",
+		status: "success" as const,
+		output: { ok: false, summary: "还没有复制记录。复制几段文字后我就能帮你找回。" },
+	},
+	{
+		skill: "pdf.extract",
+		status: "success" as const,
+		output: { vendor: "Acme", amount: "$12,000", date: "2026-07-17" },
+	},
+	{
+		skill: "mail.draft",
+		status: "success" as const,
+		output: { subject: "Quote", to: "Jason", provider: "file" },
+	},
+];
+assert.match(
+	buildUserVisibleSummary("整理报价发给 Jason", polluted),
+	/已创建邮件草稿/,
+);
+assert.doesNotMatch(
+	buildUserVisibleSummary("整理报价发给 Jason", polluted),
+	/还没有复制记录/,
+);
+
 console.log("format-result self-check passed");

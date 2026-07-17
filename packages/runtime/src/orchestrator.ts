@@ -15,6 +15,8 @@ import {
 import {
 	appendRunEvent,
 	getSideEffectReceipt,
+	promoteRecipe,
+	recordRecipeOutcome,
 	saveEpisode,
 	saveTaskCheckpoint,
 	startTaskRun,
@@ -141,6 +143,7 @@ export async function runTask(
 	emit({ status: "understanding", transcript: intent });
 
 	let plan: ActionPlan;
+	let recipeId: string | undefined;
 	let probeSummary = "";
 	let probeResult: ProbeRunResult | undefined;
 	let plannerContextSummary: string | undefined;
@@ -152,7 +155,7 @@ export async function runTask(
 		probeResult = await runProbes(intent, context);
 		throwIfTaskCanceled(deps.signal);
 		probeSummary = formatProbeSummary(probeResult);
-		const route = resolveTier(intent, context, probeResult);
+		const route = resolveTier(intent, context, probeResult, deps.dataDir);
 		if (route.tier === "react") {
 			if (!isAgentSubagentsEnabled()) {
 				throw new Error(
@@ -179,7 +182,9 @@ export async function runTask(
 				getCdpConnected(probeResult),
 			);
 		} else if (route.tier === "compiled") {
-			plan = tryCompiledPlan(intent) ?? mockActionPlan(intent);
+			const compiled = tryCompiledPlan(intent, deps.dataDir);
+			plan = compiled?.plan ?? mockActionPlan(intent);
+			recipeId = compiled?.recipeId;
 		} else if (hasPlannerApiKey()) {
 			assembledContext = await assembleTaskContext(
 				intent,
@@ -362,20 +367,68 @@ export async function runTask(
 	let abortReason: string | undefined;
 	try {
 		updateTaskRun(taskMoment.taskId, { phase: "executing" }, deps.dataDir);
-		const { steps: initialSteps, failures: initialFailures } = await runPlan(
-			plan,
-			skillCtx,
-			emit,
-			executionOptions,
-		);
-		const initialValidation = validatePlan(plan, initialSteps);
-		steps = initialSteps;
-		validation = initialValidation;
-		neededRecovery = !initialValidation.ok || initialFailures.length > 0;
+		const firstRun = await runPlan(plan, skillCtx, emit, executionOptions);
+		let recoverySteps = firstRun.steps;
+		let recoveryFailures = firstRun.failures;
+		let recoveryValidation = validatePlan(plan, recoverySteps);
+		steps = recoverySteps;
+		validation = recoveryValidation;
+		neededRecovery = !recoveryValidation.ok || recoveryFailures.length > 0;
 
-		if (!validation.ok || initialFailures.length > 0) {
+		// Recipe miss-fire: demote and fall back to planner once before generic recovery.
+		if (recipeId && neededRecovery) {
+			recordRecipeOutcome(recipeId, false, deps.dataDir);
+			recipeId = undefined;
+			if (!assembledContext) {
+				try {
+					assembledContext = await assembleTaskContext(
+						intent,
+						context,
+						deps.dataDir,
+						taskMoment.taskId,
+					);
+					taskMoment = assembledContext.moment;
+					skillCtx.contextSnapshot = assembledContext.agentContext;
+				} catch {
+					/* proceed with L1 moment */
+				}
+			}
+			if (hasPlannerApiKey() && assembledContext) {
+				plan = await generateActionPlan({
+					intent,
+					contextSummary: assembledContext.contextSummary,
+					skillCatalog: buildSkillCatalog(),
+					probeSummary,
+					relevantEpisodes: assembledContext.memoryBrief,
+				});
+			} else {
+				plan = mockActionPlan(intent);
+			}
+			skillCtx.agentTaskEnvelope = buildAgentTaskEnvelope(
+				intent,
+				plan,
+				taskMoment,
+				assembledContext,
+			);
+			updateTaskRun(taskMoment.taskId, { phase: "recovering", plan, taskMoment }, deps.dataDir);
+			recordRunEvent(
+				taskMoment.taskId,
+				"plan.created",
+				{ plan, source: "recipe_fallback" },
+				deps.dataDir,
+			);
+			const fallback = await runPlan(plan, skillCtx, emit, executionOptions);
+			recoverySteps = fallback.steps;
+			recoveryFailures = fallback.failures;
+			recoveryValidation = validatePlan(plan, recoverySteps);
+			steps = recoverySteps;
+			validation = recoveryValidation;
+			neededRecovery = !recoveryValidation.ok || recoveryFailures.length > 0;
+		}
+
+		if (neededRecovery) {
 			updateTaskRun(taskMoment.taskId, { phase: "recovering" }, deps.dataDir);
-		// Keep the compiled fast path fast; only deepen AX/memory context after it actually fails.
+			// Keep the compiled fast path fast; only deepen AX/memory context after it actually fails.
 			if (!assembledContext) {
 				try {
 					assembledContext = await assembleTaskContext(
@@ -404,9 +457,9 @@ export async function runTask(
 				probeResult: probeResult ?? { probes: [] },
 				skillCtx,
 				emit,
-				initialSteps,
-				initialFailures,
-				initialValidation,
+				initialSteps: recoverySteps,
+				initialFailures: recoveryFailures,
+				initialValidation: recoveryValidation,
 				executionOptions,
 			});
 			steps = recovery.steps;
@@ -482,6 +535,17 @@ export async function runTask(
 		},
 		deps.dataDir,
 	);
+
+	if (recipeId && validation.ok) {
+		recordRecipeOutcome(recipeId, true, deps.dataDir);
+	}
+	if (validation.ok || recovered) {
+		try {
+			promoteRecipe(episode, deps.dataDir);
+		} catch {
+			/* recipe promotion must not fail the user task */
+		}
+	}
 
 	if (validation.ok) {
 		updateTaskRun(

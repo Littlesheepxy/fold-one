@@ -1,6 +1,7 @@
 import { isClipboardRecallIntent, type LiveContext } from "@fold/context";
-import { mockActionPlan } from "@fold/ai";
+import { mockActionPlan, type ActionPlan } from "@fold/ai";
 import type { AgentId } from "@fold/connectors";
+import { matchRecipe } from "@fold/memory";
 import {
 	isCodeRepairHint,
 	extractFeishuSelfMessageText,
@@ -24,6 +25,12 @@ export interface RouteDecision {
 	reason: string;
 }
 
+export type CompiledMatch = {
+	plan: ActionPlan;
+	source: "hardcoded" | "recipe";
+	recipeId?: string;
+};
+
 function getExecutionMode(): ExecutionMode {
 	return normalizeExecutionMode(process.env.FOLD_EXECUTION_MODE);
 }
@@ -41,8 +48,7 @@ function isComplexIntent(intent: string): boolean {
 	return isCodeRepairHint(intent) || isWorkflowIntent(intent) || needsReactGui(intent);
 }
 
-/** Tier 0: deterministic compiled plans (no LLM). */
-export function tryCompiledPlan(intent: string) {
+function hardcodedCompiledPlan(intent: string): ActionPlan | null {
 	if (isFeishuSelfMessageIntent(intent)) {
 		const text = extractFeishuSelfMessageText(intent);
 		if (text) {
@@ -105,6 +111,18 @@ export function tryCompiledPlan(intent: string) {
 	return null;
 }
 
+/** Tier 0: hardcoded patterns first, then success-gated recipes. */
+export function tryCompiledPlan(intent: string, dataDir?: string): CompiledMatch | null {
+	const hardcoded = hardcodedCompiledPlan(intent);
+	if (hardcoded) return { plan: hardcoded, source: "hardcoded" };
+
+	const hit = matchRecipe(intent, dataDir);
+	if (hit) {
+		return { plan: hit.plan, source: "recipe", recipeId: hit.recipe.id };
+	}
+	return null;
+}
+
 function probeValue<T>(probeResult: ProbeRunResult | undefined, id: string): T | undefined {
 	const probe = probeResult?.probes.find((p) => p.id === id);
 	if (!probe || probe.status !== "ok") return undefined;
@@ -133,10 +151,11 @@ export function resolveTier(
 	intent: string,
 	_context: LiveContext,
 	probeResult?: ProbeRunResult,
+	dataDir?: string,
 ): RouteDecision {
 	const mode = getExecutionMode();
 
-	if (tryCompiledPlan(intent)) {
+	if (tryCompiledPlan(intent, dataDir)) {
 		return { tier: "compiled", reason: "matched compiled skill pattern" };
 	}
 

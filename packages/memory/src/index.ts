@@ -17,6 +17,25 @@ export {
 	type MemoryRecord,
 	type RawContextEventInput,
 } from "./episode.js";
+export {
+	classifyTaskClass,
+	clusterKeyFromSkills,
+	fillRecipePlan,
+	getRecipeById,
+	induceRecipeFromEpisode,
+	isEpisodeEligibleForRecipe,
+	jaccard,
+	listActiveRecipes,
+	listAllRecipes,
+	matchRecipe,
+	normalizeIntentTokens,
+	promoteRecipe,
+	recordRecipeOutcome,
+	type MatchedRecipe,
+	type Recipe,
+	type RecipeDraft,
+	type RecipeStatus,
+} from "./recipe.js";
 export { saveVoiceInteraction, type VoiceInteractionKind, type VoiceInteractionStatus } from "./voice-interaction.js";
 export {
 	appendRunEvent,

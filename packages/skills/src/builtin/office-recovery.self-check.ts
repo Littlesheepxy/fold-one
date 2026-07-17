@@ -79,6 +79,7 @@ async function send(ctx: SkillContext) {
 	assert.equal(sendCount, 1, "崩溃重启后不得重复发送");
 	assert.equal(result.reusedReceipt, true);
 	assert.equal(result.receiptStatus, "uncertain");
+	assert.equal(result.ok, false, "uncertain 跳过不得报成功");
 }
 
 // 场景 3：崩溃窗口 + verifier 确认已送达 → 不重发，按 confirmed 复用

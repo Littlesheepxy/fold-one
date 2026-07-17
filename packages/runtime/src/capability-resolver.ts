@@ -41,7 +41,15 @@ export function extractFeishuSelfMessageText(intent: string): string | null {
 	const quoted = intent.match(/内容(?:是|为|：|:)?\s*[「“\"]([\s\S]+?)[」”\"]/);
 	if (quoted?.[1]?.trim()) return quoted[1].trim();
 	const plain = intent.match(/内容(?:是|为|：|:)\s*([^，。]+)[。]?$/);
-	return plain?.[1]?.trim() || null;
+	if (plain?.[1]?.trim()) return plain[1].trim();
+	// 「给我自己发一条消息：正文」——冒号后整段即正文
+	const afterColon = intent.match(
+		/(?:给|发给).{0,8}(?:我自己|自己|本人).{0,16}(?:发|发送)?(?:一条)?(?:消息|信息)\s*[:：]\s*(.+)$/,
+	);
+	if (afterColon?.[1]?.trim()) return afterColon[1].trim();
+	const sendMsg = intent.match(/(?:发|发送)(?:一条)?(?:消息|信息)\s*(?:给)?(?:我自己|自己|本人)\s*[:：]\s*(.+)$/);
+	if (sendMsg?.[1]?.trim()) return sendMsg[1].trim();
+	return null;
 }
 
 export function isBrowserIntent(intent: string): boolean {
@@ -65,8 +73,53 @@ export function isPdfDownloadCountIntent(intent: string): boolean {
 	);
 }
 
+/** 显式邮件/草稿意图（不含裸「发给」）。 */
+export function isExplicitMailIntent(intent: string): boolean {
+	return (
+		isGmailIntent(intent) ||
+		/(邮件|mail|草稿|邮箱|outlook|苹果邮件|apple\s*mail)/i.test(intent)
+	);
+}
+
+/**
+ * 收窄：必须点名 PDF + 邮件词，避免「发给」误走 mail demo。
+ * compiled / mock 仅在此命中时出 mail.draft。
+ */
 export function isPdfMailDemoIntent(intent: string): boolean {
-	return /刚下载.*pdf.*(邮件|mail|发)/i.test(intent);
+	return /刚下载.*pdf.*(邮件|mail|草稿|邮箱)/i.test(intent);
+}
+
+export type SendChannel = "feishu" | "dingtalk" | "wecom" | "mail" | "none";
+
+export type OfficeChannelHint = {
+	id: string;
+	installed?: boolean;
+	authed?: boolean;
+};
+
+/**
+ * 发送渠道：点名 IM → 邮件词 → 已连接 office → none（只整理，不擅自发邮件）。
+ */
+export function resolveSendChannel(
+	intent: string,
+	officeChannels?: OfficeChannelHint[],
+	_mailProvider?: string,
+): SendChannel {
+	if (/(钉钉|dingtalk)/i.test(intent)) return "dingtalk";
+	if (/(企微|企业微信|wecom|wechat\s*work)/i.test(intent)) return "wecom";
+	// 飞书邮件 → mail；飞书消息/其它 → feishu
+	if (FEISHU_HINTS.test(intent)) {
+		if (/(邮件|mail|邮箱)/i.test(intent)) return "mail";
+		return "feishu";
+	}
+	if (isExplicitMailIntent(intent)) return "mail";
+
+	const ready = (id: string) =>
+		officeChannels?.some((c) => c.id === id && c.installed && c.authed) ?? false;
+	if (ready("feishu")) return "feishu";
+	if (ready("dingtalk")) return "dingtalk";
+	if (ready("wecom")) return "wecom";
+	return "none";
 }
 
 // ---- 视觉 / GUI ----

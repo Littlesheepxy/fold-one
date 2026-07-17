@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { basename, dirname, isAbsolute } from "node:path";
 import { isOfficeChannelId, runOfficeCli } from "@fold/connectors";
 import type { SkillContext } from "../types.js";
 
@@ -36,6 +37,9 @@ export function describeOfficeOperation(channel: string, args: string[]): string
 	if (/\b(calendar|schedule)\b/.test(full) && /\b(create|add|post)\b/.test(full)) {
 		return "创建日程";
 	}
+	if (/\bdrive\b/.test(full) && /\+?upload|\bupload\b/.test(full)) {
+		return "上传文件";
+	}
 	if (/\b(doc|docs|document|wiki)\b/.test(full) && /\b(create|add|post)\b/.test(full)) {
 		return "创建文档";
 	}
@@ -46,6 +50,21 @@ function failureMessage(channel: string, stderr: string, stdout: string, exitCod
 	const label = CHANNEL_LABELS[channel] ?? channel;
 	const detail = (stderr || stdout || `退出码 ${exitCode}`).replace(/\s+/g, " ").trim().slice(0, 300);
 	return `${label}执行失败：${detail}`;
+}
+
+/** lark-cli 要求 --file 等为 cwd 内相对路径；绝对路径改成 cwd=dirname + ./basename。 */
+function localizeFileArgs(cliArgs: string[]): { args: string[]; cwd?: string } {
+	const flags = new Set(["--file", "--image", "--audio", "--video", "--video-cover"]);
+	const out = [...cliArgs];
+	let cwd: string | undefined;
+	for (let i = 0; i < out.length - 1; i++) {
+		if (!flags.has(out[i])) continue;
+		const p = out[i + 1];
+		if (!p || !isAbsolute(p)) continue;
+		cwd = dirname(p);
+		out[i + 1] = `./${basename(p)}`;
+	}
+	return { args: out, cwd };
 }
 
 export async function officeCli(args: Record<string, unknown>, ctx: SkillContext) {
@@ -65,6 +84,11 @@ export async function officeCli(args: Record<string, unknown>, ctx: SkillContext
 	if (channel === "feishu" && operation === "发送消息") {
 		const targetIndex = cliArgs.findIndex((arg) => arg === "--user-id" || arg === "--chat-id");
 		targetFingerprint = targetIndex >= 0 ? cliArgs[targetIndex + 1] : "unknown";
+		if (/\{\{/.test(targetFingerprint ?? "")) {
+			throw new Error(
+				`飞书接收人未解析（仍是模板 ${targetFingerprint}）。请先 contact +get-user 取 open_id，或改发给自己。`,
+			);
+		}
 		inputHash = createHash("sha256").update(JSON.stringify(cliArgs)).digest("hex");
 		const existingIndex = cliArgs.indexOf("--idempotency-key");
 		idempotencyKey = existingIndex >= 0 ? cliArgs[existingIndex + 1] : undefined;
@@ -110,13 +134,13 @@ export async function officeCli(args: Record<string, unknown>, ctx: SkillContext
 					};
 				}
 				if (verdict !== "not_delivered") {
-					// 无法核对（unknown / 未接 verifier）：宁可不发，也不重复发，交人工确认。
+					// 无法核对：不重发；ok=false 避免 UI 报「已发送」
 					return {
-						ok: true,
+						ok: false,
 						channel,
 						stdout: "",
-						stderr: "",
-						exitCode: 0,
+						stderr: "存在未确认的发送记录，为避免重复发送已跳过，请人工确认后重试",
+						exitCode: 1,
 						operation,
 						idempotencyKey,
 						targetFingerprint,
@@ -141,8 +165,11 @@ export async function officeCli(args: Record<string, unknown>, ctx: SkillContext
 		type: "progress",
 		message: `${CHANNEL_LABELS[channel] ?? channel}：${operation}…`,
 	});
-	const runImpl = ctx.runOfficeCliImpl ?? runOfficeCli;
-	const result = await runImpl(channel, cliArgs, 60_000, ctx.signal);
+	const localized = localizeFileArgs(cliArgs);
+	cliArgs = localized.args;
+	const result = ctx.runOfficeCliImpl
+		? await ctx.runOfficeCliImpl(channel, cliArgs, 60_000, ctx.signal)
+		: await runOfficeCli(channel, cliArgs, 60_000, ctx.signal, localized.cwd);
 	if (!result.ok) {
 		// 非零退出必须成为步骤失败，避免依赖步骤拿坏输出继续执行。
 		const error = new Error(failureMessage(channel, result.stderr, result.stdout, result.exitCode)) as Error & {

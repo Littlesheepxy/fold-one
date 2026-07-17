@@ -124,6 +124,7 @@ export { formatProbeSummary, runProbes } from "./probe-runner.js";
 export {
 	resolveTier,
 	tryCompiledPlan,
+	type CompiledMatch,
 	type ExecutionTier,
 	type RouteDecision,
 } from "./router.js";
@@ -140,7 +141,14 @@ export {
 } from "./capability-catalog.js";
 export { validatePlan } from "./validator.js";
 export { buildReactAgentPlan, buildRepairBrief } from "./repair.js";
-export { isGuiIntent } from "./capability-resolver.js";
+export {
+	isGuiIntent,
+	resolveSendChannel,
+	isExplicitMailIntent,
+	isFeishuSelfMessageIntent,
+	extractFeishuSelfMessageText,
+} from "./capability-resolver.js";
+export type { SendChannel, OfficeChannelHint } from "./capability-resolver.js";
 export {
 	buildRecoveryPlan,
 	classifyFailure,

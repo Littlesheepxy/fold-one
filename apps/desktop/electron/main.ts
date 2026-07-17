@@ -664,6 +664,28 @@ function requestUserAction(req: UserActionRequest): Promise<string> {
 	return response;
 }
 
+/** Auto-complete the active auth HITL when probe says ready (no user click). */
+function resolveUserAction(optionId: string): void {
+	const broker = ensureInteractionBroker();
+	const active = broker.current();
+	if (!active) return;
+	const resolution = broker.respond({
+		requestId: active.id,
+		optionId,
+		modality: "terminal",
+	});
+	if (!resolution) return;
+	emitState({
+		status: "working",
+		interaction: null,
+		voiceMode: null,
+		askTitle: null,
+		askMessage: null,
+		askHint: null,
+		askOptions: undefined,
+	});
+}
+
 async function handleInteractionResponse(response: UserActionResponse): Promise<void> {
 	const broker = ensureInteractionBroker();
 	const record = broker.current();
@@ -718,7 +740,11 @@ async function handleInteractionResponse(response: UserActionResponse): Promise<
 
 	// A restored interaction has no live Promise. Re-enter through the product task path
 	// with the durable answer instead of silently losing the paused run.
-	if (!resolution.wasLive && resolution.record.intent) {
+	// Dev-only E2E HITL cards set skipExecuteOnRestore so clicking allow doesn't
+	// re-run a fake intent as a real agent task (was the "部分完成" trap).
+	const skipExecute =
+		resolution.record.runContext?.skipExecuteOnRestore === true;
+	if (!resolution.wasLive && resolution.record.intent && !skipExecute) {
 		const answer = response.optionId ?? response.text?.trim() ?? "";
 		await executeTask(`${resolution.record.intent}\n已恢复的用户回答：${answer}`);
 	}
@@ -778,6 +804,7 @@ async function executeTask(intent: string) {
 		await runTask(lastIntent, emitState, {
 			getLiveContext: () => contextEngine.getLiveContext(),
 			requestUserAction,
+			resolveUserAction,
 			runUserAction,
 			signal: abortController.signal,
 		});
@@ -2495,6 +2522,7 @@ app.whenReady().then(() => {
 				hint: "将向外部发送消息",
 				kind: "confirm",
 				risk: "external",
+				runContext: { skipExecuteOnRestore: true },
 				options: [
 					{ id: "allow-once", label: "允许这一次", tone: "primary" },
 					{ id: "edit", label: "编辑后发送" },

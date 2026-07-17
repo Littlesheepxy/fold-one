@@ -166,6 +166,8 @@ export interface OrchestratorDeps {
 	dataDir?: string;
 	/** Show overlay ask UI and wait until user picks an option. */
 	requestUserAction?: (request: UserActionRequest) => Promise<string>;
+	/** Resolve the active HITL card (used by auth-gate auto-poll when ready). */
+	resolveUserAction?: (optionId: string) => void;
 	/** Run side effects for auth options (open Terminal, open Gmail URL). */
 	runUserAction?: (optionId: string, context?: Record<string, unknown>) => Promise<void>;
 	/** Abort the active run and any cooperative local worker processes. */

@@ -103,6 +103,11 @@ export function AskOptions({
 		respond({ requestId, text: value, modality: "text" });
 	};
 
+	const hasAuthPoll = useMemo(
+		() => options.some((option) => /:poll-done$|poll-done/i.test(option.id)),
+		[options],
+	);
+
 	return (
 		<section className="fold-hitl" aria-labelledby="fold-hitl-title">
 			<header className="fold-hitl-header">
@@ -112,7 +117,7 @@ export function AskOptions({
 				</div>
 				<div className="fold-hitl-status">
 					<span className="fold-hitl-status-dot" aria-hidden="true" />
-					<span>等待确认</span>
+					<span>{hasAuthPoll ? "等待授权 · 完成后自动继续" : "等待确认"}</span>
 				</div>
 				{interaction?.collapsible !== false ? (
 					<button

@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import type { ActionPlan } from "@fold/ai";
+import { classifyTaskClass, clusterKeyFromSkills } from "./task-shape.js";
 
 export interface EpisodeStep {
 	stepId: string;
@@ -47,6 +48,8 @@ export interface Episode {
 	artifactsJson?: string;
 	memoryCandidatesJson?: string;
 	taskMomentJson?: string;
+	clusterKey?: string;
+	taskClass?: string;
 	durationMs: number;
 }
 
@@ -78,6 +81,8 @@ type EpisodeRow = {
 	artifacts_json: string | null;
 	memory_candidates_json: string | null;
 	task_moment_json: string | null;
+	cluster_key: string | null;
+	task_class: string | null;
 	duration_ms: number | null;
 };
 
@@ -101,6 +106,8 @@ function mapEpisodeRow(row: EpisodeRow): Episode {
 		artifactsJson: row.artifacts_json ?? undefined,
 		memoryCandidatesJson: row.memory_candidates_json ?? undefined,
 		taskMomentJson: row.task_moment_json ?? undefined,
+		clusterKey: row.cluster_key ?? undefined,
+		taskClass: row.task_class ?? undefined,
 		durationMs: row.duration_ms ?? 0,
 	};
 }
@@ -108,7 +115,8 @@ function mapEpisodeRow(row: EpisodeRow): Episode {
 const EPISODE_SELECT = `
 	SELECT id, timestamp, intent, goal, status, summary, summary_json, plan_json, steps_json,
 		probe_summary, validation_json, context_events_json, thinking_text, result_detail,
-		agent_events_json, artifacts_json, memory_candidates_json, task_moment_json, duration_ms
+		agent_events_json, artifacts_json, memory_candidates_json, task_moment_json,
+		cluster_key, task_class, duration_ms
 	FROM episodes`;
 
 export interface MemoryRecord {
@@ -199,6 +207,8 @@ export function getDb(dataDir?: string): Database.Database {
 	ensureColumn(db, "episodes", "artifacts_json", "TEXT");
 	ensureColumn(db, "episodes", "memory_candidates_json", "TEXT");
 	ensureColumn(db, "episodes", "task_moment_json", "TEXT");
+	ensureColumn(db, "episodes", "cluster_key", "TEXT");
+	ensureColumn(db, "episodes", "task_class", "TEXT");
 	return db;
 }
 
@@ -410,15 +420,19 @@ export function saveEpisode(
 	const artifactsJson = asJson(input.artifacts ?? []);
 	const memoryCandidatesJson = asJson(input.memoryCandidates ?? []);
 	const taskMomentJson = asJson(input.taskMoment ?? null);
+	const skills = input.steps.map((s) => s.skill);
+	const clusterKey = clusterKeyFromSkills(skills);
+	const taskClass = classifyTaskClass(input.intent, skills);
 
 	conn
 		.prepare(
 			`INSERT INTO episodes (
 				id, timestamp, intent, goal, status, summary, summary_json, plan_json, steps_json,
 				probe_summary, validation_json, context_events_json, thinking_text, result_detail,
-				agent_events_json, artifacts_json, memory_candidates_json, task_moment_json, duration_ms
+				agent_events_json, artifacts_json, memory_candidates_json, task_moment_json,
+				cluster_key, task_class, duration_ms
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		)
 		.run(
 			id,
@@ -439,6 +453,8 @@ export function saveEpisode(
 			artifactsJson,
 			memoryCandidatesJson,
 			taskMomentJson,
+			clusterKey || null,
+			taskClass,
 			durationMs,
 		);
 
@@ -461,6 +477,8 @@ export function saveEpisode(
 		artifactsJson,
 		memoryCandidatesJson,
 		taskMomentJson,
+		clusterKey: clusterKey || undefined,
+		taskClass,
 		durationMs,
 	};
 }

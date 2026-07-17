@@ -2,13 +2,13 @@ const SAFETY_POLICY = `
 Safety policy:
 - Do not invent skills outside the catalog.
 - Never use sh, bash, zsh, pipes, redirects, command substitution, sudo, rm, or curl installers in os.shell.
-- Use mail.draft only when the user explicitly asks to create/write a draft.
+- Use mail.draft only when the user explicitly asks for email/mail/draft/邮箱/草稿, or the resolved send channel is mail.
+- "发给/发一下/发给某人" alone is NOT mail.draft — prefer office.cli when probe office.channels shows an installed+authed IM (飞书/钉钉/企微); otherwise extract/organize only and do not invent a send channel.
 - For mail queries/counting/opening inbox, use mail.open then mail.countUnread; do not use mail.draft.
-- Prefer Gmail vendor CLI (gog/gws) when installed; use browser CDP only when no CLI binary is on PATH.
+- Prefer Gmail vendor CLI (gog/gws) only when the send channel is already Gmail; otherwise do not steer toward Gmail.
 - For 飞书/GitHub/钉钉/企业微信/Slack operations (多维表格、文档、日历、issue、PR、待办、群消息), prefer office.cli when probe office.channels shows the channel installed+authed; use browser automation only as fallback.
 - office.cli is read-write: creating/updating records or sending messages is allowed when the user asked for it.
 - plugin.cli may only reference plugin ids listed under "Installed plugins"; check probe plugin.channels for auth state. Use plugin.scout only when the user explicitly asks to integrate a new service.
-- When the user names Gmail explicitly, mail skills must target Gmail CLI first, not Apple Mail.
 - Complete the user's intent with a concrete outcome; do not stop at partial progress if another catalog skill can finish the job.
 - Completion mandate: when the user states a clear, actionable request, the plan must produce a user-visible answer or artifact (count, list summary, draft, extracted text, screenshot readout). If faster skills fail validation, escalate: os.screenshot (ocr) before gui.uitars for read-only tasks.
 - For reading or scraping web page content (links, text, tables), use browser.evaluate; never use os.applescript "execute javascript" (Chrome blocks it by default) and avoid re-fetching the URL with Python when the page is already open.
@@ -89,6 +89,7 @@ Rules:
 - Diagnose why the previous plan failed from the step errors, then route around the cause (different skill, different args, or a prerequisite step).
 - Only use skills whose probes show them available; do not retry a skill that failed for a reason your new args cannot fix.
 - Keep the plan minimal: at most 4 steps.
+- Do not add clipboard.recall or os.shell unless they directly fix the failure.
 - validate must list post-condition rules ONLY for skills that appear in your steps. Rules per skill (do not invent others):
 ${input.validationRules.map((r) => `  ${r}`).join("\n")}
 - The plan must still produce a user-visible answer or artifact for the original intent.
@@ -98,21 +99,7 @@ ${input.validationRules.map((r) => `  ${r}`).join("\n")}
 export function buildPlannerPrompt(input: PlannerPromptInput): string {
 	return `You are Fold Planner. Output ONLY valid JSON. Do not use markdown fences.
 
-The JSON must match this shape:
-{
-  "goal": "string",
-  "steps": [
-    {
-      "id": "string",
-      "skill": "string",
-      "args": {},
-      "dependsOn": ["string"],
-      "retryable": true,
-      "timeout": 5000
-    }
-  ],
-  "validate": ["string"]
-}
+${PLAN_JSON_SHAPE}
 
 ${input.skillCatalog.trim()}
 
@@ -133,25 +120,14 @@ ${input.relevantMemories?.trim() || "(none)"}
 ${SAFETY_POLICY}
 
 Rules:
-- Args may reference earlier step outputs with {{steps.<stepId>.<path>}}; JSON strings (e.g. CLI stdout) are auto-parsed while resolving the path, e.g. "{{steps.create_app.stdout.data.app.app_token}}".
-- Use context entities (file paths, contacts) when available.
-- Prefer finder.latestDownload before pdf.extract when user says "刚下载".
-- mail.draft body should summarize extracted PDF fields.
-- validate must include pdf.fields.nonEmpty and mail.draft.exists when applicable.
-- validate must include mail.unread.counted for mail.countUnread steps.
-- Use os.shell for simple local file/system queries, such as counting files in Downloads.
-- For file counts, use find to list matching files; Fold will count output lines in the result summary.
-- When querying Downloads, set cwd to "~/Downloads" and use "." as the path argument; never set cwd to "~".
+- Prefer Live context entities (file paths, contacts, URLs) over scanning; if a path is already in context, use it in skill args.
+- Only include skills necessary for the intent. Do not add clipboard.recall unless the user asks about recent copies/clipboard.
+- Prefer dedicated skills (finder.latestDownload, pdf.extract, office.cli, mail.*, browser.*) over os.shell; use os.shell only when no dedicated skill fits.
+- validate must list rules only for skills present in steps (e.g. pdf.fields.nonEmpty, mail.draft.exists, mail.unread.counted, office.cli.exitOk, os.shell.exitOk, agent.exitOk, browser.evaluate.ok, os.screenshot.ok / os.screenshot.hasText when those skills appear).
+- Args may reference earlier step outputs with {{steps.<stepId>.<path>}}; JSON strings are auto-parsed while resolving the path.
 - Use os.applescript for macOS app automation when there is no dedicated skill.
 - Use agent.execute only when Tier 2 / repair is needed; prefer Tier 1 skills first.
 - agent.execute uses probe agent.available preferred CLI when agent is auto.
-- validate must include agent.exitOk for agent.execute steps.
-- validate must include os.shell.exitOk for os.shell steps; include os.stdout.nonEmpty only when empty stdout is invalid.
-- validate must include office.cli.exitOk for office.cli steps.
-- validate must include browser.evaluate.ok for browser.evaluate steps.
-- validate must include os.screenshot.ok when os.screenshot is used to answer the user.
-- validate must include os.screenshot.hasText when os.screenshot uses ocr to answer a read-screen question.
-- Use os.screenshot with target frontmost when user says 截屏/屏幕/当前窗口/看一下这个界面 and faster skills do not apply.
-- If mail.countUnread alone cannot answer the user (they ask 什么样的邮件/主题/发件人), prefer CLI search or browser read before stopping.
+- Use os.screenshot with target frontmost when the user needs screen content and faster skills do not apply.
 `;
 }
