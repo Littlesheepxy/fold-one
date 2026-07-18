@@ -53,7 +53,8 @@ export type RunEventType =
 	| "worker.session.bound"
 	| "memory.candidate.created"
 	| "run.canceled"
-	| "run.completed";
+	| "run.completed"
+	| "phase.changed";
 
 export interface RunEvent<T = unknown> {
 	id: string;
@@ -398,7 +399,24 @@ export function updateTaskRun(
 			next.completedAt ?? null,
 			id,
 		);
+	// phase 变化落一条时间戳事件：之前 task_runs.phase 只存"当前值"，被反复覆盖，
+	// 测不出某个 phase（如 planning）停留了多久（T5 压测需要这个客观时长）。
+	if (patch.phase && patch.phase !== current.phase) {
+		appendRunEvent(
+			{ runId: id, type: "phase.changed", payload: { from: current.phase, to: patch.phase } },
+			dataDir,
+		);
+	}
 	return getTaskRun(id, dataDir);
+}
+
+/** 按时间窗拉取最近的 task run（压测/埋点报告用）。 */
+export function listTaskRunsInRange(startMs: number, endMs: number, dataDir?: string): TaskRunRecord[] {
+	ensureRunTables(dataDir);
+	const rows = getDb(dataDir)
+		.prepare("SELECT * FROM task_runs WHERE created_at >= ? AND created_at <= ? ORDER BY created_at ASC")
+		.all(startMs, endMs) as TaskRunRow[];
+	return rows.map(mapRun);
 }
 
 export function saveTaskCheckpoint(

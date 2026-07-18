@@ -90,12 +90,30 @@ FOLD_E2E_INTENT="帮我整理刚下载的报价发给 Jason" pnpm desktop:dev
 | T1 | **语音转写精度 / 关键热词** | 真说 V1–V8；对照 transcript：专有名词是否被吃掉/改成日常词；再看是否进对 agent | 找到并修了 2 个根因 bug，见下；真人开口这部分仍未测 |
 | T2 | 语音 → agent 端到端 | 同一批话术不只看字对，还要看任务是否做对 | 未测（依赖 T1 的真人录音） |
 | T3 | Codex 难意图 live | `FOLD_PREFERRED_EXECUTOR=codex FOLD_STRESS_LIVE_AGENT=1 … journey-local-agent` | 阻塞：本机 `codex` CLI 装坏了（见下），和之前记的 usage limit 是两个问题 |
-| T4 | 真机 HITL | Chrome 断连授权自动续跑；群消息确认卡取消无副作用 | 未测：需要真实运行中的 desktop app + 真实 Chrome/群，当前无桌面进程在跑 |
-| T5 | Overlay 体感 | local_agent 交 Claude/Codex 时文案是否说清；compiled 是否少闪 planning | 未测：同 T4，且顺畅度/体感是主观打分，需要人肉看 |
+| T4 | 真机 HITL | Chrome 断连授权自动续跑；群消息确认卡取消无副作用 | 未测，但已埋点（见下）：Chrome/Gmail/屏幕权限授权会自动记时长+选择，测完跑报告脚本就知道；群消息确认卡目前是纯 UI 演示，挂不上埋点 |
+| T5 | Overlay 体感 | local_agent 交 Claude/Codex 时文案是否说清；compiled 是否少闪 planning | 未测，但已埋点（见下）：planning 等 phase 停留时长现在客观可查；文案是否说清仍要人肉看 |
 | T6 | ASR 基准回归（可选） | `Experiments/StreamingASRBenchmark` 对 V1–V8 出 WER/热词错字表，和真机 transcript 对照 | 工具链验证过，见下 |
 | T7 | ASR 基准工具加自动错字率对比（新发现的缺口） | `BenchmarkRunner`/`ReportWriter` 目前只测延迟/RTF，`recognized_text` 不会自动对 `utterances.json` 的 ground truth 算 WER，需要人工比对 | 未做 |
 
 语音热词备注：仓库有 utterance 素材，**没有**硬热词表；靠大模型 + 后处理。T1 的目标是量「关键词错了多少」，再决定要不要加 bias / 词表。
+
+### 埋点（07-18）：T1/T2/T4/T5 测完自动出报告，不用手填表
+
+真机测完（说话 / 走 HITL / 触发任务）后跑：
+
+```bash
+pnpm exec tsx scripts/read-stress-log.ts --since=30m
+```
+
+会读 SQLite 里已落盘的记录，汇总成报告，不需要用户手工描述：
+
+- **T1/T2**：`saveVoiceInteraction` 本来就存了每次语音的原始 transcript + 净化后 outcome（episode 表），脚本按时间窗读出来，并对 `InputSurface`/`ARR`/`Fast Path` 等已知热词做命中检查（STT 直接识别对 / 净化纠回来了 / 完全丢了）。
+- **T5**：`updateTaskRun` 新增：phase 变化（understanding→planning→executing→…）现在会落一条 `phase.changed` 事件（`packages/memory/src/run.ts`），带时间戳，脚本据此算出每个 phase 停留了多久——可以客观回答「compiled 是否少闪 planning」，而不是凭印象。
+- **T4（部分）**：`orchestrator.ts` 里 `ensureExecutionPrerequisites` 调用前包了一层 `withApprovalLogging`，Gmail CLI / 浏览器 CDP / 屏幕录制权限这三类 HITL 授权卡会记 `approval.requested`/`approval.resolved`（含选项、耗时、用户选择）——**这条覆盖「Chrome 断连授权自动续跑」**。
+
+**没覆盖到的**：意图抽检 #6/#7「群消息确认卡取消无副作用」——查了全仓库，`packages/skills` 里没有任何风险确认门禁调用 `requestUserAction`；唯一发出这张卡的地方是 `main.ts` 里 `FOLD_E2E_HITL=1` 的开发态直触发（不经过 `runTask`，没有真实 runId），所以这条目前还是纯 UI 能力演示，不是真实策略门禁，埋点也就挂不上去——如果要测，仍需人肉盯着 overlay 看文案和取消后有没有副作用。
+
+顺畅度/文案是否说清这类主观体感，埋点给不出分数，仍要人肉扫一眼。
 
 ### T1 根因排查（07-18）：链路里挖出两个真 bug，已修
 

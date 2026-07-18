@@ -10,6 +10,7 @@ import {
 	getTaskRun,
 	listRunEvents,
 	listTaskCheckpoints,
+	listTaskRunsInRange,
 	saveTaskCheckpoint,
 	startTaskRun,
 	updateTaskRun,
@@ -75,6 +76,7 @@ saveTaskCheckpoint({
 	payload: { sessionId: "thread-1" },
 }, dataDir);
 
+updateTaskRun(id, { phase: "planning" }, dataDir);
 updateTaskRun(id, {
 	status: "success",
 	phase: "completed",
@@ -82,6 +84,8 @@ updateTaskRun(id, {
 	result: { ok: true },
 	completedAt: Date.now(),
 }, dataDir);
+// updateTaskRun 重复传同一个 phase 不应该再多记一条事件（幂等）。
+updateTaskRun(id, { status: "success", phase: "completed" }, dataDir);
 
 const completed = getTaskRun(id, dataDir);
 assert.equal(completed?.agentSessionId, "thread-1");
@@ -94,5 +98,18 @@ assert.equal(listRunEvents(id, dataDir)[0]?.type, "run.created");
 assert.equal(getReducedTaskRunState(id, dataDir)?.status, "success");
 assert.equal(getReducedTaskRunState(id, dataDir)?.workerSessionId, "thread-1");
 assert.equal(getSideEffectReceipt("fold:test:message", dataDir)?.externalRef, "om_1");
+
+// phase 变化应该落一条 phase.changed 事件（T5 压测靠这个量 planning 停留了多久），且重复同 phase 不重复记。
+const phaseEvents = listRunEvents(id, dataDir).filter((e) => e.type === "phase.changed");
+assert.deepEqual(
+	phaseEvents.map((e) => e.payload),
+	[
+		{ from: "starting", to: "planning" },
+		{ from: "planning", to: "completed" },
+	],
+);
+
+assert.equal(listTaskRunsInRange(started.createdAt - 1, started.createdAt + 1, dataDir).length, 1);
+assert.equal(listTaskRunsInRange(started.createdAt + 10_000, started.createdAt + 20_000, dataDir).length, 0);
 
 console.log("run store self-check passed");

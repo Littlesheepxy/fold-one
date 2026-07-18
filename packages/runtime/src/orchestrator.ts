@@ -63,6 +63,41 @@ function recordRunEvent(
 	}
 }
 
+/**
+ * 给 deps.requestUserAction/resolveUserAction 包一层 approval.requested/approval.resolved 落盘。
+ * 唯一调用入口是 ensureExecutionPrerequisites（Gmail CLI / 浏览器 CDP / 屏幕录制权限的 HITL 卡），
+ * 在这一处包装即覆盖所有当前授权类 HITL 场景，不用改 auth-gate.ts 里每个请求点。
+ */
+export function withApprovalLogging(runId: string, deps: OrchestratorDeps): OrchestratorDeps {
+	if (!deps.requestUserAction) return deps;
+	const originalRequest = deps.requestUserAction;
+	return {
+		...deps,
+		requestUserAction: async (req) => {
+			recordRunEvent(
+				runId,
+				"approval.requested",
+				{ title: req.title, message: req.message, risk: req.risk, optionIds: req.options.map((o) => o.id) },
+				deps.dataDir,
+			);
+			const start = Date.now();
+			try {
+				const choice = await originalRequest(req);
+				recordRunEvent(runId, "approval.resolved", { choice, latencyMs: Date.now() - start }, deps.dataDir);
+				return choice;
+			} catch (e) {
+				recordRunEvent(
+					runId,
+					"approval.resolved",
+					{ choice: "cancel", error: (e as Error).message, latencyMs: Date.now() - start },
+					deps.dataDir,
+				);
+				throw e;
+			}
+		},
+	};
+}
+
 function collectLocalTaskEvidence(steps: Array<{ output?: unknown }>): {
 	agentEvents: LocalTaskEvent[];
 	artifacts: LocalTaskArtifact[];
@@ -266,7 +301,7 @@ export async function runTask(
 	if (probeResult) {
 		try {
 			throwIfTaskCanceled(deps.signal);
-			await ensureExecutionPrerequisites(intent, plan, probeResult, deps);
+			await ensureExecutionPrerequisites(intent, plan, probeResult, withApprovalLogging(taskMoment.taskId, deps));
 			throwIfTaskCanceled(deps.signal);
 		} catch (e) {
 			const canceled = deps.signal?.aborted || e instanceof TaskCanceledError;

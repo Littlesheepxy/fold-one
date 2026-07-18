@@ -58,6 +58,7 @@ export {
 	getTaskRun,
 	listRunEvents,
 	listTaskCheckpoints,
+	listTaskRunsInRange,
 	saveTaskCheckpoint,
 	startTaskRun,
 	updateTaskRun,
