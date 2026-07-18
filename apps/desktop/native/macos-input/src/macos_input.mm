@@ -358,10 +358,10 @@ void clear_watch(napi_env env) {
 napi_value ocr_image_file(napi_env env, napi_callback_info info) {
 	@autoreleasepool {
 		napi_value result = make_object(env);
-		size_t argc = 1;
-		napi_value args[1];
+		size_t argc = 2;
+		napi_value args[2];
 		napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-		if (argc != 1) {
+		if (argc < 1) {
 			set_bool(env, result, "ok", false);
 			set_string(env, result, "error", @"path-required");
 			return result;
@@ -374,6 +374,27 @@ napi_value ocr_image_file(napi_env env, napi_callback_info info) {
 		}
 		std::string path(path_len + 1, '\0');
 		napi_get_value_string_utf8(env, args[0], path.data(), path.size(), &path_len);
+
+		// 可选 regionOfInterest：{x, y, width, height} 归一化（Vision 坐标原点在左下）
+		CGRect region = CGRectMake(0, 0, 1, 1);
+		bool has_region = false;
+		if (argc >= 2) {
+			napi_valuetype t;
+			napi_typeof(env, args[1], &t);
+			if (t == napi_object) {
+				auto get_num = [&](const char* key, double* out) -> bool {
+					napi_value v;
+					if (napi_get_named_property(env, args[1], key, &v) != napi_ok) return false;
+					return napi_get_value_double(env, v, out) == napi_ok;
+				};
+				double x, y, w, h;
+				if (get_num("x", &x) && get_num("y", &y) && get_num("width", &w) && get_num("height", &h) &&
+					x >= 0 && y >= 0 && w > 0 && h > 0 && x + w <= 1 && y + h <= 1) {
+					region = CGRectMake(x, y, w, h);
+					has_region = true;
+				}
+			}
+		}
 
 		NSURL* url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:path.c_str()]];
 		NSImage* image = [[NSImage alloc] initWithContentsOfURL:url];
@@ -388,6 +409,7 @@ napi_value ocr_image_file(napi_env env, napi_callback_info info) {
 		request.recognitionLevel = VNRequestTextRecognitionLevelAccurate;
 		request.usesLanguageCorrection = YES;
 		request.recognitionLanguages = @[ @"zh-Hans", @"en-US" ];
+		if (has_region) request.regionOfInterest = region;
 
 		VNImageRequestHandler* handler =
 			[[VNImageRequestHandler alloc] initWithCGImage:cg_image options:@{}];

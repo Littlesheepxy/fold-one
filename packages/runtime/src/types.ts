@@ -176,8 +176,11 @@ export interface OrchestratorDeps {
 	agentCwd?: string;
 	/** 任务时刻截图（desktop 注入，走 macos-input/screencapture）；返回本地路径 */
 	captureTaskMomentScreenshot?: (taskId: string) => Promise<string | null>;
-	/** Apple Vision OCR 兜底（desktop 注入，走 macos-input addon） */
-	ocrImageFile?: (path: string) => Promise<{ text?: string } | null>;
+	/** Apple Vision OCR 兜底（desktop 注入，走 macos-input addon）；region 可选裁剪 */
+	ocrImageFile?: (
+		path: string,
+		region?: { x: number; y: number; width: number; height: number },
+	) => Promise<{ text?: string } | null>;
 }
 
 export type StateEmitter = (event: FoldStateEvent) => void;

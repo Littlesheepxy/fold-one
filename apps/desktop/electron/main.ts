@@ -843,9 +843,9 @@ async function executeTask(intent: string) {
 					return null;
 				}
 			},
-			ocrImageFile: async (path) => {
+			ocrImageFile: async (path, region) => {
 				try {
-					const r = macosInput.ocrImageFile(path);
+					const r = macosInput.ocrImageFile(path, region);
 					return r.ok ? { text: r.text } : null;
 				} catch {
 					return null;

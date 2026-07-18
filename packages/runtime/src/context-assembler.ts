@@ -27,7 +27,10 @@ export async function assembleTaskContext(
 	taskId?: string,
 	enrichOptions?: {
 		captureTaskMomentScreenshot?: (taskId: string) => Promise<string | null>;
-		ocrImageFile?: (path: string) => Promise<{ text?: string } | null>;
+		ocrImageFile?: (
+			path: string,
+			region?: { x: number; y: number; width: number; height: number },
+		) => Promise<{ text?: string } | null>;
 	},
 ): Promise<AssembledTaskContext> {
 	const { summary, enriched } = await buildAgentPlannerContextSummary(ctx, {

@@ -66,7 +66,10 @@ export interface EnrichContextOptions {
 	 * - ocr: 对截图文件跑 Vision OCR，返回文本
 	 */
 	captureTaskMomentScreenshot?: (taskId: string) => Promise<string | null>;
-	ocrImageFile?: (path: string) => Promise<{ text?: string } | null>;
+	ocrImageFile?: (
+		path: string,
+		region?: { x: number; y: number; width: number; height: number },
+	) => Promise<{ text?: string } | null>;
 	/** 当前任务 id（截图命名用） */
 	taskId?: string;
 }

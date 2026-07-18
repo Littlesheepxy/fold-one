@@ -52,9 +52,17 @@ export interface OcrResult {
 	error?: string;
 }
 
+export interface OcrRegion {
+	/** 归一化坐标，Vision 原点在左下（y=1 是图片顶部） */
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+}
+
 export function insertTextDirect(text: string): DirectInsertResult;
 export function pasteboardChangeCount(): number;
 export function idleSeconds(): number;
 export function startFrontAppWatch(callback: (change: FrontAppChange) => void): WatchStartResult;
 export function stopFrontAppWatch(): void;
-export function ocrImageFile(path: string): OcrResult;
+export function ocrImageFile(path: string, region?: OcrRegion): OcrResult;
