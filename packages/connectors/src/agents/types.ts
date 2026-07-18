@@ -54,5 +54,6 @@ export interface AgentResult {
 export interface AgentConnector {
 	id: AgentId;
 	isAvailable(): Promise<boolean>;
-	execute(task: AgentTask): Promise<AgentResult>;
+	/** emit：wrapper（agents/index.ts）持有的实时进度发射器，供 connector 在执行期间上报细粒度动作（工具调用等）。 */
+	execute(task: AgentTask, emit?: import("../task-events.js").LocalTaskEmit): Promise<AgentResult>;
 }

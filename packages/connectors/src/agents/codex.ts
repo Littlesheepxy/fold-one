@@ -1,4 +1,5 @@
 import { runShellDetailed } from "../shell.js";
+import type { LocalTaskEmit } from "../task-events.js";
 import { getSharedCodexAppServer } from "./codex-app-server.js";
 import { buildAgentPrompt } from "./prompt.js";
 import type { AgentConnector, AgentResult, AgentTask } from "./types.js";
@@ -73,7 +74,7 @@ function isJsonlNoise(text: string): boolean {
  * 优先：App Server 持久线程（手机 Remote Control 可接管）。
  * 降级：codex exec + prevent_idle_sleep（合盖不保证，仅防空闲睡眠）。
  */
-async function executeViaPersistentThread(task: AgentTask): Promise<AgentResult> {
+async function executeViaPersistentThread(task: AgentTask, emit?: LocalTaskEmit): Promise<AgentResult> {
 	const client = getSharedCodexAppServer();
 	await client.start();
 	const resumeSessionId = task.envelope?.resumeSessionId?.trim();
@@ -89,6 +90,7 @@ async function executeViaPersistentThread(task: AgentTask): Promise<AgentResult>
 		text: buildAgentPrompt(task),
 		timeoutMs: task.timeoutMs ?? 180_000,
 		signal: task.signal,
+		onItem: emit ? (message) => emit("working", message) : undefined,
 	});
 
 	return {
@@ -113,9 +115,9 @@ export const codexConnector: AgentConnector = {
 		return auth.exitCode === 0;
 	},
 
-	async execute(task: AgentTask): Promise<AgentResult> {
+	async execute(task: AgentTask, emit?: LocalTaskEmit): Promise<AgentResult> {
 		try {
-			return await executeViaPersistentThread(task);
+			return await executeViaPersistentThread(task, emit);
 		} catch (error) {
 			if (task.signal?.aborted) {
 				return {

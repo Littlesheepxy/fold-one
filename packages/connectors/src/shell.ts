@@ -78,7 +78,13 @@ export async function runShellDetailed(
 	args: string[],
 	timeoutMs = 10000,
 	cwd?: string,
-	options?: { closeStdin?: boolean; signal?: AbortSignal; stdin?: string },
+	options?: {
+		closeStdin?: boolean;
+		signal?: AbortSignal;
+		stdin?: string;
+		/** 进程运行期间逐行触发（按 \n 切分，跨 chunk 的半行会先缓存），用于消费 CLI 的 stream-json 实时输出。 */
+		onStdoutLine?: (line: string) => void;
+	},
 ): Promise<ShellResult> {
 	const searchDirs = executableSearchDirs();
 	const executable = await resolveExecutable(command, searchDirs);
@@ -123,8 +129,14 @@ export async function runShellDetailed(
 			const next = current + chunk.toString("utf8");
 			return next.length > 10 * 1024 * 1024 ? next.slice(0, 10 * 1024 * 1024) : next;
 		};
+		let lineBuffer = "";
 		child.stdout?.on("data", (chunk: Buffer) => {
 			stdout = append(stdout, chunk);
+			if (!options?.onStdoutLine) return;
+			lineBuffer += chunk.toString("utf8");
+			const parts = lineBuffer.split("\n");
+			lineBuffer = parts.pop() ?? "";
+			for (const part of parts) options.onStdoutLine(part.replace(/\r$/, ""));
 		});
 		child.stderr?.on("data", (chunk: Buffer) => {
 			stderr = append(stderr, chunk);
@@ -133,6 +145,7 @@ export async function runShellDetailed(
 			finish({ stdout, stderr: stderr || error.message, exitCode: 124 });
 		});
 		child.once("close", (code, signal) => {
+			if (options?.onStdoutLine && lineBuffer) options.onStdoutLine(lineBuffer.replace(/\r$/, ""));
 			finish({ stdout, stderr, exitCode: code ?? 124, signal });
 		});
 	});

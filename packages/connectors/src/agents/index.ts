@@ -132,7 +132,7 @@ export async function executeAgent(task: AgentTask, failedSteps: string[] = []):
 	heartbeat.unref?.();
 	let result: AgentResult;
 	try {
-		result = await connector.execute({ ...task, taskId, onEvent: undefined });
+		result = await connector.execute({ ...task, taskId, onEvent: undefined }, emit);
 	} catch (error) {
 		emit("failed", (error as Error).message || `${AGENT_LABELS[connector.id]} 执行失败`);
 		throw error;

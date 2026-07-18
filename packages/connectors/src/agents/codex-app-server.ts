@@ -48,6 +48,42 @@ type Pending = {
 	reject: (error: Error) => void;
 };
 
+/**
+ * item/completed 的 item 转一句人话进度提示，用于取代「仍在执行(45s)」式的傻心跳。
+ * 字段名来自真机跑 codex app-server 抓到的原始 payload（commandExecution/fileChange/mcpToolCall/webSearch）。
+ * agentMessage/reasoning 已有专门的 agentText 累积逻辑，这里返回 null 避免重复上报刷屏。
+ */
+export function describeCodexItem(item: Record<string, unknown> | undefined): string | null {
+	if (!item || typeof item.type !== "string") return null;
+	switch (item.type) {
+		case "commandExecution": {
+			const command = typeof item.command === "string" ? item.command.trim() : "";
+			return command ? `运行命令: ${command}` : null;
+		}
+		case "fileChange": {
+			const changes = Array.isArray(item.changes) ? item.changes : [];
+			const paths = changes
+				.map((change) => {
+					const path = (change as { path?: unknown } | null)?.path;
+					return typeof path === "string" ? path : null;
+				})
+				.filter((path): path is string => Boolean(path));
+			return paths.length ? `编辑文件: ${paths.join(", ")}` : null;
+		}
+		case "mcpToolCall": {
+			const tool = typeof item.tool === "string" ? item.tool.trim() : "";
+			const server = typeof item.server === "string" ? item.server.trim() : "";
+			return tool ? `调用工具: ${server ? `${server}/${tool}` : tool}` : null;
+		}
+		case "webSearch": {
+			const query = typeof item.query === "string" ? item.query.trim() : "";
+			return query ? `搜索: ${query}` : null;
+		}
+		default:
+			return null;
+	}
+}
+
 function isExecutable(path: string): Promise<boolean> {
 	return access(path, constants.X_OK)
 		.then(() => true)
@@ -252,6 +288,8 @@ export class CodexAppServerClient {
 		text: string;
 		timeoutMs?: number;
 		signal?: AbortSignal;
+		/** 工具调用等中间进度（运行命令/编辑文件/调用工具），供上层换掉「仍在执行」式傻心跳。 */
+		onItem?: (message: string) => void;
 	}): Promise<{ ok: boolean; summary: string; turnStatus?: string }> {
 		let agentText = "";
 		let turnStatus = "unknown";
@@ -265,8 +303,13 @@ export class CodexAppServerClient {
 				if (typeof delta === "string") agentText += delta;
 			}
 			if (msg.method === "item/completed") {
-				const item = (msg.params as { item?: { type?: string; text?: string } } | undefined)?.item;
-				if (item?.type === "agentMessage" && item.text) agentText = item.text;
+				const item = (msg.params as { item?: Record<string, unknown> } | undefined)?.item;
+				if (item?.type === "agentMessage" && typeof item.text === "string" && item.text) {
+					agentText = item.text;
+				} else {
+					const described = describeCodexItem(item);
+					if (described) input.onItem?.(described);
+				}
 			}
 			if (msg.method === "error") {
 				const err = (msg.params as { error?: { message?: string }; message?: string } | undefined)
