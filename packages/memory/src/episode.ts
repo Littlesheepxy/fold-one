@@ -130,6 +130,12 @@ export interface MemoryRecord {
 	updatedAt: number;
 	lastUsedAt?: number | null;
 	active: boolean;
+	/** 证据 JSON（触发来源、episode id、事件 id 等），persist 为 receipt_json */
+	receiptJson?: string | null;
+	/** 被本记录取代的旧记录 id */
+	supersedes?: string | null;
+	/** 取代本记录的新记录 id；active=0 时指向演替链下游 */
+	supersededBy?: string | null;
 }
 
 export interface RawContextEventInput {
@@ -241,6 +247,9 @@ export function getDb(dataDir?: string): Database.Database {
 	ensureColumn(db, "episodes", "task_moment_json", "TEXT");
 	ensureColumn(db, "episodes", "cluster_key", "TEXT");
 	ensureColumn(db, "episodes", "task_class", "TEXT");
+	ensureColumn(db, "memories", "receipt_json", "TEXT");
+	ensureColumn(db, "memories", "supersedes", "TEXT");
+	ensureColumn(db, "memories", "superseded_by", "TEXT");
 	return db;
 }
 
