@@ -205,6 +205,7 @@ interface FoldApi {
 	activateConnectFlow(sessionId: string): Promise<{ ok: boolean; opened: boolean; url?: string }>;
 	cancelConnectFlow(sessionId: string): Promise<{ ok: boolean }>;
 	openExternal(url: string): Promise<{ ok: boolean }>;
+	openDataDir(): Promise<{ ok: boolean; path?: string; error?: string }>;
 	saveConfig(config: FoldConfig): Promise<{ ok: boolean }>;
 	accountGetState(): Promise<{
 		signedIn: boolean;

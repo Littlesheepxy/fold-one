@@ -2,6 +2,8 @@
 
 自动化：`pnpm test:agent-stress`（L1 headless）。本清单是 **L2 真桌面打分**，人工约 20 分钟，只打分不排错。
 
+封闭内测发放与范围说明见 [beta-tester-guide.md](./beta-tester-guide.md)；官网申请内测码见 `/beta`。
+
 ## 怎么跑
 
 ```bash

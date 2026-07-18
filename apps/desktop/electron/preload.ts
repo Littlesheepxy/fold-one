@@ -309,6 +309,8 @@ contextBridge.exposeInMainWorld("fold", {
 	cancelConnectFlow: (sessionId: string) =>
 		ipcRenderer.invoke("fold:connect-flow-cancel", sessionId) as Promise<{ ok: boolean }>,
 	openExternal: (url: string) => ipcRenderer.invoke("fold:open-external", url) as Promise<{ ok: boolean }>,
+	openDataDir: () =>
+		ipcRenderer.invoke("fold:open-data-dir") as Promise<{ ok: boolean; path?: string; error?: string }>,
 	saveConfig: (config: Record<string, unknown>) =>
 		ipcRenderer.invoke("fold:save-config", config) as Promise<{ ok: boolean }>,
 	accountGetState: () =>

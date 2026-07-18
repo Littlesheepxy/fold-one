@@ -105,7 +105,7 @@ import {
 	type HotkeyAction,
 } from "./hotkey-presets.js";
 import { createTray } from "./tray.js";
-import { migrateLegacyDataDir } from "./data-dir.js";
+import { migrateLegacyDataDir, resolveDataDir } from "./data-dir.js";
 import {
 	startMemoryConsolidationLoop,
 	stopMemoryConsolidationLoop,
@@ -2051,10 +2051,16 @@ function registerIpc() {
 	});
 
 	ipcMain.handle("fold:open-external", async (_e, url: string) => {
-		if (typeof url === "string" && /^https?:\/\//i.test(url)) {
+		if (typeof url === "string" && /^(https?:|mailto:)/i.test(url)) {
 			await shell.openExternal(url);
 		}
 		return { ok: true };
+	});
+
+	ipcMain.handle("fold:open-data-dir", async () => {
+		const dir = resolveDataDir();
+		const err = await shell.openPath(dir);
+		return err ? { ok: false as const, error: err, path: dir } : { ok: true as const, path: dir };
 	});
 
 	ipcMain.handle("fold:run-task", async (_e, intent: string) => {

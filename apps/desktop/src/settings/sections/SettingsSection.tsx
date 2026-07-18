@@ -367,6 +367,33 @@ export function SettingsSection({
 						/>
 
 						<div className="rounded-lg border border-black/6 bg-[#fafafa] px-3 py-3">
+							<p className="text-[12px] font-medium text-[#1d1d1f]">隐私与反馈</p>
+							<p className="mt-1 text-[11px] leading-relaxed text-[#86868b]">
+								本地数据默认在 ~/.zhigeng。内测问题可邮件反馈；请勿在反馈里粘贴密钥。
+							</p>
+							<div className="mt-2 flex flex-wrap gap-2">
+								<button
+									type="button"
+									className="fold-home-save"
+									onClick={() => void window.fold.openDataDir()}
+								>
+									打开数据目录
+								</button>
+								<button
+									type="button"
+									className="fold-home-save"
+									onClick={() =>
+										void window.fold.openExternal(
+											"mailto:hello@zhigeng.app?subject=%E7%9F%A5%E6%9B%B4%E5%86%85%E6%B5%8B%E5%8F%8D%E9%A6%88",
+										)
+									}
+								>
+									反馈问题
+								</button>
+							</div>
+						</div>
+
+						<div className="rounded-lg border border-black/6 bg-[#fafafa] px-3 py-3">
 							<p className="text-[12px] font-medium text-[#1d1d1f]">引导流程（测试）</p>
 							<p className="mt-1 text-[11px] leading-relaxed text-[#86868b]">
 								重新打开首启引导窗口，从辅助功能步骤开始。无需手动改 config.json。

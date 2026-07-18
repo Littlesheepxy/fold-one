@@ -20,7 +20,7 @@ export function LandingApp() {
 					<a href="#pricing">定价</a>
 				</nav>
 				<a className="zg-nav-cta" href="#download">
-					下载 macOS
+					申请内测码
 				</a>
 			</header>
 
@@ -35,12 +35,13 @@ export function LandingApp() {
 						面向中文工作流的语音输入助手。它理解上下文、记住你的表达习惯，把零散口述变成能直接发送、记录和执行的文字。
 					</p>
 					<div className="zg-actions" id="download">
-						<a className="zg-primary" href="#download">
-							下载 macOS
+						{/* 正式申请走 apps/site /beta；本页仅本地原型演示 */}
+						<a className="zg-primary" href="#demo">
+							查看演示
 							<ArrowRight size={18} />
 						</a>
-						<a className="zg-secondary" href="#demo">
-							查看演示
+						<a className="zg-secondary" href="#pricing">
+							内测说明见下方
 						</a>
 					</div>
 				</div>
@@ -121,9 +122,11 @@ export function LandingApp() {
 					<span>内测开放中</span>
 					<h2>先给高频输入的人用起来。</h2>
 				</div>
-				<p>macOS 版本优先开放。个人版包含语音输入、上下文改写和本地 Profile；团队版会增加成员词库和协作场景。</p>
-				<a className="zg-secondary" href="#download">
-					加入等待名单
+				<p>
+					macOS 版本优先开放。正式申请内测码请使用官网（apps/site → /beta），本页只是客户端内的静态原型，不发送申请。
+				</p>
+				<a className="zg-secondary" href="#demo">
+					先看上方演示
 				</a>
 			</section>
 		</main>
