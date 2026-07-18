@@ -183,6 +183,24 @@ const contextEngine = new ContextEngine({
 			return -1;
 		}
 	},
+	frontAppWatcher: {
+		start: (cb) => {
+			try {
+				return macosInput.startFrontAppWatch((change) => {
+					cb({ appName: change.appName, appPath: change.appPath });
+				});
+			} catch {
+				return { ok: false, error: "native-watch-unavailable" };
+			}
+		},
+		stop: () => {
+			try {
+				macosInput.stopFrontAppWatch();
+			} catch {
+				/* ignore */
+			}
+		},
+	},
 	onEvent: (event) => {
 		try {
 			saveContextEvent(event);

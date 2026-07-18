@@ -1,0 +1,1 @@
+cmd_Release/fold_macos_input.node := c++ -bundle -undefined dynamic_lookup -Wl,-search_paths_first -mmacosx-version-min=12.0 -arch arm64 -L./Release -stdlib=libc++  -o Release/fold_macos_input.node Release/obj.target/fold_macos_input/src/macos_input.o -framework AppKit -framework ApplicationServices

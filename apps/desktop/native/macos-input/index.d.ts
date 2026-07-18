@@ -32,6 +32,21 @@ export function captureTarget(): InputTarget;
 export function clearTarget(): void;
 export function inspectTarget(): TextState;
 export function postPaste(): PasteDispatchResult;
+export interface FrontAppChange {
+	appName: string;
+	bundleId: string;
+	appPath: string;
+	pid: number;
+}
+
+export interface WatchStartResult {
+	ok: boolean;
+	alreadyWatching?: boolean;
+	error?: string;
+}
+
 export function insertTextDirect(text: string): DirectInsertResult;
 export function pasteboardChangeCount(): number;
 export function idleSeconds(): number;
+export function startFrontAppWatch(callback: (change: FrontAppChange) => void): WatchStartResult;
+export function stopFrontAppWatch(): void;

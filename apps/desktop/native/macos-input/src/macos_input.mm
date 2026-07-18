@@ -286,6 +286,142 @@ napi_value idle_seconds(napi_env env, napi_callback_info info) {
 	}
 }
 
+// MARK: - 前台切换事件驱动监听（NSWorkspace.didActivateApplicationNotification）
+
+napi_threadsafe_function watch_tsfn = nullptr;
+napi_ref watch_cb_ref = nullptr;
+napi_env watch_env = nullptr;
+id watch_observer = nullptr;
+
+struct WatchPayload {
+	std::string app_name;
+	std::string bundle_id;
+	std::string app_path;
+	pid_t pid;
+};
+
+void watch_js_call(napi_env env, napi_value js_cb, void* /*context*/, void* data) {
+	WatchPayload* payload = static_cast<WatchPayload*>(data);
+	if (payload == nullptr) return;
+	@autoreleasepool {
+		napi_value result;
+		napi_create_object(env, &result);
+		napi_value v;
+		napi_create_string_utf8(env, payload->app_name.c_str(), NAPI_AUTO_LENGTH, &v);
+		napi_set_named_property(env, result, "appName", v);
+		napi_create_string_utf8(env, payload->bundle_id.c_str(), NAPI_AUTO_LENGTH, &v);
+		napi_set_named_property(env, result, "bundleId", v);
+		napi_create_string_utf8(env, payload->app_path.c_str(), NAPI_AUTO_LENGTH, &v);
+		napi_set_named_property(env, result, "appPath", v);
+		napi_create_int64(env, payload->pid, &v);
+		napi_set_named_property(env, result, "pid", v);
+		napi_value undefined;
+		napi_get_undefined(env, &undefined);
+		napi_call_function(env, undefined, js_cb, 1, &result, nullptr);
+	}
+	delete payload;
+}
+
+void post_front_app_change(NSRunningApplication* app) {
+	if (watch_tsfn == nullptr || app == nil) return;
+	WatchPayload* payload = new WatchPayload();
+	NSString* name = app.localizedName ?: @"";
+	NSString* bundle = app.bundleIdentifier ?: @"";
+	NSString* path = app.bundleURL.path ?: @"";
+	payload->app_name = name.UTF8String;
+	payload->bundle_id = bundle.UTF8String;
+	payload->app_path = path.UTF8String;
+	payload->pid = app.processIdentifier;
+	// non-blocking：回调队列满时丢弃，下一帧激活事件会再补
+	napi_call_threadsafe_function(watch_tsfn, payload, napi_tsfn_nonblocking);
+}
+
+void clear_watch(napi_env env) {
+	if (watch_observer != nullptr) {
+		[NSNotificationCenter.defaultCenter removeObserver:watch_observer];
+		watch_observer = nullptr;
+	}
+	if (watch_tsfn != nullptr) {
+		napi_release_threadsafe_function(watch_tsfn, napi_tsfn_abort);
+		watch_tsfn = nullptr;
+	}
+	if (watch_cb_ref != nullptr) {
+		napi_delete_reference(env, watch_cb_ref);
+		watch_cb_ref = nullptr;
+	}
+	watch_env = nullptr;
+}
+
+napi_value start_front_app_watch(napi_env env, napi_callback_info info) {
+	@autoreleasepool {
+		napi_value result = make_object(env);
+		size_t argc = 1;
+		napi_value args[1];
+		napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+		if (argc != 1) {
+			set_bool(env, result, "ok", false);
+			set_string(env, result, "error", @"callback-required");
+			return result;
+		}
+		napi_valuetype arg_type;
+		napi_typeof(env, args[0], &arg_type);
+		if (arg_type != napi_function) {
+			set_bool(env, result, "ok", false);
+			set_string(env, result, "error", @"callback-must-be-function");
+			return result;
+		}
+		if (watch_tsfn != nullptr) {
+			set_bool(env, result, "ok", true);
+			set_bool(env, result, "alreadyWatching", true);
+			return result;
+		}
+
+		watch_env = env;
+		napi_create_reference(env, args[0], 1, &watch_cb_ref);
+
+		napi_value resource_name;
+		napi_create_string_utf8(env, "fold-front-app-watch", NAPI_AUTO_LENGTH, &resource_name);
+		const napi_status status = napi_create_threadsafe_function(
+			env,
+			args[0],
+			nullptr,
+			resource_name,
+			0,
+			1,
+			nullptr,
+			nullptr,
+			nullptr,
+			watch_js_call,
+			&watch_tsfn
+		);
+		if (status != napi_ok) {
+			clear_watch(env);
+			set_bool(env, result, "ok", false);
+			set_string(env, result, "error", @"tsfn-create-failed");
+			return result;
+		}
+
+		watch_observer = [NSNotificationCenter.defaultCenter
+			addObserverForName:NSWorkspaceDidActivateApplicationNotification
+			object:nil
+			queue:nil
+			usingBlock:^(NSNotification* note) {
+				NSRunningApplication* app = note.userInfo[NSWorkspaceApplicationKey];
+				post_front_app_change(app);
+			}];
+
+		set_bool(env, result, "ok", true);
+		return result;
+	}
+}
+
+napi_value stop_front_app_watch(napi_env env, napi_callback_info info) {
+	clear_watch(env);
+	napi_value value;
+	napi_get_undefined(env, &value);
+	return value;
+}
+
 napi_value init(napi_env env, napi_value exports) {
 	napi_property_descriptor properties[] = {
 		{"captureTarget", nullptr, capture_target, nullptr, nullptr, nullptr, napi_default, nullptr},
@@ -295,6 +431,8 @@ napi_value init(napi_env env, napi_value exports) {
 		{"insertTextDirect", nullptr, insert_text_direct, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"pasteboardChangeCount", nullptr, pasteboard_change_count, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"idleSeconds", nullptr, idle_seconds, nullptr, nullptr, nullptr, napi_default, nullptr},
+		{"startFrontAppWatch", nullptr, start_front_app_watch, nullptr, nullptr, nullptr, napi_default, nullptr},
+		{"stopFrontAppWatch", nullptr, stop_front_app_watch, nullptr, nullptr, nullptr, napi_default, nullptr},
 	};
 	napi_define_properties(env, exports, sizeof(properties) / sizeof(properties[0]), properties);
 	return exports;
