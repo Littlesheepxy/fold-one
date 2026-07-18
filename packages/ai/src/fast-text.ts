@@ -14,12 +14,14 @@ export async function generateFastText(
 	prompt: string,
 	options: FastTextOptions = {},
 ): Promise<string> {
+	const choice = resolveModelChoice("fast");
 	const { text } = await gatewayGenerateText(
-		resolveModelChoice("fast"),
+		choice,
 		{
 			prompt,
 			maxOutputTokens: options.maxOutputTokens ?? 512,
-			temperature: options.temperature ?? 0.25,
+			// Kimi Code Plan（moonshot 走该 baseURL 时）只接受 temperature=1，非 1 直接 400。
+			temperature: choice.provider === "moonshot" ? 1 : options.temperature ?? 0.25,
 		},
 		{
 			feature: options.feature ?? "voice_structure",

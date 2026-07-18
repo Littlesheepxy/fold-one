@@ -85,7 +85,8 @@ export async function generateFastVision(
 			},
 		],
 		max_tokens: options.maxOutputTokens ?? 640,
-		temperature: options.temperature ?? 0.35,
+		// Kimi Code Plan（moonshot 走该 baseURL 时）只接受 temperature=1，非 1 直接 400。
+		temperature: choice.provider === "moonshot" ? 1 : options.temperature ?? 0.35,
 	};
 	if (choice.provider === "zhipu") {
 		body.thinking = { type: "disabled" };

@@ -3,10 +3,11 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ContextEngine, extractClipboardContentQuery, isClipboardContentRecallIntent, isClipboardRecallIntent, resolveClipboardRecall, type ContextEvent } from "@fold/context";
 import { captureScreenshot, createNangoConnectLink, openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal, openOfficeSetupInTerminal, openWorkBuddyApp, activateAgentConnectFlow, cancelConnectFlow, pollConnectFlow, resolveConnectTarget, startConnectFlow } from "@fold/connectors";
-import { saveContextEvent, listContextEvents, saveVoiceInteraction, listMemoryEntities, saveProductEvent, deactivateMemory, removeProfileConstraint, searchContextEvents } from "@fold/memory";
+import { saveContextEvent, listContextEvents, saveVoiceInteraction, listMemoryEntities, saveProductEvent, deactivateMemory, removeProfileConstraint, searchContextEvents, loadProfileMemories } from "@fold/memory";
 import {
 	hasPlannerApiKey,
 	buildWeeklyRecap,
+	extractProfileKeywords,
 	markWeeklyRecapShown,
 	recallHabitsFromUsage,
 	resolveEntitlements,
@@ -1114,6 +1115,7 @@ async function structureVoiceTranscript(
 				: await structureSpeechText(text, {
 						app,
 						windowTitle: onboardingVoiceWindowTitle ?? "Onboarding",
+						profileKeywords: extractProfileKeywords(loadProfileMemories()),
 						allowCloud: smartAccess.allowed,
 						preferQuality: true,
 					});
@@ -1200,6 +1202,7 @@ async function structureVoiceTranscript(
 						structureSpeechText(text, {
 							app: ctx.activeApp,
 							windowTitle: ctx.activeWindow,
+							profileKeywords: extractProfileKeywords(loadProfileMemories()),
 							allowCloud: useLocal ? false : smartAccess.allowed,
 							onCloudSuccess: smartAccess.usesTrial
 								? () => {

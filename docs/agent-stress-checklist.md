@@ -87,15 +87,26 @@ FOLD_E2E_INTENT="帮我整理刚下载的报价发给 Jason" pnpm desktop:dev
 
 | ID | 项 | 怎么验 | 状态 |
 |----|-----|--------|------|
-| T1 | **语音转写精度 / 关键热词** | 真说 V1–V8；对照 transcript：专有名词是否被吃掉/改成日常词；再看是否进对 agent。虽走大模型 ASR，**未证明**产品链路（profile keywords / `structureSpeechText` / Pro 云端）对 AI·投资热词够稳 | 未测 |
-| T2 | 语音 → agent 端到端 | 同一批话术不只看字对，还要看任务是否做对 | 未测 |
-| T3 | Codex 难意图 live | `FOLD_PREFERRED_EXECUTOR=codex FOLD_STRESS_LIVE_AGENT=1 … journey-local-agent`；当前卡 **ChatGPT Codex usage limit**（约 Jul 23 后可再跑） | 阻塞：额度 |
-| T4 | 真机 HITL | Chrome 断连授权自动续跑；群消息确认卡取消无副作用 | 未测 |
-| T5 | Overlay 体感 | local_agent 交 Claude/Codex 时文案是否说清；compiled 是否少闪 planning | 未测 |
+| T1 | **语音转写精度 / 关键热词** | 真说 V1–V8；对照 transcript：专有名词是否被吃掉/改成日常词；再看是否进对 agent | 找到并修了 2 个根因 bug，见下；真人开口这部分仍未测 |
+| T2 | 语音 → agent 端到端 | 同一批话术不只看字对，还要看任务是否做对 | 未测（依赖 T1 的真人录音） |
+| T3 | Codex 难意图 live | `FOLD_PREFERRED_EXECUTOR=codex FOLD_STRESS_LIVE_AGENT=1 … journey-local-agent` | 阻塞：本机 `codex` CLI 装坏了（见下），和之前记的 usage limit 是两个问题 |
+| T4 | 真机 HITL | Chrome 断连授权自动续跑；群消息确认卡取消无副作用 | 未测：需要真实运行中的 desktop app + 真实 Chrome/群，当前无桌面进程在跑 |
+| T5 | Overlay 体感 | local_agent 交 Claude/Codex 时文案是否说清；compiled 是否少闪 planning | 未测：同 T4，且顺畅度/体感是主观打分，需要人肉看 |
 | T6 | ASR 基准回归（可选） | `Experiments/StreamingASRBenchmark` 对 V1–V8 出 WER/热词错字表，和真机 transcript 对照 | 工具链验证过，见下 |
 | T7 | ASR 基准工具加自动错字率对比（新发现的缺口） | `BenchmarkRunner`/`ReportWriter` 目前只测延迟/RTF，`recognized_text` 不会自动对 `utterances.json` 的 ground truth 算 WER，需要人工比对 | 未做 |
 
 语音热词备注：仓库有 utterance 素材，**没有**硬热词表；靠大模型 + 后处理。T1 的目标是量「关键词错了多少」，再决定要不要加 bias / 词表。
+
+### T1 根因排查（07-18）：链路里挖出两个真 bug，已修
+
+用 T6 dry-run 里真实 ASR 引擎（sherpa_zipformer/paraformer）啃 TTS 音频后吐出的错字文本（如 `sure face`→应为 `InputSurface`、`on`→应为 `ARR`），直接灌进产品的 `structureSpeechText` 纠错函数验证，起初 **0/4** 关键词纠回来，查出两个问题：
+
+1. **`generateFastText`/`generateFastVision` 硬编码 temperature，Kimi Code Plan 接口只接受 1**：`.env` 里 `FOLD_PLANNER_PROVIDER=moonshot` 走的是 `MOONSHOT_BASE_URL` 指向的 Kimi Code Plan 端点，该端点要求 `temperature` 必须等于 1，但 `structure-speech.ts`/`predict-drafts.ts` 三处硬编码了 0.2/0.35/0.4，全部收到 `400 invalid temperature`。因为上层都有 `catch { return heuristicStructure(text) }` 式静默兜底，**从不报错**，直接退化成本地啟发式清洗（去口头禅，不纠专名）——语音专名纠错、AI 代回草稿、Aha 主动提示三个云端能力，在当前 `.env` 配置下全部静默失效。已修：`fast-text.ts`/`fast-vision.ts` 在 `choice.provider === "moonshot"` 时强制 `temperature=1`，回归见 `packages/ai/src/fast-text.self-check.ts`。
+2. **`profileKeywords` 在真实语音链路里从没传过**：`structureSpeechText` 的 `profileKeywords` 纠错入参此前只在 onboarding 演示页（`onboarding-compare.ts`）用到，`main.ts` 里两处真实语音调用都没传——机制设计上就没接上生产链路。已接：`main.ts` 两处都改成 `profileKeywords: extractProfileKeywords(loadProfileMemories())`。
+
+修完后拿同一批错字文本重跑：**2/4**（`Fast Path`、`ARR` 纠对了；`InputSurface`/`ThoughtSurface`、`compare/branch/diff` 这两条云端模型返回空结果，退回本地兜底，看起来是 `moonshot-v1-8k` 这个快模型本身对高度混乱的中英混杂错字处理不稳，不是代码 bug）。
+
+**新发现但没动的架构问题**：`shouldCleanSpeechLocally()` 对所有单句、≤200 字的输入（V1–V8 全部命中）会直接短路走本地啟发式，**根本不会调用云端**，`profileKeywords` 纠错在这类短语音命令上目前形同没接——这是刻意的低延迟设计（短命令快、长语音才上云修正），但意味着「专名容易被吃掉」这类问题恰好集中在被短路掉的那一类命令上。是否要为命中已知专名的短命令破例走云端，是产品取舍问题，本次没动，需要单独决定。
 
 ### T6 dry-run 记录（07-18）
 
