@@ -57,6 +57,19 @@ const ctx: LiveContext = {
 	assert.match(enriched.enrichment.accessibilityText ?? "", /群名/);
 }
 
+// enrichContext：capture 收到当前活跃 App 名，desktop 侧才能优先截该应用窗口而非整屏（降噪）
+{
+	let receivedAppName: string | null | undefined;
+	await enrichContext(ctx, "agent", {
+		captureTaskMomentScreenshot: async (_taskId, appName) => {
+			receivedAppName = appName;
+			return "/tmp/fake-app-moment.png";
+		},
+		ocrImageFile: async () => ({ text: "x".repeat(50) }),
+	});
+	assert.equal(receivedAppName, "WeChat");
+}
+
 // enrichContext：OCR 返回空时不覆盖、不标 ocr
 {
 	const enriched = await enrichContext(ctx, "agent", {

@@ -26,7 +26,7 @@ export async function assembleTaskContext(
 	dataDir?: string,
 	taskId?: string,
 	enrichOptions?: {
-		captureTaskMomentScreenshot?: (taskId: string) => Promise<string | null>;
+		captureTaskMomentScreenshot?: (taskId: string, appName?: string | null) => Promise<string | null>;
 		ocrImageFile?: (
 			path: string,
 			region?: { x: number; y: number; width: number; height: number },

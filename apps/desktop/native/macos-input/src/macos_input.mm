@@ -277,6 +277,36 @@ napi_value pasteboard_change_count(napi_env env, napi_callback_info info) {
 	}
 }
 
+// MARK: - 鼠标锚点屏幕（多屏场景下截「用户当前所在」的那块屏，而非固定主屏）
+
+napi_value mouse_screen_bounds(napi_env env, napi_callback_info info) {
+	@autoreleasepool {
+		napi_value result = make_object(env);
+		CGEventRef event = CGEventCreate(nullptr);
+		const CGPoint mouse = CGEventGetLocation(event);
+		CFRelease(event);
+
+		CGDirectDisplayID displays[16];
+		uint32_t count = 0;
+		CGGetActiveDisplayList(16, displays, &count);
+
+		CGRect bounds = CGDisplayBounds(CGMainDisplayID());
+		for (uint32_t i = 0; i < count; i++) {
+			const CGRect candidate = CGDisplayBounds(displays[i]);
+			if (CGRectContainsPoint(candidate, mouse)) {
+				bounds = candidate;
+				break;
+			}
+		}
+
+		set_int(env, result, "x", (int64_t)bounds.origin.x);
+		set_int(env, result, "y", (int64_t)bounds.origin.y);
+		set_int(env, result, "width", (int64_t)bounds.size.width);
+		set_int(env, result, "height", (int64_t)bounds.size.height);
+		return result;
+	}
+}
+
 napi_value idle_seconds(napi_env env, napi_callback_info info) {
 	@autoreleasepool {
 		const CFTimeInterval seconds =
@@ -533,6 +563,7 @@ napi_value init(napi_env env, napi_value exports) {
 		{"startFrontAppWatch", nullptr, start_front_app_watch, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"stopFrontAppWatch", nullptr, stop_front_app_watch, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"ocrImageFile", nullptr, ocr_image_file, nullptr, nullptr, nullptr, napi_default, nullptr},
+		{"mouseScreenBounds", nullptr, mouse_screen_bounds, nullptr, nullptr, nullptr, napi_default, nullptr},
 	};
 	napi_define_properties(env, exports, sizeof(properties) / sizeof(properties[0]), properties);
 	return exports;

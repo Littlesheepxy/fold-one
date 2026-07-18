@@ -833,11 +833,29 @@ async function executeTask(intent: string) {
 			resolveUserAction,
 			runUserAction,
 			signal: abortController.signal,
-			captureTaskMomentScreenshot: async (taskId) => {
+			captureTaskMomentScreenshot: async (taskId, appName) => {
 				try {
 					const dir = join(app.getPath("home"), ".fold", "moments");
 					const outPath = join(dir, `${taskId}.png`);
-					const shot = await captureScreenshot({ target: "screen", outPath });
+					let screenRect: ReturnType<typeof macosInput.mouseScreenBounds> | undefined;
+					try {
+						screenRect = macosInput.mouseScreenBounds();
+					} catch {
+						/* 多屏定位失败时退化为默认主屏截图 */
+					}
+					// 优先截该应用窗口本身：排除菜单栏/Dock/其它窗口的 OCR 噪音；
+					// 窗口截不到（AX 无窗口、Space 隔离等）时退化为鼠标锚点全屏。
+					const trimmedApp = appName?.trim();
+					if (trimmedApp && !/^(electron|fold)$/i.test(trimmedApp)) {
+						const byApp = await captureScreenshot({
+							target: "app",
+							appName: trimmedApp,
+							outPath,
+							screenRect,
+						}).catch(() => null);
+						if (byApp?.windowId != null) return byApp.path;
+					}
+					const shot = await captureScreenshot({ target: "screen", outPath, screenRect });
 					return shot.path;
 				} catch {
 					return null;

@@ -65,7 +65,7 @@ export interface EnrichContextOptions {
 	 * - capture: 截屏到本地路径，返回路径
 	 * - ocr: 对截图文件跑 Vision OCR，返回文本
 	 */
-	captureTaskMomentScreenshot?: (taskId: string) => Promise<string | null>;
+	captureTaskMomentScreenshot?: (taskId: string, appName?: string | null) => Promise<string | null>;
 	ocrImageFile?: (
 		path: string,
 		region?: { x: number; y: number; width: number; height: number },
@@ -115,7 +115,7 @@ export async function enrichContext(
 	const axTooThin = !accessibilityText || accessibilityText.trim().length < 40;
 	if (axTooThin && options?.captureTaskMomentScreenshot && options?.ocrImageFile) {
 		try {
-			screenshotPath = await options.captureTaskMomentScreenshot(options.taskId ?? "moment");
+			screenshotPath = await options.captureTaskMomentScreenshot(options.taskId ?? "moment", targetApp);
 			if (screenshotPath) {
 				const ocr = await options.ocrImageFile(screenshotPath);
 				const ocrText = ocr?.text?.trim();

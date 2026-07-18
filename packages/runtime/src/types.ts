@@ -174,8 +174,8 @@ export interface OrchestratorDeps {
 	signal?: AbortSignal;
 	/** Optional cwd for Tier-2 agent.execute (e.g. stress repo). */
 	agentCwd?: string;
-	/** 任务时刻截图（desktop 注入，走 macos-input/screencapture）；返回本地路径 */
-	captureTaskMomentScreenshot?: (taskId: string) => Promise<string | null>;
+	/** 任务时刻截图（desktop 注入，走 macos-input/screencapture）；appName 可指定优先截该应用窗口（降噪），返回本地路径 */
+	captureTaskMomentScreenshot?: (taskId: string, appName?: string | null) => Promise<string | null>;
 	/** Apple Vision OCR 兜底（desktop 注入，走 macos-input addon）；region 可选裁剪 */
 	ocrImageFile?: (
 		path: string,
