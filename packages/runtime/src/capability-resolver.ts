@@ -28,6 +28,30 @@ export function isFeishuIntent(intent: string): boolean {
 	return FEISHU_HINTS.test(intent);
 }
 
+/** 飞书自聊发送可走稳定的 Tier 0 计划，避免 LLM 拼通用 API 查询参数。 */
+export function isFeishuSelfMessageIntent(intent: string): boolean {
+	if (!isFeishuIntent(intent) || !/(消息|信息)/.test(intent)) return false;
+	return (
+		/(?:给|发给).{0,8}(?:我自己|自己|本人).{0,12}(?:发|发送|消息)/.test(intent) ||
+		/(?:发|发送).{0,8}(?:消息|信息).{0,8}(?:给)?(?:我自己|自己|本人)/.test(intent)
+	);
+}
+
+export function extractFeishuSelfMessageText(intent: string): string | null {
+	const quoted = intent.match(/内容(?:是|为|：|:)?\s*[「“\"]([\s\S]+?)[」”\"]/);
+	if (quoted?.[1]?.trim()) return quoted[1].trim();
+	const plain = intent.match(/内容(?:是|为|：|:)\s*([^，。]+)[。]?$/);
+	if (plain?.[1]?.trim()) return plain[1].trim();
+	// 「给我自己发一条消息：正文」——冒号后整段即正文
+	const afterColon = intent.match(
+		/(?:给|发给).{0,8}(?:我自己|自己|本人).{0,16}(?:发|发送)?(?:一条)?(?:消息|信息)\s*[:：]\s*(.+)$/,
+	);
+	if (afterColon?.[1]?.trim()) return afterColon[1].trim();
+	const sendMsg = intent.match(/(?:发|发送)(?:一条)?(?:消息|信息)\s*(?:给)?(?:我自己|自己|本人)\s*[:：]\s*(.+)$/);
+	if (sendMsg?.[1]?.trim()) return sendMsg[1].trim();
+	return null;
+}
+
 export function isBrowserIntent(intent: string): boolean {
 	return BROWSER_HINTS.test(intent);
 }
@@ -49,8 +73,55 @@ export function isPdfDownloadCountIntent(intent: string): boolean {
 	);
 }
 
+/** 显式邮件/草稿意图（不含裸「发给」）。 */
+export function isExplicitMailIntent(intent: string): boolean {
+	return (
+		isGmailIntent(intent) ||
+		/(邮件|mail|草稿|邮箱|outlook|苹果邮件|apple\s*mail)/i.test(intent)
+	);
+}
+
+/**
+ * 收窄：必须点名 PDF + 邮件词，避免「发给」误走 mail demo。
+ * compiled / mock 仅在此命中时出 mail.draft。
+ */
 export function isPdfMailDemoIntent(intent: string): boolean {
-	return /刚下载.*pdf.*(邮件|mail|发)/i.test(intent);
+	return /刚下载.*pdf.*(邮件|mail|草稿|邮箱)/i.test(intent);
+}
+
+export type SendChannel = "feishu" | "dingtalk" | "wecom" | "mail" | "none";
+
+export type OfficeChannelHint = {
+	id: string;
+	installed?: boolean;
+	authed?: boolean;
+};
+
+/**
+ * 发送渠道：点名 IM → 邮件词 → 已连接 office → none（只整理，不擅自发邮件）。
+ * officeOrder：平票排序（默认 feishu→dingtalk→wecom；调用方可传入 episode 亲和度序）。
+ */
+export function resolveSendChannel(
+	intent: string,
+	officeChannels?: OfficeChannelHint[],
+	_mailProvider?: string,
+	officeOrder: Array<"feishu" | "dingtalk" | "wecom"> = ["feishu", "dingtalk", "wecom"],
+): SendChannel {
+	if (/(钉钉|dingtalk)/i.test(intent)) return "dingtalk";
+	if (/(企微|企业微信|wecom|wechat\s*work)/i.test(intent)) return "wecom";
+	// 飞书邮件 → mail；飞书消息/其它 → feishu
+	if (FEISHU_HINTS.test(intent)) {
+		if (/(邮件|mail|邮箱)/i.test(intent)) return "mail";
+		return "feishu";
+	}
+	if (isExplicitMailIntent(intent)) return "mail";
+
+	const ready = (id: string) =>
+		officeChannels?.some((c) => c.id === id && c.installed && c.authed) ?? false;
+	for (const id of officeOrder) {
+		if (ready(id)) return id;
+	}
+	return "none";
 }
 
 // ---- 视觉 / GUI ----
@@ -103,7 +174,7 @@ export function needsReactGui(intent: string): boolean {
 // ---- 修复 / 恢复 ----
 
 const CODE_REPAIR_HINTS = /(代码|仓库|repo|项目|修复|fix|bug|测试|test|refactor|implement)/i;
-const WORKFLOW_HINTS = /(workflow|工作流|obsidian|vault|workbuddy|待办|笔记同步|知识库)/i;
+const WORKFLOW_HINTS = /(workflow|工作流|obsidian|vault|workbuddy|待办|笔记同步|知识库|ardot|设计稿)/i;
 const NATIVE_APP_HINTS = /(微信|wechat|飞书|feishu|lark|slack|finder|访达)/i;
 
 /** text 可以是 intent，也可以是 intent + 错误信息的拼接。 */

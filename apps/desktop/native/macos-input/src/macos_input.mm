@@ -4,6 +4,7 @@
 
 #import <AppKit/AppKit.h>
 #import <ApplicationServices/ApplicationServices.h>
+#import <Vision/Vision.h>
 
 #include <unistd.h>
 
@@ -276,6 +277,280 @@ napi_value pasteboard_change_count(napi_env env, napi_callback_info info) {
 	}
 }
 
+// MARK: - 鼠标锚点屏幕（多屏场景下截「用户当前所在」的那块屏，而非固定主屏）
+
+napi_value mouse_screen_bounds(napi_env env, napi_callback_info info) {
+	@autoreleasepool {
+		napi_value result = make_object(env);
+		CGEventRef event = CGEventCreate(nullptr);
+		const CGPoint mouse = CGEventGetLocation(event);
+		CFRelease(event);
+
+		CGDirectDisplayID displays[16];
+		uint32_t count = 0;
+		CGGetActiveDisplayList(16, displays, &count);
+
+		CGRect bounds = CGDisplayBounds(CGMainDisplayID());
+		for (uint32_t i = 0; i < count; i++) {
+			const CGRect candidate = CGDisplayBounds(displays[i]);
+			if (CGRectContainsPoint(candidate, mouse)) {
+				bounds = candidate;
+				break;
+			}
+		}
+
+		set_int(env, result, "x", (int64_t)bounds.origin.x);
+		set_int(env, result, "y", (int64_t)bounds.origin.y);
+		set_int(env, result, "width", (int64_t)bounds.size.width);
+		set_int(env, result, "height", (int64_t)bounds.size.height);
+		return result;
+	}
+}
+
+napi_value idle_seconds(napi_env env, napi_callback_info info) {
+	@autoreleasepool {
+		const CFTimeInterval seconds =
+			CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateHIDSystemState, kCGAnyInputEventType);
+		napi_value value;
+		napi_create_double(env, seconds, &value);
+		return value;
+	}
+}
+
+// MARK: - 前台切换事件驱动监听（NSWorkspace.didActivateApplicationNotification）
+
+napi_threadsafe_function watch_tsfn = nullptr;
+napi_ref watch_cb_ref = nullptr;
+napi_env watch_env = nullptr;
+id watch_observer = nullptr;
+
+struct WatchPayload {
+	std::string app_name;
+	std::string bundle_id;
+	std::string app_path;
+	pid_t pid;
+};
+
+void watch_js_call(napi_env env, napi_value js_cb, void* /*context*/, void* data) {
+	WatchPayload* payload = static_cast<WatchPayload*>(data);
+	if (payload == nullptr) return;
+	@autoreleasepool {
+		napi_value result;
+		napi_create_object(env, &result);
+		napi_value v;
+		napi_create_string_utf8(env, payload->app_name.c_str(), NAPI_AUTO_LENGTH, &v);
+		napi_set_named_property(env, result, "appName", v);
+		napi_create_string_utf8(env, payload->bundle_id.c_str(), NAPI_AUTO_LENGTH, &v);
+		napi_set_named_property(env, result, "bundleId", v);
+		napi_create_string_utf8(env, payload->app_path.c_str(), NAPI_AUTO_LENGTH, &v);
+		napi_set_named_property(env, result, "appPath", v);
+		napi_create_int64(env, payload->pid, &v);
+		napi_set_named_property(env, result, "pid", v);
+		napi_value undefined;
+		napi_get_undefined(env, &undefined);
+		napi_call_function(env, undefined, js_cb, 1, &result, nullptr);
+	}
+	delete payload;
+}
+
+void post_front_app_change(NSRunningApplication* app) {
+	if (watch_tsfn == nullptr || app == nil) return;
+	WatchPayload* payload = new WatchPayload();
+	NSString* name = app.localizedName ?: @"";
+	NSString* bundle = app.bundleIdentifier ?: @"";
+	NSString* path = app.bundleURL.path ?: @"";
+	payload->app_name = name.UTF8String;
+	payload->bundle_id = bundle.UTF8String;
+	payload->app_path = path.UTF8String;
+	payload->pid = app.processIdentifier;
+	// non-blocking：回调队列满时丢弃，下一帧激活事件会再补
+	napi_call_threadsafe_function(watch_tsfn, payload, napi_tsfn_nonblocking);
+}
+
+void clear_watch(napi_env env) {
+	if (watch_observer != nullptr) {
+		[NSNotificationCenter.defaultCenter removeObserver:watch_observer];
+		watch_observer = nullptr;
+	}
+	if (watch_tsfn != nullptr) {
+		napi_release_threadsafe_function(watch_tsfn, napi_tsfn_abort);
+		watch_tsfn = nullptr;
+	}
+	if (watch_cb_ref != nullptr) {
+		napi_delete_reference(env, watch_cb_ref);
+		watch_cb_ref = nullptr;
+	}
+	watch_env = nullptr;
+}
+
+// MARK: - Apple Vision OCR（截屏图像 -> 文本，AX 兜底）
+
+napi_value ocr_image_file(napi_env env, napi_callback_info info) {
+	@autoreleasepool {
+		napi_value result = make_object(env);
+		size_t argc = 2;
+		napi_value args[2];
+		napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+		if (argc < 1) {
+			set_bool(env, result, "ok", false);
+			set_string(env, result, "error", @"path-required");
+			return result;
+		}
+		size_t path_len = 0;
+		if (napi_get_value_string_utf8(env, args[0], nullptr, 0, &path_len) != napi_ok) {
+			set_bool(env, result, "ok", false);
+			set_string(env, result, "error", @"invalid-path");
+			return result;
+		}
+		std::string path(path_len + 1, '\0');
+		napi_get_value_string_utf8(env, args[0], path.data(), path.size(), &path_len);
+
+		// 可选 regionOfInterest：{x, y, width, height} 归一化（Vision 坐标原点在左下）
+		CGRect region = CGRectMake(0, 0, 1, 1);
+		bool has_region = false;
+		if (argc >= 2) {
+			napi_valuetype t;
+			napi_typeof(env, args[1], &t);
+			if (t == napi_object) {
+				auto get_num = [&](const char* key, double* out) -> bool {
+					napi_value v;
+					if (napi_get_named_property(env, args[1], key, &v) != napi_ok) return false;
+					return napi_get_value_double(env, v, out) == napi_ok;
+				};
+				double x, y, w, h;
+				if (get_num("x", &x) && get_num("y", &y) && get_num("width", &w) && get_num("height", &h) &&
+					x >= 0 && y >= 0 && w > 0 && h > 0 && x + w <= 1 && y + h <= 1) {
+					region = CGRectMake(x, y, w, h);
+					has_region = true;
+				}
+			}
+		}
+
+		NSURL* url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:path.c_str()]];
+		NSImage* image = [[NSImage alloc] initWithContentsOfURL:url];
+		CGImageRef cg_image = [image CGImageForProposedRect:nullptr context:nil hints:nil];
+		if (cg_image == nullptr) {
+			set_bool(env, result, "ok", false);
+			set_string(env, result, "error", @"image-load-failed");
+			return result;
+		}
+
+		VNRecognizeTextRequest* request = [[VNRecognizeTextRequest alloc] init];
+		request.recognitionLevel = VNRequestTextRecognitionLevelAccurate;
+		request.usesLanguageCorrection = YES;
+		request.recognitionLanguages = @[ @"zh-Hans", @"en-US" ];
+		if (has_region) request.regionOfInterest = region;
+
+		VNImageRequestHandler* handler =
+			[[VNImageRequestHandler alloc] initWithCGImage:cg_image options:@{}];
+		NSError* error = nil;
+		const BOOL performed = [handler performRequests:@[ request ] error:&error];
+		if (!performed || error != nil) {
+			set_bool(env, result, "ok", false);
+			set_string(env, result, "error", error.localizedDescription ?: @"vision-perform-failed");
+			return result;
+		}
+
+		// 按阅读顺序（上->下，左->右）排序，并过滤低置信度噪声
+		NSMutableArray<VNRecognizedTextObservation*>* observations = [NSMutableArray array];
+		for (VNRecognizedTextObservation* observation in request.results) {
+			VNRecognizedText* candidate = [observation topCandidates:1].firstObject;
+			if (candidate.string.length > 0 && candidate.confidence >= 0.5) {
+				[observations addObject:observation];
+			}
+		}
+		[observations sortUsingComparator:^NSComparisonResult(VNRecognizedTextObservation* a, VNRecognizedTextObservation* b) {
+			const CGFloat ya = a.boundingBox.origin.y;
+			const CGFloat yb = b.boundingBox.origin.y;
+			// Vision 坐标系原点在左下；y 越大越靠上
+			if (fabs(ya - yb) > 0.012) return ya > yb ? NSOrderedAscending : NSOrderedDescending;
+			const CGFloat xa = a.boundingBox.origin.x;
+			const CGFloat xb = b.boundingBox.origin.x;
+			return xa < xb ? NSOrderedAscending : NSOrderedDescending;
+		}];
+		NSMutableArray<NSString*>* lines = [NSMutableArray array];
+		for (VNRecognizedTextObservation* observation in observations) {
+			NSString* s = [observation topCandidates:1].firstObject.string;
+			if (s.length > 0) [lines addObject:s];
+		}
+		NSString* text = [lines componentsJoinedByString:@"\n"];
+		set_bool(env, result, "ok", true);
+		set_string(env, result, "text", text);
+		set_int(env, result, "lineCount", (int64_t)lines.count);
+		return result;
+	}
+}
+
+napi_value start_front_app_watch(napi_env env, napi_callback_info info) {
+	@autoreleasepool {
+		napi_value result = make_object(env);
+		size_t argc = 1;
+		napi_value args[1];
+		napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+		if (argc != 1) {
+			set_bool(env, result, "ok", false);
+			set_string(env, result, "error", @"callback-required");
+			return result;
+		}
+		napi_valuetype arg_type;
+		napi_typeof(env, args[0], &arg_type);
+		if (arg_type != napi_function) {
+			set_bool(env, result, "ok", false);
+			set_string(env, result, "error", @"callback-must-be-function");
+			return result;
+		}
+		if (watch_tsfn != nullptr) {
+			set_bool(env, result, "ok", true);
+			set_bool(env, result, "alreadyWatching", true);
+			return result;
+		}
+
+		watch_env = env;
+		napi_create_reference(env, args[0], 1, &watch_cb_ref);
+
+		napi_value resource_name;
+		napi_create_string_utf8(env, "fold-front-app-watch", NAPI_AUTO_LENGTH, &resource_name);
+		const napi_status status = napi_create_threadsafe_function(
+			env,
+			args[0],
+			nullptr,
+			resource_name,
+			0,
+			1,
+			nullptr,
+			nullptr,
+			nullptr,
+			watch_js_call,
+			&watch_tsfn
+		);
+		if (status != napi_ok) {
+			clear_watch(env);
+			set_bool(env, result, "ok", false);
+			set_string(env, result, "error", @"tsfn-create-failed");
+			return result;
+		}
+
+		watch_observer = [NSNotificationCenter.defaultCenter
+			addObserverForName:NSWorkspaceDidActivateApplicationNotification
+			object:nil
+			queue:nil
+			usingBlock:^(NSNotification* note) {
+				NSRunningApplication* app = note.userInfo[NSWorkspaceApplicationKey];
+				post_front_app_change(app);
+			}];
+
+		set_bool(env, result, "ok", true);
+		return result;
+	}
+}
+
+napi_value stop_front_app_watch(napi_env env, napi_callback_info info) {
+	clear_watch(env);
+	napi_value value;
+	napi_get_undefined(env, &value);
+	return value;
+}
+
 napi_value init(napi_env env, napi_value exports) {
 	napi_property_descriptor properties[] = {
 		{"captureTarget", nullptr, capture_target, nullptr, nullptr, nullptr, napi_default, nullptr},
@@ -284,6 +559,11 @@ napi_value init(napi_env env, napi_value exports) {
 		{"postPaste", nullptr, post_paste, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"insertTextDirect", nullptr, insert_text_direct, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"pasteboardChangeCount", nullptr, pasteboard_change_count, nullptr, nullptr, nullptr, napi_default, nullptr},
+		{"idleSeconds", nullptr, idle_seconds, nullptr, nullptr, nullptr, napi_default, nullptr},
+		{"startFrontAppWatch", nullptr, start_front_app_watch, nullptr, nullptr, nullptr, napi_default, nullptr},
+		{"stopFrontAppWatch", nullptr, stop_front_app_watch, nullptr, nullptr, nullptr, napi_default, nullptr},
+		{"ocrImageFile", nullptr, ocr_image_file, nullptr, nullptr, nullptr, napi_default, nullptr},
+		{"mouseScreenBounds", nullptr, mouse_screen_bounds, nullptr, nullptr, nullptr, napi_default, nullptr},
 	};
 	napi_define_properties(env, exports, sizeof(properties) / sizeof(properties[0]), properties);
 	return exports;

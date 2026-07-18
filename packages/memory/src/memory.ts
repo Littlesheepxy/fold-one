@@ -29,6 +29,9 @@ function mapMemoryRow(row: {
 	updated_at: number;
 	last_used_at: number | null;
 	active: number;
+	receipt_json?: string | null;
+	supersedes?: string | null;
+	superseded_by?: string | null;
 }): MemoryRecord {
 	return {
 		id: row.id,
@@ -41,6 +44,9 @@ function mapMemoryRow(row: {
 		updatedAt: row.updated_at,
 		lastUsedAt: row.last_used_at,
 		active: row.active === 1,
+		receiptJson: row.receipt_json ?? null,
+		supersedes: row.supersedes ?? null,
+		supersededBy: row.superseded_by ?? null,
 	};
 }
 
@@ -51,30 +57,51 @@ export function upsertMemory(
 		value: string;
 		confidence?: number;
 		source?: string;
+		/** 证据（触发来源、episode id、事件 id 等），任意可 JSON 序列化对象 */
+		receipt?: unknown;
 	},
 	dataDir?: string,
 ): MemoryRecord {
 	const conn = getDb(dataDir);
 	const now = Date.now();
+	const receiptJson = input.receipt === undefined ? null : JSON.stringify(input.receipt);
 	const existing = conn
 		.prepare(`SELECT id FROM memories WHERE type = ? AND key = ? AND active = 1`)
 		.get(input.type, input.key) as { id: string } | undefined;
 
 	if (existing) {
-		conn
-			.prepare(
-				`UPDATE memories SET value = ?, confidence = ?, source_episode_id = ?, updated_at = ? WHERE id = ?`,
-			)
-			.run(input.value, input.confidence ?? 0.85, input.source ?? null, now, existing.id);
-		const row = conn.prepare(`SELECT * FROM memories WHERE id = ?`).get(existing.id);
+		const id = randomUUID();
+		const insertNew = conn.prepare(
+			`INSERT INTO memories (id, type, key, value, confidence, source_episode_id, created_at, updated_at, active, receipt_json, supersedes)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+		);
+		const retireOld = conn.prepare(
+			`UPDATE memories SET active = 0, superseded_by = ?, updated_at = ? WHERE id = ?`,
+		);
+		conn.transaction(() => {
+			insertNew.run(
+				id,
+				input.type,
+				input.key,
+				input.value,
+				input.confidence ?? 0.85,
+				input.source ?? null,
+				now,
+				now,
+				receiptJson,
+				existing.id,
+			);
+			retireOld.run(id, now, existing.id);
+		})();
+		const row = conn.prepare(`SELECT * FROM memories WHERE id = ?`).get(id);
 		return mapMemoryRow(row as Parameters<typeof mapMemoryRow>[0]);
 	}
 
 	const id = randomUUID();
 	conn
 		.prepare(
-			`INSERT INTO memories (id, type, key, value, confidence, source_episode_id, created_at, updated_at, active)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+			`INSERT INTO memories (id, type, key, value, confidence, source_episode_id, created_at, updated_at, active, receipt_json)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
 		)
 		.run(
 			id,
@@ -85,6 +112,7 @@ export function upsertMemory(
 			input.source ?? null,
 			now,
 			now,
+			receiptJson,
 		);
 	const row = conn.prepare(`SELECT * FROM memories WHERE id = ?`).get(id);
 	return mapMemoryRow(row as Parameters<typeof mapMemoryRow>[0]);

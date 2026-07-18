@@ -11,10 +11,12 @@ export function toLanguageModel(choice: ModelChoice): LanguageModel {
 		throw new Error(`[providers] ${cfg.displayName} missing API key (env: ${cfg.apiKeyEnv})`);
 	}
 	const apiKey = rawKey.trim().replace(/^["']|["']$/g, "");
+	const baseURL =
+		process.env[`${choice.provider.toUpperCase()}_BASE_URL`]?.trim() || cfg.baseURL;
 
 	const provider = createOpenAICompatible({
 		name: choice.provider,
-		baseURL: cfg.baseURL,
+		baseURL,
 		apiKey,
 		headers:
 			choice.provider === "openrouter"

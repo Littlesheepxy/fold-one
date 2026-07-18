@@ -99,6 +99,12 @@ async function resolveConnector(agent?: AgentId | "auto"): Promise<AgentConnecto
 		return connector;
 	}
 
+	const preferred = process.env.FOLD_PREFERRED_EXECUTOR?.trim();
+	if (preferred === "claude-code" || preferred === "codex" || preferred === "cursor") {
+		const hit = CONNECTORS.find((c) => c.id === preferred);
+		if (hit && (await hit.isAvailable())) return hit;
+	}
+
 	for (const connector of CONNECTORS) {
 		if (await connector.isAvailable()) return connector;
 	}
@@ -126,7 +132,7 @@ export async function executeAgent(task: AgentTask, failedSteps: string[] = []):
 	heartbeat.unref?.();
 	let result: AgentResult;
 	try {
-		result = await connector.execute({ ...task, taskId, onEvent: undefined });
+		result = await connector.execute({ ...task, taskId, onEvent: undefined }, emit);
 	} catch (error) {
 		emit("failed", (error as Error).message || `${AGENT_LABELS[connector.id]} 执行失败`);
 		throw error;
@@ -153,8 +159,14 @@ export async function executeAgent(task: AgentTask, failedSteps: string[] = []):
 	};
 }
 
-export type { SubagentHandoff } from "./handoff.js";
+export type { AgentResultEnvelope, SubagentHandoff } from "./handoff.js";
 
 export { openCodexInstallInTerminal, openClaudeLoginInTerminal, openCursorSetupInTerminal } from "./install-actions.js";
 
-export type { AgentConnector, AgentId, AgentResult, AgentTask } from "./types.js";
+export type {
+	AgentConnector,
+	AgentId,
+	AgentResult,
+	AgentTask,
+	AgentTaskEnvelope,
+} from "./types.js";

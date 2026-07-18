@@ -6,9 +6,17 @@
   "exports": {
     ".": "./src/index.ts"
   },
-  "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test:task-events": "tsx src/task-events.self-check.ts"
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test:agent-prompt": "pnpm exec tsx src/agents/prompt.self-check.ts",
+		"test:claude-code": "pnpm exec tsx src/agents/claude-code.self-check.ts",
+		"test:shell-cancel": "pnpm exec tsx src/shell.self-check.ts",
+		"test:shell-stream": "pnpm exec tsx src/shell.stream.self-check.ts",
+		"test:office-args": "pnpm exec tsx src/office/index.self-check.ts",
+    "test:task-events": "tsx src/task-events.self-check.ts",
+    "test:codex-app-server": "tsx src/agents/codex-app-server.self-check.ts",
+    "test:screenshot-args": "tsx src/macos/screenshot.self-check.ts",
+    "test:cursor-agent": "pnpm exec tsx src/agents/cursor-agent.self-check.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

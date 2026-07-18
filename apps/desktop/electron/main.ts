@@ -1,12 +1,13 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, powerSaveBlocker, screen, shell } from "electron";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { ContextEngine, isClipboardRecallIntent, resolveClipboardRecall, type ContextEvent } from "@fold/context";
+import { ContextEngine, extractClipboardContentQuery, isClipboardContentRecallIntent, isClipboardRecallIntent, resolveClipboardRecall, type ContextEvent } from "@fold/context";
 import { captureScreenshot, createNangoConnectLink, openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal, openOfficeSetupInTerminal, openWorkBuddyApp, activateAgentConnectFlow, cancelConnectFlow, pollConnectFlow, resolveConnectTarget, startConnectFlow } from "@fold/connectors";
-import { saveContextEvent, listContextEvents, saveVoiceInteraction, listMemoryEntities, saveProductEvent, deactivateMemory, removeProfileConstraint } from "@fold/memory";
+import { saveContextEvent, listContextEvents, saveVoiceInteraction, listMemoryEntities, saveProductEvent, deactivateMemory, removeProfileConstraint, searchContextEvents, loadProfileMemories } from "@fold/memory";
 import {
 	hasPlannerApiKey,
 	buildWeeklyRecap,
+	extractProfileKeywords,
 	markWeeklyRecapShown,
 	recallHabitsFromUsage,
 	resolveEntitlements,
@@ -16,8 +17,10 @@ import {
 	startHabitRecallLoop,
 	structureSpeechText,
 	streamAhaGuess,
+	matchUserActionVoice,
 	type FoldStateEvent,
 	type UserActionRequest,
+	type UserActionResponse,
 } from "@fold/runtime";
 import {
 	clearPredictTargetApp,
@@ -33,6 +36,7 @@ import {
 	resolveReplyPredictions,
 	setPredictTargetApp,
 } from "./predict-enrich.js";
+import * as macosInput from "@fold/macos-input";
 import {
 	captureTextInsertionTarget,
 	clearTextInsertionTarget,
@@ -118,6 +122,12 @@ import {
 	startCodexRemotePairing,
 } from "./codex-remote-control.js";
 import { PRODUCT_NAME } from "./brand.js";
+import {
+	FileInteractionStore,
+	InteractionBroker,
+	toInteractionView,
+	type PendingInteractionRecord,
+} from "./interaction-broker.js";
 import { createZhigengAppIcon } from "./tray-icon.js";
 import {
 	appendLocalWhisperAudio,
@@ -154,11 +164,44 @@ import {
 	runOnboardingStructureVoice,
 } from "./onboarding-compare.js";
 
+// dev 下 turbo/vite 先退出会踩断 stdout 管道，console 写入抛 EPIPE → 主进程崩溃弹窗。
+// 日志写不出去可以忍，app 不能死。
+for (const stream of [process.stdout, process.stderr]) {
+	stream.on("error", (err: NodeJS.ErrnoException) => {
+		if (err.code !== "EPIPE") throw err;
+	});
+}
+
 migrateLegacyDataDir();
 applyConfigToEnv();
 
 const contextEngine = new ContextEngine({
 	ignoreApps: ["Electron", "Fold", "fold", "知更", "Zhigeng", "zhigeng"],
+	getIdleSeconds: () => {
+		try {
+			return macosInput.idleSeconds();
+		} catch {
+			return -1;
+		}
+	},
+	frontAppWatcher: {
+		start: (cb) => {
+			try {
+				return macosInput.startFrontAppWatch((change) => {
+					cb({ appName: change.appName, appPath: change.appPath });
+				});
+			} catch {
+				return { ok: false, error: "native-watch-unavailable" };
+			}
+		},
+		stop: () => {
+			try {
+				macosInput.stopFrontAppWatch();
+			} catch {
+				/* ignore */
+			}
+		},
+	},
 	onEvent: (event) => {
 		try {
 			saveContextEvent(event);
@@ -208,7 +251,9 @@ let onboardingWindow: BrowserWindow | null = null;
 let onboardingStep: string | undefined;
 let pendingHomeSection: string | null = null;
 let isRecording = false;
-let voiceOutcome: "structure" | "reply" | "agent" = "structure";
+type VoiceOutcome = "structure" | "reply" | "agent" | "interaction";
+let voiceOutcome: VoiceOutcome = "structure";
+let interactionBroker: InteractionBroker | null = null;
 let voiceCanUseDirectStructure = false;
 /** 代回首轮：松开右 ⌘ 不结束，短按结束 */
 let replyLatched = false;
@@ -217,6 +262,13 @@ let replyRefineHold = false;
 let voiceTargetApp: string | null = null;
 /** 代回：Overlay 升起前截下的聊天窗，避免松手时截到主屏微信/知更自己 */
 let voiceReplyScreenshotPath: string | null = null;
+/** 语音待机：保留目标 App，超时或 Esc 退出 */
+let voiceStandbyUntil: number | null = null;
+let voiceStandbyTimer: ReturnType<typeof setTimeout> | null = null;
+let voiceStandbyMode: "structure" | "reply" | null = null;
+let voiceStandbyPlacement: { left: number; top: number } | null = null;
+/** 进待机时的 ctx.activeApp 快照；唤起时同源比对，判断焦点是否已切到别的真实 App */
+let voiceStandbyActiveApp: string | null = null;
 let lastIntent = "";
 let lastReplyTranscript = "";
 /** 代回卡片上做过语音 refine 后再插入 → 记 edited 而非 accept */
@@ -226,6 +278,8 @@ let refreshTrayMenu: (() => void) | null = null;
 let stopHabitRecall: (() => void) | null = null;
 let activeTaskPowerBlockerId: number | null = null;
 let activeTaskPowerAssertionCount = 0;
+let activeTaskAbortController: AbortController | null = null;
+let devE2eIntentStarted = false;
 
 function startTaskPowerAssertion(): void {
 	activeTaskPowerAssertionCount += 1;
@@ -273,11 +327,6 @@ function recordVoiceInteraction(
 		// Habit learning should never block voice flows.
 	}
 }
-let pendingUserAction: {
-	resolve: (optionId: string) => void;
-	reject: (error: Error) => void;
-	runContext?: Record<string, unknown>;
-} | null = null;
 let predictRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 let ahaGuessRunId = 0;
 const appIconCache = new Map<string, string>();
@@ -606,17 +655,147 @@ async function runUserAction(optionId: string, context?: Record<string, unknown>
 	}
 }
 
+function ensureInteractionBroker(): InteractionBroker {
+	if (!interactionBroker) {
+		interactionBroker = new InteractionBroker(
+			new FileInteractionStore(join(app.getPath("userData"), "interaction-state.json")),
+		);
+	}
+	return interactionBroker;
+}
+
+function interactionState(record: PendingInteractionRecord): FoldStateEvent {
+	const interaction = toInteractionView(record);
+	return {
+		status: "ask",
+		transcript: record.intent,
+		askTitle: interaction.title,
+		askMessage: interaction.message,
+		askHint: interaction.hint,
+		askOptions: interaction.options.map(({ id, label }) => ({ id, label })),
+		interaction,
+		voiceMode: interaction.listening ? "interaction" : null,
+	};
+}
+
+function emitCurrentInteraction(): PendingInteractionRecord | null {
+	const record = ensureInteractionBroker().current();
+	if (record) emitState(interactionState(record));
+	return record;
+}
+
 function requestUserAction(req: UserActionRequest): Promise<string> {
-	return new Promise((resolve, reject) => {
-		pendingUserAction = { resolve, reject, runContext: req.runContext };
+	const broker = ensureInteractionBroker();
+	const response = broker.request(req, lastIntent);
+	emitCurrentInteraction();
+	return response;
+}
+
+/** Auto-complete the active auth HITL when probe says ready (no user click). */
+function resolveUserAction(optionId: string): void {
+	const broker = ensureInteractionBroker();
+	const active = broker.current();
+	if (!active) return;
+	const resolution = broker.respond({
+		requestId: active.id,
+		optionId,
+		modality: "terminal",
+	});
+	if (!resolution) return;
+	emitState({
+		status: "working",
+		interaction: null,
+		voiceMode: null,
+		askTitle: null,
+		askMessage: null,
+		askHint: null,
+		askOptions: undefined,
+	});
+}
+
+async function handleInteractionResponse(response: UserActionResponse): Promise<void> {
+	const broker = ensureInteractionBroker();
+	const record = broker.current();
+	if (!record) {
+		if (lastIntent && (response.optionId || response.text)) {
+			await executeTask(`${lastIntent} ${response.optionId ?? response.text}`);
+		}
+		return;
+	}
+	if (response.requestId && response.requestId !== record.id) return;
+
+	if (response.optionId === "cancel") {
+		broker.cancel("用户取消了授权");
 		emitState({
-			status: "ask",
-			transcript: lastIntent,
-			askTitle: req.title,
-			askMessage: req.message,
-			askHint: req.hint,
-			askOptions: req.options,
+			status: "idle",
+			error: null,
+			interaction: null,
+			voiceMode: null,
+			askTitle: null,
+			askMessage: null,
+			askHint: null,
+			askOptions: undefined,
+			result: "已取消",
 		});
+		return;
+	}
+
+	if (!response.optionId && response.text?.trim() && !record.request.input.acceptFreeform) {
+		broker.updatePresentation({
+			listening: false,
+			draft: response.text.trim(),
+			validationMessage: "没匹配到选项，再说一次或直接点按钮。",
+		});
+		emitCurrentInteraction();
+		return;
+	}
+
+	if (response.optionId) {
+		await runUserAction(response.optionId, record.runContext);
+	}
+	const resolution = broker.respond(response);
+	if (!resolution) return;
+	emitState({
+		status: "working",
+		interaction: null,
+		voiceMode: null,
+		askTitle: null,
+		askMessage: null,
+		askHint: null,
+		askOptions: undefined,
+	});
+
+	// A restored interaction has no live Promise. Re-enter through the product task path
+	// with the durable answer instead of silently losing the paused run.
+	// Dev-only E2E HITL cards set skipExecuteOnRestore so clicking allow doesn't
+	// re-run a fake intent as a real agent task (was the "部分完成" trap).
+	const skipExecute =
+		resolution.record.runContext?.skipExecuteOnRestore === true;
+	if (!resolution.wasLive && resolution.record.intent && !skipExecute) {
+		const answer = response.optionId ?? response.text?.trim() ?? "";
+		await executeTask(`${resolution.record.intent}\n已恢复的用户回答：${answer}`);
+	}
+}
+
+async function handleInteractionVoice(transcript: string): Promise<void> {
+	const broker = ensureInteractionBroker();
+	const record = broker.current();
+	if (!record) return;
+	const text = transcript.trim();
+	const matched = matchUserActionVoice(text, record.request.options);
+	if (matched) {
+		await handleInteractionResponse({
+			requestId: record.id,
+			optionId: matched.id,
+			text,
+			modality: "voice",
+		});
+		return;
+	}
+	await handleInteractionResponse({
+		requestId: record.id,
+		text,
+		modality: "voice",
 	});
 }
 
@@ -644,17 +823,61 @@ async function executeTask(intent: string) {
 		return;
 	}
 	emitState({ status: "understanding", ...clearPredictState() });
+	activeTaskAbortController?.abort();
+	const abortController = new AbortController();
+	activeTaskAbortController = abortController;
 	startTaskPowerAssertion();
 	try {
 		await runTask(lastIntent, emitState, {
 			getLiveContext: () => contextEngine.getLiveContext(),
 			requestUserAction,
+			resolveUserAction,
 			runUserAction,
+			signal: abortController.signal,
+			captureTaskMomentScreenshot: async (taskId, appName) => {
+				try {
+					const dir = join(app.getPath("home"), ".fold", "moments");
+					const outPath = join(dir, `${taskId}.png`);
+					let screenRect: ReturnType<typeof macosInput.mouseScreenBounds> | undefined;
+					try {
+						screenRect = macosInput.mouseScreenBounds();
+					} catch {
+						/* 多屏定位失败时退化为默认主屏截图 */
+					}
+					// 优先截该应用窗口本身：排除菜单栏/Dock/其它窗口的 OCR 噪音；
+					// 窗口截不到（AX 无窗口、Space 隔离等）时退化为鼠标锚点全屏。
+					const trimmedApp = appName?.trim();
+					if (trimmedApp && !/^(electron|fold)$/i.test(trimmedApp)) {
+						const byApp = await captureScreenshot({
+							target: "app",
+							appName: trimmedApp,
+							outPath,
+							screenRect,
+						}).catch(() => null);
+						if (byApp?.windowId != null) return byApp.path;
+					}
+					const shot = await captureScreenshot({ target: "screen", outPath, screenRect });
+					return shot.path;
+				} catch {
+					return null;
+				}
+			},
+			ocrImageFile: async (path, region) => {
+				try {
+					const r = macosInput.ocrImageFile(path, region);
+					return r.ok ? { text: r.text } : null;
+				} catch {
+					return null;
+				}
+			},
 		});
 		if (smartAccess.usesTrial && hasPlannerApiKey()) consumeSmartActionTrial();
 	} catch (err) {
 		emitState({ status: "error", error: (err as Error).message });
 	} finally {
+		if (activeTaskAbortController === abortController) {
+			activeTaskAbortController = null;
+		}
 		stopTaskPowerAssertion();
 		void refreshPredictCacheEnriched(contextEngine.getLiveContext());
 	}
@@ -683,6 +906,96 @@ function clearPredictState(): Partial<FoldStateEvent> {
 	};
 }
 
+function voiceStandbySeconds(): number {
+	const n = loadConfig().voiceStandbySeconds;
+	if (typeof n === "number" && Number.isFinite(n)) return Math.max(0, Math.min(60, Math.round(n)));
+	// Mac 默认关：全局热键重进成本低，待机复用易插错窗；代码/文档留给 iOS。要开：config.voiceStandbySeconds=8
+	return 0;
+}
+
+function isVoiceStandbyActive(): boolean {
+	return voiceStandbyUntil != null && Date.now() < voiceStandbyUntil;
+}
+
+function clearVoiceStandbyTimer() {
+	if (voiceStandbyTimer) {
+		clearTimeout(voiceStandbyTimer);
+		voiceStandbyTimer = null;
+	}
+}
+
+function exitVoiceStandby(extra: Partial<FoldStateEvent> = {}) {
+	clearVoiceStandbyTimer();
+	voiceStandbyUntil = null;
+	voiceStandbyMode = null;
+	voiceStandbyPlacement = null;
+	voiceStandbyActiveApp = null;
+	voiceTargetApp = null;
+	voiceReplyScreenshotPath = null;
+	clearPredictTargetApp();
+	clearTextInsertionTarget();
+	emitIdleState({ voiceStandbyUntil: null, voiceHint: null, ...extra });
+}
+
+/** 转写/代回一轮后进入待机：保留 target，不把 overlay 缩回主屏 orb */
+function enterVoiceStandby(
+	mode: "structure" | "reply",
+	opts?: {
+		placement?: { left: number; top: number } | null;
+		appName?: string | null;
+		appPath?: string | null;
+		windowTitle?: string | null;
+		keepPredictCard?: boolean;
+	},
+) {
+	const secs = voiceStandbySeconds();
+	if (secs <= 0 || !voiceTargetApp) {
+		if (!opts?.keepPredictCard) emitIdleState({ voiceMode: null, voiceStandbyUntil: null });
+		return;
+	}
+	clearVoiceStandbyTimer();
+	voiceStandbyMode = mode;
+	voiceStandbyUntil = Date.now() + secs * 1000;
+	voiceStandbyActiveApp = contextEngine.getLiveContext().activeApp ?? null;
+	voiceStandbyPlacement =
+		opts?.placement ?? lastOverlayState.voiceTabPlacement ?? voiceStandbyPlacement;
+	if (voiceTargetApp) setPredictTargetApp(voiceTargetApp);
+
+	if (opts?.keepPredictCard) {
+		emitState({
+			...lastOverlayState,
+			voiceStandbyUntil,
+			voiceHint: `待机 ${secs}s · 可继续说`,
+			contextAppName: opts.appName ?? lastOverlayState.contextAppName ?? voiceTargetApp,
+			contextAppPath: opts.appPath ?? lastOverlayState.contextAppPath,
+			contextWindowTitle: opts.windowTitle ?? lastOverlayState.contextWindowTitle,
+			voiceTabPlacement: voiceStandbyPlacement,
+		});
+	} else {
+		restoreOverlayZOrder();
+		emitState({
+			status: "idle",
+			undoAvailable: lastOverlayState.undoAvailable ?? false,
+			verificationChecks: lastOverlayState.verificationChecks,
+			voiceMode: mode,
+			voiceHint: `待机中 · ${secs}s 内可再按快捷键`,
+			voiceStandbyUntil,
+			voiceTabPlacement: voiceStandbyPlacement,
+			widgetDisplayBounds: null,
+			...clearPredictState(),
+			contextAppName: opts?.appName ?? lastOverlayState.contextAppName ?? voiceTargetApp,
+			contextAppPath: opts?.appPath ?? lastOverlayState.contextAppPath ?? null,
+			contextWindowTitle: opts?.windowTitle ?? lastOverlayState.contextWindowTitle ?? null,
+		});
+	}
+
+	voiceStandbyTimer = setTimeout(() => {
+		if (isVoiceStandbyActive() || voiceStandbyUntil != null) {
+			exitVoiceStandby({ voiceMode: null });
+		}
+	}, secs * 1000 + 50);
+}
+
 function emitIdleState(extra: Partial<FoldStateEvent> = {}) {
 	restoreOverlayZOrder();
 	const widgetDisplayBounds = positionOverlayForIdle(overlayWindow);
@@ -692,6 +1005,7 @@ function emitIdleState(extra: Partial<FoldStateEvent> = {}) {
 		verificationChecks: undefined,
 		voiceTabPlacement: null,
 		voiceHint: null,
+		voiceStandbyUntil: null,
 		widgetDisplayBounds,
 		...clearPredictState(),
 		...extra,
@@ -801,6 +1115,7 @@ async function structureVoiceTranscript(
 				: await structureSpeechText(text, {
 						app,
 						windowTitle: onboardingVoiceWindowTitle ?? "Onboarding",
+						profileKeywords: extractProfileKeywords(loadProfileMemories()),
 						allowCloud: smartAccess.allowed,
 						preferQuality: true,
 					});
@@ -837,7 +1152,33 @@ async function structureVoiceTranscript(
 	});
 	try {
 		if (isClipboardRecallIntent(text)) {
-			const recall = resolveClipboardRecall(text, ctx.recentClipboards ?? []);
+			let recall = resolveClipboardRecall(text, ctx.recentClipboards ?? []);
+			if (!recall.ok && isClipboardContentRecallIntent(text)) {
+				const hits = searchContextEvents(extractClipboardContentQuery(text), 5);
+				const clipHit = hits.find((h) => h.row.type === "clipboard.changed");
+				if (clipHit && typeof clipHit.row.data.text === "string") {
+					const when = new Date(clipHit.row.timestamp).toLocaleString("zh-CN", {
+						month: "numeric",
+						day: "numeric",
+						hour: "2-digit",
+						minute: "2-digit",
+					});
+					const where = (clipHit.row.data.appName as string) ?? "未知应用";
+					recall = {
+						ok: true,
+						summary: `找到匹配的复制（${when} · ${where}）：${clipHit.row.data.text.slice(0, 240)}`,
+						text: clipHit.row.data.text,
+						entry: {
+							id: clipHit.row.id,
+							text: clipHit.row.data.text,
+							timestamp: clipHit.row.timestamp,
+							appName: (clipHit.row.data.appName as string) ?? null,
+							windowTitle: (clipHit.row.data.windowTitle as string) ?? null,
+							appPath: (clipHit.row.data.appPath as string) ?? null,
+						},
+					};
+				}
+			}
 			recordVoiceInteraction("structure", text, recall.summary);
 			emitState({
 				status: "done",
@@ -848,7 +1189,7 @@ async function structureVoiceTranscript(
 			});
 			setTimeout(() => {
 				if (lastOverlayState.status === "done" && lastOverlayState.voiceMode === "structure") {
-					emitIdleState({ voiceMode: null });
+					enterVoiceStandby("structure", { placement: lastOverlayState.voiceTabPlacement });
 				}
 			}, 2500);
 			return;
@@ -861,6 +1202,7 @@ async function structureVoiceTranscript(
 						structureSpeechText(text, {
 							app: ctx.activeApp,
 							windowTitle: ctx.activeWindow,
+							profileKeywords: extractProfileKeywords(loadProfileMemories()),
 							allowCloud: useLocal ? false : smartAccess.allowed,
 							onCloudSuccess: smartAccess.usesTrial
 								? () => {
@@ -912,9 +1254,12 @@ async function structureVoiceTranscript(
 				});
 				setTimeout(() => {
 					if (lastOverlayState.status === "done" && lastOverlayState.voiceMode === "structure") {
-						emitIdleState({ voiceMode: null });
+						enterVoiceStandby("structure", {
+							placement: voiceTabPlacement,
+							appName: targetApp,
+						});
 					}
-				}, 6000);
+				}, 2500);
 			} else {
 				emitState({
 					status: "done",
@@ -942,13 +1287,6 @@ async function structureVoiceTranscript(
 	} catch (err) {
 		emitState({ status: "error", error: (err as Error).message, transcript: text });
 		recordVoiceInteraction("structure", text, (err as Error).message, "failed");
-	} finally {
-		if (
-			loadConfig().structureAutoInsert !== false &&
-			lastOverlayState.structureDraftOpen !== true
-		) {
-			voiceTargetApp = null;
-		}
 	}
 }
 
@@ -1024,6 +1362,16 @@ async function replyVoiceTranscript(transcript: string) {
 			contextAppPath: onboardingReply ? null : card.appPath ?? contextAppPath,
 			contextWindowTitle: sceneTitle,
 		});
+		if (!onboardingReply) {
+			// 保留 voiceTargetApp，进入待机（卡片仍开着）
+			enterVoiceStandby("reply", {
+				placement: voiceTabPlacement,
+				appName: onboardingReply ? contextAppName : card.appName ?? contextAppName,
+				appPath: onboardingReply ? null : card.appPath ?? contextAppPath,
+				windowTitle: sceneTitle,
+				keepPredictCard: true,
+			});
+		}
 	} catch (err) {
 		recordVoiceInteraction("reply", text, (err as Error).message, "failed");
 		emitState({
@@ -1032,8 +1380,6 @@ async function replyVoiceTranscript(transcript: string) {
 			transcript: text,
 			...clearPredictState(),
 		});
-	} finally {
-		voiceTargetApp = null;
 	}
 }
 
@@ -1063,7 +1409,10 @@ const IPC_HANDLE_CHANNELS = [
 	"fold:retry-task",
 	"fold:undo-last-insert",
 	"fold:ask-response",
+	"fold:interaction-voice",
+	"fold:toggle-interaction-voice",
 	"fold:dismiss",
+	"fold:voice-empty",
 	"fold:toggle-voice",
 	"fold:voice-error",
 	"fold:open-settings",
@@ -1755,19 +2104,21 @@ function registerIpc() {
 		return result;
 	});
 
-	ipcMain.handle("fold:ask-response", async (_e, optionId: string) => {
-		if (pendingUserAction) {
-			const pending = pendingUserAction;
-			pendingUserAction = null;
-			if (optionId === "cancel") {
-				pending.reject(new Error("用户取消了授权"));
-				return;
-			}
-			await runUserAction(optionId, pending.runContext);
-			pending.resolve(optionId);
-			return;
-		}
-		if (lastIntent) await executeTask(`${lastIntent} ${optionId}`);
+	ipcMain.handle("fold:ask-response", async (_e, input: string | UserActionResponse) => {
+		const response: UserActionResponse =
+			typeof input === "string"
+				? { optionId: input, modality: "click" }
+				: input;
+		await handleInteractionResponse(response);
+	});
+
+	ipcMain.handle("fold:interaction-voice", async (_e, transcript: string) => {
+		isRecording = false;
+		await handleInteractionVoice(transcript);
+	});
+
+	ipcMain.handle("fold:toggle-interaction-voice", () => {
+		toggleVoiceRecording("interaction");
 	});
 
 	ipcMain.on("fold:transcript-forward", (_e, text: string) => {
@@ -1824,7 +2175,7 @@ function registerIpc() {
 		},
 	);
 
-	ipcMain.handle("fold:dismiss", (_e, opts?: { skipFeedback?: boolean }) => {
+	ipcMain.handle("fold:dismiss", (_e, opts?: { skipFeedback?: boolean; soft?: boolean }) => {
 		if (!opts?.skipFeedback && lastOverlayState.status === "predict") {
 			const phase = lastOverlayState.predictPhase;
 			const hasDrafts = (lastOverlayState.predictDrafts?.length ?? 0) > 0;
@@ -1844,14 +2195,42 @@ function registerIpc() {
 		}
 		isRecording = false;
 		replyWasRefined = false;
-		if (pendingUserAction) {
-			pendingUserAction.reject(new Error("用户取消了授权"));
-			pendingUserAction = null;
+		if (ensureInteractionBroker().current()) {
+			ensureInteractionBroker().cancel("用户取消了授权");
 		}
-		clearPredictTargetApp();
-		voiceTargetApp = null;
-		clearTextInsertionTarget();
-		emitIdleState();
+		// 软关闭：只关卡片，待机继续（空 ASR / 关确认卡）
+		if (opts?.soft && isVoiceStandbyActive() && voiceTargetApp) {
+			enterVoiceStandby(voiceStandbyMode ?? "structure", {
+				placement: voiceStandbyPlacement ?? lastOverlayState.voiceTabPlacement,
+				appName: lastOverlayState.contextAppName ?? voiceTargetApp,
+				appPath: lastOverlayState.contextAppPath,
+				windowTitle: lastOverlayState.contextWindowTitle,
+			});
+			return;
+		}
+		exitVoiceStandby();
+	});
+
+	ipcMain.handle("fold:voice-empty", () => {
+		isRecording = false;
+		if (voiceOutcome === "interaction" && ensureInteractionBroker().current()) {
+			// 空结果静默结束听写，不刷成失败态（短按/开麦竞态很常见）
+			ensureInteractionBroker().updatePresentation({
+				listening: false,
+				validationMessage: undefined,
+			});
+			emitCurrentInteraction();
+			return { ok: true, standby: false };
+		}
+		if (isVoiceStandbyActive() && voiceTargetApp) {
+			enterVoiceStandby(voiceStandbyMode ?? "structure", {
+				placement: voiceStandbyPlacement ?? lastOverlayState.voiceTabPlacement,
+				appName: lastOverlayState.contextAppName ?? voiceTargetApp,
+			});
+			return { ok: true, standby: true };
+		}
+		exitVoiceStandby();
+		return { ok: true, standby: false };
 	});
 
 	ipcMain.handle("fold:toggle-voice", () => {
@@ -1860,6 +2239,15 @@ function registerIpc() {
 
 	ipcMain.handle("fold:voice-error", (_e, message: string) => {
 		isRecording = false;
+		console.warn(`[fold:voice-error] ${String(message ?? "")}`);
+		if (voiceOutcome === "interaction" && ensureInteractionBroker().current()) {
+			ensureInteractionBroker().updatePresentation({
+				listening: false,
+				validationMessage: message,
+			});
+			emitCurrentInteraction();
+			return;
+		}
 		emitState({ status: "error", error: message });
 	});
 
@@ -1889,36 +2277,90 @@ function registerIpc() {
 
 registerIpc();
 
-async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
+async function startVoiceRecording(outcome: VoiceOutcome) {
 	if (isRecording) return;
+	const standbyEligible =
+		(outcome === "structure" || outcome === "reply") &&
+		isVoiceStandbyActive() &&
+		Boolean(voiceTargetApp);
 	// Capture synchronously before any async work so the exact focused field is retained.
-	const insertionTarget = captureTextInsertionTarget();
-	await contextEngine.refreshActiveApp();
+	// 待机复用时先不抓，避免覆盖 native 里保留的原目标输入框。
+	let insertionTarget =
+		outcome === "interaction" || standbyEligible ? null : captureTextInsertionTarget();
 	voiceOutcome = outcome;
 	voiceCanUseDirectStructure =
 		outcome === "structure" && resolveAsrRuntime().provider === "dashscope";
-	const ctx = contextEngine.getLiveContext();
-	voiceTargetApp = insertionTarget?.appName ?? ctx.activeApp ?? null;
 	isRecording = true;
+	// 立刻让渲染层开麦（音频进本地预缓冲），截图/定位等上下文工作并行进行，
+	// 否则串行等下来首音节全部丢失。app/windowTitle 用缓存值即可，仅供 ASR 语境提示。
+	createOverlayWindow();
+	{
+		const cachedCtx = contextEngine.getLiveContext();
+		overlayWindow?.webContents.send("fold:hotkey-down", {
+			mode: outcome,
+			app: cachedCtx.activeApp,
+			windowTitle: cachedCtx.activeWindow,
+		});
+	}
+	if (outcome === "interaction") {
+		const broker = ensureInteractionBroker();
+		if (!broker.current()?.request.input.allowVoice) {
+			isRecording = false;
+			overlayWindow?.webContents.send("fold:hotkey-cancel");
+			return;
+		}
+		broker.updatePresentation({
+			listening: true,
+			validationMessage: undefined,
+		});
+		emitCurrentInteraction();
+		return;
+	}
+	await contextEngine.refreshActiveApp();
+	const ctx = contextEngine.getLiveContext();
+	// 待机复用仅当焦点没有主动切到别的真实 App。与进待机时的快照同源比对
+	// （都取 ContextEngine.activeApp，ignoreApps 已滤掉知更自己），
+	// 切走了就跟随当前光标重新锁定（Typeless 语义）。
+	// ponytail: 同 App 内换输入框仍复用旧 target，粒度到 App 为止。
+	let standbyReuse = standbyEligible;
+	if (
+		standbyEligible &&
+		voiceStandbyActiveApp &&
+		ctx.activeApp &&
+		ctx.activeApp !== voiceStandbyActiveApp
+	) {
+		standbyReuse = false;
+		insertionTarget = captureTextInsertionTarget();
+		console.log(
+			`[fold:standby] focus moved ${voiceStandbyActiveApp} -> ${ctx.activeApp}, abandon reuse`,
+		);
+	}
+	if (!standbyReuse) {
+		voiceTargetApp = insertionTarget?.appName ?? ctx.activeApp ?? null;
+	}
+	clearVoiceStandbyTimer();
+	voiceStandbyUntil = null;
 
 	// 代回必须在 raise overlay 之前截聊天窗：松手时 frontmost 常是 Electron，
 	// 全屏回退又会落到主屏上一次微信会话。
-	voiceReplyScreenshotPath = null;
 	if (outcome === "reply") {
-		try {
-			const shot = await captureScreenshot({
-				target: "frontmost",
-			});
-			voiceReplyScreenshotPath = shot.path;
-			console.log(
-				`[fold:reply] precapture screenshot=${shot.path} frontmostApp=${voiceTargetApp ?? "?"}`,
-			);
-		} catch (err) {
-			console.warn("[fold:reply] precapture screenshot failed", err);
+		if (!standbyReuse || !voiceReplyScreenshotPath) {
+			voiceReplyScreenshotPath = null;
+			try {
+				const shot = standbyReuse && voiceTargetApp
+					? await captureScreenshot({ target: "app", appName: voiceTargetApp })
+					: await captureScreenshot({ target: "frontmost" });
+				voiceReplyScreenshotPath = shot.path;
+				console.log(
+					`[fold:reply] precapture screenshot=${shot.path} frontmostApp=${voiceTargetApp ?? "?"} standby=${standbyReuse}`,
+				);
+			} catch (err) {
+				console.warn("[fold:reply] precapture screenshot failed", err);
+			}
 		}
+	} else {
+		voiceReplyScreenshotPath = null;
 	}
-
-	createOverlayWindow();
 
 	const isOnboardingVoiceDemo =
 		(outcome === "structure" && isOnboardingVoiceLiveStep()) ||
@@ -1947,11 +2389,6 @@ async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 			contextPageLabel: null,
 		});
 		if (outcome === "structure") sendOnboardingVoiceEvent({ phase: "listening" });
-		overlayWindow?.webContents.send("fold:hotkey-down", {
-			mode: outcome,
-			app: voiceTargetApp,
-			windowTitle: onboardingVoiceWindowTitle,
-		});
 		return;
 	}
 
@@ -1968,11 +2405,6 @@ async function startVoiceRecording(outcome: "structure" | "reply" | "agent") {
 		predictRefining: false,
 		...clearPredictState(),
 		...buildVoiceOverlayContext(ctx),
-	});
-	overlayWindow?.webContents.send("fold:hotkey-down", {
-		mode: outcome,
-		app: ctx.activeApp,
-		windowTitle: ctx.activeWindow,
 	});
 }
 
@@ -2019,7 +2451,7 @@ function stopVoiceRecording() {
 	overlayWindow?.webContents.send("fold:hotkey-up", voiceOutcome);
 }
 
-function toggleVoiceRecording(outcome: "structure" | "reply" | "agent" = "structure") {
+function toggleVoiceRecording(outcome: VoiceOutcome = "structure") {
 	if (isRecording) stopVoiceRecording();
 	else startVoiceRecording(outcome);
 }
@@ -2033,13 +2465,27 @@ function cancelActiveSession() {
 	replyRefineHold = false;
 	voiceCanUseDirectStructure = false;
 	if (isRecording) {
+		const canceledOutcome = voiceOutcome;
 		isRecording = false;
 		overlayWindow?.webContents.send("fold:hotkey-cancel");
-		emitIdleState();
+		if (canceledOutcome === "interaction") {
+			ensureInteractionBroker().updatePresentation({ listening: false });
+			emitCurrentInteraction();
+			return;
+		}
+		exitVoiceStandby();
 		return;
 	}
-	if (lastOverlayState.status === "predict") {
-		emitIdleState();
+	if (activeTaskAbortController && !activeTaskAbortController.signal.aborted) {
+		activeTaskAbortController.abort();
+		if (ensureInteractionBroker().current()) {
+			ensureInteractionBroker().cancel("任务已取消");
+		}
+		emitState({ status: "error", error: "任务已取消" });
+		return;
+	}
+	if (isVoiceStandbyActive() || lastOverlayState.status === "predict") {
+		exitVoiceStandby();
 	}
 }
 
@@ -2048,10 +2494,24 @@ function registerHotkeys() {
 		{
 		onAgentToggle: () => {
 			if (isOnboardingHotkeyTestStep()) return;
+			if (ensureInteractionBroker().current()) {
+				toggleVoiceRecording("interaction");
+				return;
+			}
 			toggleVoiceRecording("agent");
+		},
+		onTriggerDown: () => {
+			if (isOnboardingHotkeyTestStep() || isRecording) return;
+			// keydown 即预热麦克风：短按/长按最终都要开麦，提前 ~300ms 消除开麦死区
+			createOverlayWindow();
+			overlayWindow?.webContents.send("fold:voice-warm");
 		},
 		onStructureToggle: () => {
 			if (isOnboardingHotkeyTestStep()) return;
+			if (ensureInteractionBroker().current()) {
+				toggleVoiceRecording("interaction");
+				return;
+			}
 			if (isRecording && voiceOutcome === "reply" && replyLatched) {
 				stopVoiceRecording();
 				return;
@@ -2094,7 +2554,12 @@ function registerHotkeys() {
 
 function maybeShowWeeklyRecap() {
 	if (!shouldShowWeeklyRecap()) return;
-	if (isRecording || lastOverlayState.status === "predict" || lastOverlayState.status === "listening") {
+	if (
+		isRecording ||
+		lastOverlayState.status === "predict" ||
+		lastOverlayState.status === "listening" ||
+		lastOverlayState.status === "ask"
+	) {
 		return;
 	}
 	const recap = buildWeeklyRecap();
@@ -2118,9 +2583,49 @@ app.whenReady().then(() => {
 	hydrateContextFromDb();
 	stopHabitRecall = startHabitRecallLoop(() => recallHabitsFromUsage());
 	startMemoryConsolidationLoop();
+	const restoredInteraction = ensureInteractionBroker().current();
+	if (restoredInteraction) {
+		lastIntent = restoredInteraction.intent;
+		lastOverlayState = {
+			...lastOverlayState,
+			...interactionState(restoredInteraction),
+		};
+	}
 	createOverlayWindow();
 	registerHotkeys();
 	void refreshPredictCacheEnriched(contextEngine.getLiveContext());
+
+	// Development-only product E2E entry. This deliberately enters through
+	// executeTask (the same IPC/voice path), never by calling runtime/connectors directly.
+	const devE2eIntent = process.env.VITE_DEV_SERVER_URL
+		? process.env.FOLD_E2E_INTENT?.trim()
+		: undefined;
+	if (devE2eIntent && !devE2eIntentStarted) {
+		devE2eIntentStarted = true;
+		setTimeout(() => void executeTask(devE2eIntent), 1_500);
+	}
+	if (process.env.VITE_DEV_SERVER_URL && process.env.FOLD_E2E_HITL === "1") {
+		lastIntent = "发送飞书 E2E 结果到产品讨论群";
+		setTimeout(() => {
+			void requestUserAction({
+				title: "发送飞书消息前，请确认",
+				message: "产品讨论群\nE2E 已通过，日历打包路径还需处理。",
+				hint: "将向外部发送消息",
+				kind: "confirm",
+				risk: "external",
+				runContext: { skipExecuteOnRestore: true },
+				options: [
+					{ id: "allow-once", label: "允许这一次", tone: "primary" },
+					{ id: "edit", label: "编辑后发送" },
+					{ id: "cancel", label: "取消任务", tone: "danger" },
+				],
+			}).then((choice) => {
+				emitState({ status: "done", result: `已记录 HITL 选择：${choice}` });
+			}).catch((error: Error) => {
+				emitState({ status: "error", error: error.message });
+			});
+		}, 1_200);
+	}
 
 	// 启动后错开 onboarding：若本周该看回顾，弹一张完成态卡片
 	setTimeout(() => {

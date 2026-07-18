@@ -1,0 +1,10 @@
+.build/
+Backends/.venv/
+Fixtures/WAV/*.wav
+Reports/asr_benchmark_results.json
+Reports/asr_benchmark_results.csv
+Models/*.tar.bz2
+Models/sherpa-onnx-*/
+Runtime/*.tar.bz2
+Runtime/sherpa-onnx-*/
+Backends/moonshine-assets/

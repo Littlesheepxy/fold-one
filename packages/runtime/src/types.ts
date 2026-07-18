@@ -57,8 +57,10 @@ export interface FoldStateEvent {
 	askMessage?: string | null;
 	askHint?: string | null;
 	askOptions?: Array<{ id: string; label: string }>;
-	/** structure=语音整理 · reply=语音拟回复 · agent=执行任务 */
-	voiceMode?: "structure" | "reply" | "agent" | null;
+	/** Structured HITL request. Legacy ask* fields remain during migration. */
+	interaction?: UserInteractionView | null;
+	/** structure=语音整理 · reply=语音拟回复 · agent=执行任务 · interaction=回答暂停节点 */
+	voiceMode?: "structure" | "reply" | "agent" | "interaction" | null;
 	/** ⌥Z 情境预测 */
 	predictMode?: PredictMode | null;
 	predictPhase?: PredictPhase | null;
@@ -90,19 +92,73 @@ export interface FoldStateEvent {
 	widgetDisplayBounds?: { x: number; y: number; width: number; height: number } | null;
 	/** 转写完成且未开启自动插入时，展示可编辑草稿卡 */
 	structureDraftOpen?: boolean;
+	/** 语音待机截止时间戳（ms）；非空且未过期时热键可复用目标 App */
+	voiceStandbyUntil?: number | null;
 }
 
 export interface UserActionOption {
 	id: string;
 	label: string;
+	description?: string;
+	tone?: "primary" | "secondary" | "danger";
+	voiceAliases?: string[];
+}
+
+export type UserActionKind =
+	| "confirm"
+	| "select"
+	| "text"
+	| "permission"
+	| "terminal"
+	| "secret"
+	| "form";
+
+export type UserActionRisk = "low" | "sensitive" | "external" | "destructive";
+
+export interface UserActionInputPolicy {
+	primary: "voice" | "text" | "choice" | "secure" | "terminal";
+	allowVoice: boolean;
+	allowText: boolean;
+	/** Unmatched speech/text may itself answer the node, instead of selecting an option. */
+	acceptFreeform: boolean;
 }
 
 export interface UserActionRequest {
+	id?: string;
 	title: string;
 	message: string;
 	hint?: string;
 	options: UserActionOption[];
+	kind?: UserActionKind;
+	risk?: UserActionRisk;
+	input?: Partial<UserActionInputPolicy>;
+	collapsible?: boolean;
+	expiresAt?: number;
 	runContext?: Record<string, unknown>;
+}
+
+export interface UserInteractionView {
+	id: string;
+	title: string;
+	message: string;
+	hint?: string;
+	options: UserActionOption[];
+	kind: UserActionKind;
+	risk: UserActionRisk;
+	input: UserActionInputPolicy;
+	collapsible: boolean;
+	createdAt: number;
+	expiresAt?: number;
+	listening?: boolean;
+	draft?: string;
+	validationMessage?: string;
+}
+
+export interface UserActionResponse {
+	requestId?: string;
+	optionId?: string;
+	text?: string;
+	modality: "click" | "voice" | "text" | "terminal";
 }
 
 export interface OrchestratorDeps {
@@ -110,14 +166,29 @@ export interface OrchestratorDeps {
 	dataDir?: string;
 	/** Show overlay ask UI and wait until user picks an option. */
 	requestUserAction?: (request: UserActionRequest) => Promise<string>;
+	/** Resolve the active HITL card (used by auth-gate auto-poll when ready). */
+	resolveUserAction?: (optionId: string) => void;
 	/** Run side effects for auth options (open Terminal, open Gmail URL). */
 	runUserAction?: (optionId: string, context?: Record<string, unknown>) => Promise<void>;
+	/** Abort the active run and any cooperative local worker processes. */
+	signal?: AbortSignal;
+	/** Optional cwd for Tier-2 agent.execute (e.g. stress repo). */
+	agentCwd?: string;
+	/** 任务时刻截图（desktop 注入，走 macos-input/screencapture）；appName 可指定优先截该应用窗口（降噪），返回本地路径 */
+	captureTaskMomentScreenshot?: (taskId: string, appName?: string | null) => Promise<string | null>;
+	/** Apple Vision OCR 兜底（desktop 注入，走 macos-input addon）；region 可选裁剪 */
+	ocrImageFile?: (
+		path: string,
+		region?: { x: number; y: number; width: number; height: number },
+	) => Promise<{ text?: string } | null>;
 }
 
 export type StateEmitter = (event: FoldStateEvent) => void;
 
 export interface TaskResult {
-	status: "success" | "partial" | "failed";
+	/** Present on newer runs; optional while orchestrator migrates. */
+	runId?: string;
+	status: "success" | "partial" | "failed" | "canceled";
 	intent: string;
 	plan: ActionPlan;
 	steps: StepResult[];

@@ -12,7 +12,9 @@
     "site:build": "pnpm --filter @fold/site build",
     "asr:dev": "dotenv -c -- pnpm --filter @fold/asr-proxy dev",
     "desktop:dev": "dotenv -c -- pnpm --filter @fold/desktop rebuild:native && dotenv -c -- pnpm --parallel --filter @fold/asr-proxy --filter @fold/desktop dev",
-    "e2e:smoke": "dotenv -c -- node scripts/rebuild-better-sqlite3-node.mjs && dotenv -c -- bash scripts/e2e-smoke.sh"
+    "e2e:smoke": "dotenv -c -- node scripts/rebuild-better-sqlite3-node.mjs && dotenv -c -- bash scripts/e2e-smoke.sh",
+    "test:agent-stress": "dotenv -c -- node scripts/rebuild-better-sqlite3-node.mjs && dotenv -c -- tsx scripts/agent-stress/run.ts",
+    "recipe:stats": "dotenv -c -- node scripts/rebuild-better-sqlite3-node.mjs && dotenv -c -- tsx scripts/recipe-stats.ts"
   },
   "engines": {
     "node": ">=20"

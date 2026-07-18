@@ -55,31 +55,52 @@ export async function finderLatestDownload(
 	const ext = (args.ext as string | undefined)?.toLowerCase();
 	const sinceMs = parseSince(args.since as string | undefined);
 	const cutoff = Date.now() - sinceMs;
-	const downloads = join(homedir(), "Downloads");
+	const home = homedir();
 
-	// Prefer live context recent files
+	// Prefer live context recent files (Desktop / Downloads / anywhere watched)
 	for (const f of ctx.liveContext.recentFiles) {
 		if (f.timestamp < cutoff) continue;
 		if (ext && !f.path.toLowerCase().endsWith(`.${ext}`)) continue;
 		return { path: f.path, name: f.name, size: 0 };
 	}
 
-	const entries = await readdir(downloads);
-	let best: { path: string; name: string; size: number; mtime: number } | null = null;
-
-	for (const name of entries) {
-		if (name.startsWith(".")) continue;
-		if (ext && extname(name).toLowerCase() !== `.${ext}`) continue;
-		const path = join(downloads, name);
-		const s = await stat(path);
-		if (!s.isFile()) continue;
-		if (s.mtimeMs < cutoff) continue;
-		if (!best || s.mtimeMs > best.mtime) {
-			best = { path, name, size: s.size, mtime: s.mtimeMs };
+	async function newestIn(dir: string): Promise<{
+		path: string;
+		name: string;
+		size: number;
+		mtime: number;
+	} | null> {
+		let best: { path: string; name: string; size: number; mtime: number } | null = null;
+		let entries: string[];
+		try {
+			entries = await readdir(dir);
+		} catch {
+			return null;
 		}
+		for (const name of entries) {
+			if (name.startsWith(".")) continue;
+			if (ext && extname(name).toLowerCase() !== `.${ext}`) continue;
+			const path = join(dir, name);
+			try {
+				const s = await stat(path);
+				if (!s.isFile()) continue;
+				if (s.mtimeMs < cutoff) continue;
+				if (!best || s.mtimeMs > best.mtime) {
+					best = { path, name, size: s.size, mtime: s.mtimeMs };
+				}
+			} catch {
+				/* skip */
+			}
+		}
+		return best;
 	}
 
-	if (!best) throw new Error("No matching download found");
+	// Disk fallback: Desktop then Downloads (mtime winner across both)
+	const candidates = (
+		await Promise.all([newestIn(join(home, "Desktop")), newestIn(join(home, "Downloads"))])
+	).filter(Boolean) as Array<{ path: string; name: string; size: number; mtime: number }>;
+	const best = candidates.sort((a, b) => b.mtime - a.mtime)[0];
+	if (!best) throw new Error("未找到匹配文件（桌面/下载/最近文件）");
 	return { path: best.path, name: best.name, size: best.size };
 }
 

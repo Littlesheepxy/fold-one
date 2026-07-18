@@ -39,6 +39,13 @@ export interface LocalTaskArtifact {
 
 export type LocalTaskEventCallback = (event: LocalTaskEvent) => void;
 
+/** `createLocalTaskEmitter` 返回值的类型：connector 拿到它就能带着统一的 taskId/source/sequence 发实时事件。 */
+export type LocalTaskEmit = (
+	status: LocalTaskStatus,
+	message: string,
+	metadata?: LocalTaskEvent["metadata"],
+) => LocalTaskEvent;
+
 export function createLocalTaskEmitter(input: {
 	taskId: string;
 	source: LocalTaskSource;

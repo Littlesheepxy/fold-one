@@ -1,9 +1,12 @@
 import { isClipboardRecallIntent, type LiveContext } from "@fold/context";
-import { mockActionPlan } from "@fold/ai";
+import { mockActionPlan, type ActionPlan } from "@fold/ai";
 import type { AgentId } from "@fold/connectors";
+import { matchRecipe } from "@fold/memory";
 import {
 	isCodeRepairHint,
+	extractFeishuSelfMessageText,
 	isFeishuIntent,
+	isFeishuSelfMessageIntent,
 	isBrowserIntent,
 	isGmailIntent,
 	isMailCountIntent,
@@ -22,6 +25,12 @@ export interface RouteDecision {
 	reason: string;
 }
 
+export type CompiledMatch = {
+	plan: ActionPlan;
+	source: "hardcoded" | "recipe";
+	recipeId?: string;
+};
+
 function getExecutionMode(): ExecutionMode {
 	return normalizeExecutionMode(process.env.FOLD_EXECUTION_MODE);
 }
@@ -39,8 +48,48 @@ function isComplexIntent(intent: string): boolean {
 	return isCodeRepairHint(intent) || isWorkflowIntent(intent) || needsReactGui(intent);
 }
 
-/** Tier 0: deterministic compiled plans (no LLM). */
-export function tryCompiledPlan(intent: string) {
+function hardcodedCompiledPlan(intent: string): ActionPlan | null {
+	if (isFeishuSelfMessageIntent(intent)) {
+		const text = extractFeishuSelfMessageText(intent);
+		if (text) {
+			return {
+				goal: `通过飞书给用户自己发送消息：${text}`,
+				steps: [
+					{
+						id: "feishu-self",
+						skill: "office.cli",
+						args: {
+							channel: "feishu",
+							args: ["contact", "+get-user", "--as", "user", "--format", "json"],
+						},
+						retryable: true,
+						timeout: 10_000,
+					},
+					{
+						id: "feishu-send-self",
+						skill: "office.cli",
+						args: {
+							channel: "feishu",
+							args: [
+								"im",
+								"+messages-send",
+								"--as",
+								"user",
+								"--user-id",
+								"{{steps.feishu-self.stdout.data.user.open_id}}",
+								"--text",
+								text,
+							],
+						},
+						dependsOn: ["feishu-self"],
+						retryable: true,
+						timeout: 15_000,
+					},
+				],
+				validate: ["office.cli.exitOk"],
+			};
+		}
+	}
 	if (isMailCountIntent(intent) || isPdfDownloadCountIntent(intent) || isPdfMailDemoIntent(intent)) {
 		return mockActionPlan(intent);
 	}
@@ -58,6 +107,18 @@ export function tryCompiledPlan(intent: string) {
 			],
 			validate: ["clipboard.recall.ok"],
 		};
+	}
+	return null;
+}
+
+/** Tier 0: hardcoded patterns first, then success-gated recipes. */
+export function tryCompiledPlan(intent: string, dataDir?: string): CompiledMatch | null {
+	const hardcoded = hardcodedCompiledPlan(intent);
+	if (hardcoded) return { plan: hardcoded, source: "hardcoded" };
+
+	const hit = matchRecipe(intent, dataDir);
+	if (hit) {
+		return { plan: hit.plan, source: "recipe", recipeId: hit.recipe.id };
 	}
 	return null;
 }
@@ -90,10 +151,11 @@ export function resolveTier(
 	intent: string,
 	_context: LiveContext,
 	probeResult?: ProbeRunResult,
+	dataDir?: string,
 ): RouteDecision {
 	const mode = getExecutionMode();
 
-	if (tryCompiledPlan(intent)) {
+	if (tryCompiledPlan(intent, dataDir)) {
 		return { tier: "compiled", reason: "matched compiled skill pattern" };
 	}
 

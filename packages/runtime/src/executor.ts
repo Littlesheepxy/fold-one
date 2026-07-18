@@ -9,6 +9,53 @@ export interface StepFailure extends StepResult {
 	retryable: boolean;
 }
 
+export type ExecutorCheckpointPhase =
+	| "step_started"
+	| "step_completed"
+	| "step_failed"
+	| "step_skipped";
+
+export interface ExecutorCheckpoint {
+	phase: ExecutorCheckpointPhase;
+	stepId: string;
+	skill: string;
+	status: "running" | "success" | "failed" | "skipped";
+	durationMs?: number;
+	error?: string;
+	output?: unknown;
+}
+
+export interface RunPlanOptions {
+	signal?: AbortSignal;
+	onCheckpoint?: (checkpoint: ExecutorCheckpoint) => void;
+}
+
+export class TaskCanceledError extends Error {
+	constructor() {
+		super("Task canceled");
+		this.name = "TaskCanceledError";
+	}
+}
+
+export function throwIfTaskCanceled(signal?: AbortSignal): void {
+	if (signal?.aborted) throw new TaskCanceledError();
+}
+
+function stepOutputFromError(error: unknown): unknown {
+	if (!error || typeof error !== "object") return undefined;
+	return (error as { stepOutput?: unknown }).stepOutput;
+}
+
+function resumableAgentSession(output: unknown): string | undefined {
+	if (!output || typeof output !== "object") return undefined;
+	const record = output as Record<string, unknown>;
+	if (typeof record.sessionId === "string" && record.sessionId) return record.sessionId;
+	const handoff = record.handoff;
+	if (!handoff || typeof handoff !== "object") return undefined;
+	const sessionId = (handoff as Record<string, unknown>).sessionId;
+	return typeof sessionId === "string" && sessionId ? sessionId : undefined;
+}
+
 function stepViews(
 	plan: ActionPlan,
 	results: StepResult[],
@@ -101,6 +148,7 @@ export async function runPlan(
 	plan: ActionPlan,
 	ctx: SkillContext,
 	emit: StateEmitter,
+	options: RunPlanOptions = {},
 ): Promise<{ steps: StepResult[]; failures: StepFailure[] }> {
 	const results: StepResult[] = [];
 	const outputs = new Map<string, unknown>();
@@ -112,8 +160,10 @@ export async function runPlan(
 	});
 
 	for (const batch of batches) {
+		throwIfTaskCanceled(options.signal);
 		const batchResults = await Promise.all(
 			batch.map(async (step) => {
+				throwIfTaskCanceled(options.signal);
 				// 依赖步骤失败时不再带着坏参数往下跑
 				const failedDep = step.dependsOn?.find(
 					(d) => results.find((r) => r.stepId === d)?.status === "failed",
@@ -128,8 +178,22 @@ export async function runPlan(
 						retryable: false,
 					};
 					results.push(result);
+					options.onCheckpoint?.({
+						phase: "step_skipped",
+						stepId: step.id,
+						skill: step.skill,
+						status: "skipped",
+						error: result.error,
+						durationMs: 0,
+					});
 					return result;
 				}
+				options.onCheckpoint?.({
+					phase: "step_started",
+					stepId: step.id,
+					skill: step.skill,
+					status: "running",
+				});
 				emit({
 					status: "working",
 					steps: stepViews(plan, results, step.id),
@@ -175,8 +239,19 @@ export async function runPlan(
 						durationMs: Date.now() - start,
 					};
 					results.push(result);
+					options.onCheckpoint?.({
+						phase: "step_completed",
+						stepId: step.id,
+						skill: step.skill,
+						status: "success",
+						durationMs: result.durationMs,
+						output,
+					});
 					return result;
 				} catch (e) {
+					if (options.signal?.aborted || e instanceof TaskCanceledError) {
+						throw new TaskCanceledError();
+					}
 					const result: StepFailure = {
 						stepId: step.id,
 						skill: step.skill,
@@ -184,8 +259,18 @@ export async function runPlan(
 						durationMs: Date.now() - start,
 						error: (e as Error).message,
 						retryable: step.retryable,
+						output: stepOutputFromError(e),
 					};
 					results.push(result);
+					options.onCheckpoint?.({
+						phase: "step_failed",
+						stepId: step.id,
+						skill: step.skill,
+						status: "failed",
+						durationMs: result.durationMs,
+						error: result.error,
+						output: result.output,
+					});
 					return result;
 				}
 			}),
@@ -214,20 +299,39 @@ export async function retryFailedSteps(
 	ctx: SkillContext,
 	emit: StateEmitter,
 	existing: StepResult[],
+	options: RunPlanOptions = {},
 ): Promise<StepResult[]> {
 	const outputs = new Map<string, unknown>();
 	for (const result of existing) {
 		if (result.status === "success") outputs.set(result.stepId, result.output);
+		if (result.skill === "agent.execute") {
+			const resumeSessionId = resumableAgentSession(result.output);
+			if (resumeSessionId && ctx.agentTaskEnvelope) {
+				ctx.agentTaskEnvelope = { ...ctx.agentTaskEnvelope, resumeSessionId };
+			}
+		}
 	}
 
 	const updated = [...existing];
 	for (let i = 0; i < updated.length; i++) {
+		throwIfTaskCanceled(options.signal);
 		const result = updated[i]!;
 		if (result.status !== "failed") continue;
 		const failure = result as StepFailure;
 		if (!failure.retryable) continue;
 		const step = plan.steps.find((s) => s.id === result.stepId);
 		if (!step) continue;
+		const resumeSessionId =
+			step.skill === "agent.execute" ? resumableAgentSession(result.output) : undefined;
+		if (resumeSessionId && ctx.agentTaskEnvelope) {
+			ctx.agentTaskEnvelope = { ...ctx.agentTaskEnvelope, resumeSessionId };
+		}
+		options.onCheckpoint?.({
+			phase: "step_started",
+			stepId: step.id,
+			skill: step.skill,
+			status: "running",
+		});
 
 		emit({
 			status: "working",
@@ -259,12 +363,33 @@ export async function retryFailedSteps(
 				output,
 				durationMs: Date.now() - start,
 			};
+			options.onCheckpoint?.({
+				phase: "step_completed",
+				stepId: step.id,
+				skill: step.skill,
+				status: "success",
+				durationMs: updated[i]!.durationMs,
+				output,
+			});
 		} catch (e) {
+			if (options.signal?.aborted || e instanceof TaskCanceledError) {
+				throw new TaskCanceledError();
+			}
 			updated[i] = {
 				...result,
 				durationMs: Date.now() - start,
 				error: (e as Error).message,
+				output: stepOutputFromError(e) ?? result.output,
 			};
+			options.onCheckpoint?.({
+				phase: "step_failed",
+				stepId: step.id,
+				skill: step.skill,
+				status: "failed",
+				durationMs: updated[i]!.durationMs,
+				error: updated[i]!.error,
+				output: updated[i]!.output,
+			});
 		}
 	}
 

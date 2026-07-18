@@ -71,6 +71,7 @@ export async function pluginScout(args: Record<string, unknown>, ctx: SkillConte
 		maxTurns: 20,
 		timeoutMs: 300_000,
 		allowEdits: true,
+		signal: ctx.signal,
 	});
 	if (!result.ok) {
 		throw new Error(result.summary || result.stderr || "插件调研 Agent 执行失败");

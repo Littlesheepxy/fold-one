@@ -48,6 +48,8 @@ export interface WorkBuddyProbe {
 	available: boolean;
 	gatewayUrl: string;
 	toolCount?: number;
+	/** MCP 工具名（最多 64），供分流粗匹配 */
+	toolNames?: string[];
 	error?: string;
 }
 
@@ -159,6 +161,7 @@ export async function probeWorkBuddyGateway(
 			available: true,
 			gatewayUrl: discoveredUrl ?? gatewayUrl,
 			toolCount: mcp.toolCount,
+			toolNames: mcp.toolNames,
 		};
 	} catch (error) {
 		const message = (error as Error).message;

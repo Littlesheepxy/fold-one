@@ -4,6 +4,153 @@ import type { StepResult } from "./types.js";
 
 type SummaryStep = Pick<StepResult, "skill" | "status" | "output" | "error">;
 
+type OfficeCliOutput = {
+	ok?: boolean;
+	channel?: string;
+	operation?: string;
+	stdout?: string;
+	stderr?: string;
+	exitCode?: number;
+	receiptStatus?: string;
+	reusedReceipt?: boolean;
+	externalRef?: string;
+	note?: string;
+};
+
+const OFFICE_CHANNEL_LABELS: Record<string, string> = {
+	feishu: "飞书",
+	github: "GitHub",
+	dingtalk: "钉钉",
+	wecom: "企业微信",
+	slack: "Slack",
+};
+
+function parseLooseJson(raw: string): Record<string, unknown> | null {
+	try {
+		const parsed = JSON.parse(raw) as unknown;
+		return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+			? (parsed as Record<string, unknown>)
+			: null;
+	} catch {
+		const start = raw.indexOf("{");
+		const end = raw.lastIndexOf("}");
+		if (start < 0 || end <= start) return null;
+		try {
+			return JSON.parse(raw.slice(start, end + 1)) as Record<string, unknown>;
+		} catch {
+			return null;
+		}
+	}
+}
+
+function findNestedValue(value: unknown, keys: Set<string>): unknown {
+	if (!value || typeof value !== "object") return undefined;
+	for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+		if (keys.has(key) && child != null && child !== "") return child;
+	}
+	for (const child of Object.values(value as Record<string, unknown>)) {
+		const found = findNestedValue(child, keys);
+		if (found !== undefined) return found;
+	}
+	return undefined;
+}
+
+function findNestedArray(value: unknown): unknown[] | null {
+	if (Array.isArray(value)) return value;
+	if (!value || typeof value !== "object") return null;
+	for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+		if (/^(items|messages|records|tasks|list|data_list)$/i.test(key) && Array.isArray(child)) {
+			return child;
+		}
+	}
+	for (const child of Object.values(value as Record<string, unknown>)) {
+		const found = findNestedArray(child);
+		if (found) return found;
+	}
+	return null;
+}
+
+function shortReceipt(value: unknown): string {
+	const text = typeof value === "string" || typeof value === "number" ? String(value) : "";
+	if (!text) return "";
+	return text.length > 24 ? `${text.slice(0, 12)}…${text.slice(-6)}` : text;
+}
+
+/** 将飞书/企微/钉钉等 CLI 原始回包收敛成可核验的用户反馈。 */
+export function formatOfficeCliFeedback(output: OfficeCliOutput): string {
+	const label = OFFICE_CHANNEL_LABELS[output.channel ?? ""] ?? output.channel ?? "办公渠道";
+	if (!output.ok) {
+		const detail = (output.stderr || output.stdout || `退出码 ${output.exitCode ?? "未知"}`)
+			.replace(/\s+/g, " ")
+			.trim()
+			.slice(0, 180);
+		return `${label}：失败${detail ? `（${detail}）` : ""}`;
+	}
+
+	const payload = parseLooseJson(output.stdout ?? "");
+	const operation = output.operation?.trim() || "操作完成";
+	const messageId = findNestedValue(
+		payload,
+		new Set(["message_id", "messageId", "msgid", "msg_id"]),
+	);
+	const taskId = findNestedValue(payload, new Set(["taskId", "task_id", "todoId", "todo_id"]));
+	const documentId = findNestedValue(
+		payload,
+		new Set(["document_id", "documentId", "doc_id", "obj_token"]),
+	);
+	const appUrl = findNestedValue(payload, new Set(["url"]));
+	const records = findNestedValue(payload, new Set(["records"]));
+	const list = findNestedArray(payload);
+
+	if (operation === "发送消息") {
+		if (output.receiptStatus === "uncertain" || /跳过|未确认/.test(output.note ?? output.stderr ?? "")) {
+			return `${label}：发送已跳过（待确认，未重复发送）`;
+		}
+		const receipt = shortReceipt(messageId ?? output.externalRef);
+		if (!receipt && !output.reusedReceipt) {
+			return `${label}：发送完成但无回执，请在飞书确认`;
+		}
+		return `${label}：消息已发送${receipt ? `（回执 ${receipt}）` : ""}`;
+	}
+	if (operation === "获取本人信息") {
+		return `${label}：已确认本人身份`;
+	}
+	if (operation === "读取消息") {
+		return `${label}：已读取${list ? ` ${list.length} 条` : ""}消息`;
+	}
+	if (operation.includes("待办")) {
+		const receipt = shortReceipt(taskId);
+		return `${label}：${operation}${receipt ? `（待办 ${receipt}）` : ""}`;
+	}
+	if (operation === "写入表格" && Array.isArray(records)) {
+		return `${label}：已写入 ${records.length} 条记录`;
+	}
+	if (operation === "创建表格") {
+		return `${label}：表格已创建${typeof appUrl === "string" ? ` · ${appUrl}` : ""}`;
+	}
+	if (operation === "创建日程") {
+		const eventId = findNestedValue(
+			payload,
+			new Set(["event_id", "eventId", "uid", "id"]),
+		);
+		const receipt = shortReceipt(eventId);
+		return `${label}：日程已创建${receipt ? `（${receipt}）` : ""}`;
+	}
+	if (operation === "上传文件") {
+		const url = findNestedValue(payload, new Set(["url"]));
+		const name = findNestedValue(payload, new Set(["file_name", "fileName", "name"]));
+		if (typeof url === "string" && url) {
+			return `${label}：文件已上传${typeof name === "string" ? `「${name}」` : ""} · ${url}`;
+		}
+		return `${label}：文件已上传`;
+	}
+	if (operation.includes("文档")) {
+		const receipt = shortReceipt(documentId);
+		return `${label}：${operation}${receipt ? `（文档 ${receipt}）` : ""}`;
+	}
+	return `${label}：${operation}`;
+}
+
 function isActionIntent(intent: string): boolean {
 	return /抓取|链接|写入|同步|创建|新建|发送|导出|上传|多维表格|bitable/i.test(intent);
 }
@@ -80,7 +227,9 @@ export function formatEpisodeSummaryDisplay(input: {
 			.join(" · ");
 	}
 
-	return input.status === "success" ? `已完成：${input.intent}` : `部分完成：${input.intent}`;
+	return input.status === "success" || input.status === "recovered"
+		? `已完成：${input.intent}`
+		: `部分完成：${input.intent}`;
 }
 
 /** 从步骤输出生成用户可见的一行结果摘要（保存 episode + overlay 用）。 */
@@ -99,7 +248,17 @@ export function buildUserVisibleSummary(
 
 	const recallStep = steps.find((s) => s.skill === "clipboard.recall" && s.status === "success");
 	const recallOutput = recallStep?.output as { summary?: string; ok?: boolean } | undefined;
-	if (recallStep && recallOutput?.summary) {
+	const hasDeliverable = steps.some(
+		(s) =>
+			s.status === "success" &&
+			["mail.draft", "pdf.extract", "office.cli", "finder.latestDownload"].includes(s.skill),
+	);
+	if (
+		recallStep &&
+		recallOutput?.ok === true &&
+		recallOutput.summary &&
+		!hasDeliverable
+	) {
 		return recallOutput.summary.split("\n")[0] ?? recallOutput.summary;
 	}
 
@@ -195,6 +354,17 @@ export function buildUserVisibleSummary(
 			parts.push(tableUrl ? `飞书表格：${tableUrl}` : `已创建飞书表格「${tableName}」`);
 		}
 		if (parts.length > 0) return parts.join(" · ");
+	}
+
+	const officeSteps = steps.filter((s) => s.skill === "office.cli");
+	if (officeSteps.length > 0) {
+		const feedback = officeSteps
+			.map((step) => {
+				if (step.status === "failed") return step.error?.trim() || "办公渠道执行失败";
+				return formatOfficeCliFeedback(step.output as OfficeCliOutput);
+			})
+			.filter(Boolean);
+		if (feedback.length > 0) return feedback.join(" · ");
 	}
 
 	const mailStep = steps.find((s) => s.skill === "mail.draft");
@@ -331,7 +501,7 @@ export function buildResultDetail(
 			continue;
 		}
 		if (step.skill === "office.cli" && output && typeof output === "object") {
-			const cli = output as { ok?: boolean; channel?: string; stdout?: string };
+			const cli = output as OfficeCliOutput;
 			if (cli.ok && cli.stdout) {
 				try {
 					const data = JSON.parse(cli.stdout) as {
@@ -351,7 +521,7 @@ export function buildResultDetail(
 					// ignore
 				}
 			}
-			lines.push(`• ${name}：${cli.ok ? "完成" : "失败"}`);
+			lines.push(`• ${formatOfficeCliFeedback(cli)}`);
 			continue;
 		}
 		if (step.skill === "mail.countUnread" && output && typeof output === "object") {

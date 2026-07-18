@@ -10,6 +10,14 @@ import { defaultWatchRoots, FILE_WATCH_IGNORED, mergeWatchRoots, watchRootsFromE
 const execFileAsync = promisify(execFile);
 
 const FILE_MODIFIED_DEBOUNCE_MS = 2_000;
+const AFK_THRESHOLD_SECONDS = 180;
+/** 事件驱动模式下兜底轮询间隔（防通知丢失 / 窗口标题变化） */
+const FALLBACK_POLL_MS = 15_000;
+
+export interface FrontAppWatcherEvent {
+	appName: string;
+	appPath?: string;
+}
 
 export interface ContextEngineOptions {
 	downloadsDir?: string;
@@ -17,6 +25,16 @@ export interface ContextEngineOptions {
 	watchDirs?: string[];
 	/** 前台轮询忽略的 App（如 Fold 自身），避免打开 Home 窗口时锚点变成自己 */
 	ignoreApps?: string[];
+	/** 注入 idle 秒数（如 @fold/macos-input 的 idleSeconds）；缺省则不采 AFK 事件 */
+	getIdleSeconds?: () => number;
+	/**
+	 * 事件驱动前台监听（如 @fold/macos-input 的 startFrontAppWatch/stopFrontAppWatch）。
+	 * 提供后替代 2s 轮询，保留 15s 慢兜底。
+	 */
+	frontAppWatcher?: {
+		start: (cb: (e: FrontAppWatcherEvent) => void) => { ok: boolean; error?: string };
+		stop: () => void;
+	};
 	onEvent?: (event: ContextEvent) => void;
 }
 
@@ -27,7 +45,9 @@ export class ContextEngine {
 	private appTimer: ReturnType<typeof setInterval> | null = null;
 	private lastClipboard = "";
 	private lastBrowserUrl = "";
+	private isAfk = false;
 	private suppressClipboardUntil = 0;
+	private watcherActive = false;
 	private modifiedTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 	constructor(private opts: ContextEngineOptions = {}) {}
@@ -52,7 +72,18 @@ export class ContextEngine {
 
 	start() {
 		this.startFileWatchers();
-		this.appTimer = setInterval(() => void this.pollActiveApp(), 2000);
+		const watcher = this.opts.frontAppWatcher;
+		if (watcher) {
+			try {
+				const started = watcher.start((e) => void this.onFrontAppChange(e));
+				this.watcherActive = Boolean(started?.ok);
+			} catch {
+				this.watcherActive = false;
+			}
+		}
+		// 事件驱动启动成功时用慢兜底轮询；失败则退回 2s 轮询
+		const pollInterval = this.watcherActive ? FALLBACK_POLL_MS : 2_000;
+		this.appTimer = setInterval(() => void this.pollActiveApp(), pollInterval);
 		this.clipboardTimer = setInterval(() => void this.pollClipboard(), 1500);
 		void this.pollActiveApp();
 	}
@@ -64,6 +95,32 @@ export class ContextEngine {
 		this.modifiedTimers.clear();
 		if (this.appTimer) clearInterval(this.appTimer);
 		if (this.clipboardTimer) clearInterval(this.clipboardTimer);
+		if (this.watcherActive) {
+			try {
+				this.opts.frontAppWatcher?.stop();
+			} catch {
+				/* ignore */
+			}
+			this.watcherActive = false;
+		}
+	}
+
+	private async onFrontAppChange(e: FrontAppWatcherEvent) {
+		this.checkAfk();
+		const appName = e.appName?.trim();
+		if (!appName) return;
+		if (this.opts.ignoreApps?.some((n) => n.toLowerCase() === appName.toLowerCase())) return;
+		this.push({
+			type: "app.active",
+			source: "system",
+			timestamp: Date.now(),
+			data: {
+				appName,
+				appPath: e.appPath || undefined,
+				// ponytail: 事件驱动不带窗口标题，下一次兜底轮询补上
+			},
+		});
+		await this.pollBrowserUrl(appName);
 	}
 
 	/** Fold 写入剪贴板时短暂跳过轮询，避免污染复制记录。 */
@@ -128,8 +185,28 @@ export class ContextEngine {
 		);
 	}
 
+	private checkAfk(now = Date.now()) {
+		const getIdle = this.opts.getIdleSeconds;
+		if (!getIdle) return;
+		let idle: number;
+		try {
+			idle = getIdle();
+		} catch {
+			return;
+		}
+		if (!Number.isFinite(idle) || idle < 0) return;
+		if (!this.isAfk && idle >= AFK_THRESHOLD_SECONDS) {
+			this.isAfk = true;
+			this.push({ type: "user.afk", source: "input", timestamp: now, data: {} });
+		} else if (this.isAfk && idle < AFK_THRESHOLD_SECONDS) {
+			this.isAfk = false;
+			this.push({ type: "user.active", source: "input", timestamp: now, data: {} });
+		}
+	}
+
 	private async pollActiveApp() {
 		if (process.platform !== "darwin") return;
+		this.checkAfk();
 		try {
 			const { stdout } = await execFileAsync("osascript", [
 				"-e",

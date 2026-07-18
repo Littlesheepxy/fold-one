@@ -75,6 +75,10 @@ export interface InformationObjectInput {
 	/** AX 读到的真实前台 App（比 2s 轮询的 ctx.activeApp 更准） */
 	accessibilityApp?: string;
 	accessibilityWindowTitle?: string;
+	/** AX 文本来源：ax=辅助功能树，ocr=Apple Vision 图像识别兜底 */
+	accessibilitySourceKind?: "ax" | "ocr";
+	/** 任务时刻截图的本地路径 */
+	screenshotPath?: string;
 	entities?: string[];
 	/** 未来若干小时内的日历事件（EventKit） */
 	calendarEvents?: Array<{

@@ -63,6 +63,8 @@ export interface FoldConfig {
 	skipLocalAgent?: boolean;
 	/** 转写整理完成后自动粘贴到前台输入框；默认 true */
 	structureAutoInsert?: boolean;
+	/** 转写/代回成功后保持目标 App 的秒数；0=关闭（Mac 默认）。实验可设 8；iOS 另议 */
+	voiceStandbySeconds?: number;
 	onboarding?: {
 		completedAt?: number;
 		step?: string;
