@@ -428,7 +428,7 @@ function ReplyDemo() {
 /* ── 04 Agent 执行 ─────────────────────────────── */
 
 const agentRoutes = [
-	{ logo: "/zhigeng-mark.png", label: "知更快捷执行", meta: "消息 · 日程 · 整理文件", direct: true },
+	{ logo: "/zhigeng-mark.png", label: "知更快捷执行", meta: "消息 · 整理文件 · 授权后执行", direct: true },
 	{ logo: "/brand/icons/codex.svg", label: "Codex", meta: "本地已连接" },
 	{ logo: "/brand/icons/claude.svg", label: "Claude Code", meta: "本地已连接" },
 	{ logo: "/brand/icons/workbuddy.png", label: "WorkBuddy", meta: "本地已连接" },
@@ -455,7 +455,7 @@ function AgentSection() {
 			<div className="zg-agent-head">
 				<span className="zg-feature-index">04 · 连接与执行</span>
 				<RevealHeading text="接上你已经在用的 Agent" />
-				<p>消息、日程等简单事项，知更直接完成；代码与复杂工作，交给本地 Codex、Claude Code 或 WorkBuddy。</p>
+				<p>消息、整理文件等简单事项，知更在授权后直接完成；代码与复杂工作，交给本地 Codex、Claude Code 或 WorkBuddy，完成后通知你。</p>
 			</div>
 			<div ref={ref}>
 				<div className="zg-agent-command">
@@ -522,7 +522,7 @@ function MemorySection() {
 			<FeatureCopy
 				index="05 · 记忆"
 				title="越用，越懂你的工作方式"
-				lead="不只记住你说过什么，也记得你在意谁、正在做什么、答应了什么。记忆留在本地，始终属于你。"
+				lead="不只记住你说过什么，也记得你在意谁、正在做什么、答应了什么。可从常用 AI 助手导入画像；使用中沉淀习惯。记忆留在本地，始终属于你。"
 			/>
 			<motion.div
 				className="zg-memory-grid"
@@ -667,7 +667,7 @@ export function FeatureShowcase() {
 				<FeatureCopy
 					index="03 · 写与回"
 					title="一开口，写与回都恰到好处"
-					lead="只说一次大概意思，知更会按目标应用，写成该有的语气与结构。"
+					lead="只说一次大概意思。知更读当前对话，给出多条草案，你选一条插入真实输入框——长按右 ⌘ 即可。"
 				/>
 				<div className="zg-feature-demo">
 					<ReplyDemo />

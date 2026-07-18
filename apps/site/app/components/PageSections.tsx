@@ -28,9 +28,9 @@ export function PageCta({
 	return (
 		<section className="zg-page-cta">
 			<h2>{title}</h2>
-			<p>知更正在开放 macOS 内测。</p>
-			<Link className="zg-primary" href="/pricing">
-				申请 macOS 内测
+			<p>留下邮箱，申请知更 macOS 内测码。</p>
+			<Link className="zg-primary" href="/beta">
+				申请内测码
 				<ArrowRight size={18} />
 			</Link>
 		</section>

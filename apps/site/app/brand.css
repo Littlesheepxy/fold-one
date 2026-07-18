@@ -556,8 +556,11 @@ body {
 
 .zg-footer nav {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
-	gap: 28px;
+	justify-content: flex-end;
+	gap: 18px 28px;
+	max-width: 520px;
 }
 
 .zg-footer nav a {
@@ -568,6 +571,12 @@ body {
 
 .zg-footer-meta {
 	grid-column: 1 / -1;
+}
+
+.zg-footer-meta a {
+	color: inherit;
+	text-decoration: underline;
+	text-underline-offset: 3px;
 }
 
 /* 独立页面 */
@@ -1099,5 +1108,344 @@ body {
 		min-height: 0;
 		padding-right: 0;
 		padding-left: 0;
+	}
+}
+
+/* 首页差异点 */
+
+.zg-diff {
+	width: min(100%, 1180px);
+	margin: 72px auto 0;
+	padding: 8px 0 0;
+}
+
+.zg-diff-eyebrow {
+	margin: 0 0 28px;
+	color: var(--zg-muted);
+	font-size: 13px;
+	letter-spacing: 0.04em;
+}
+
+.zg-diff-list {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 28px 32px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.zg-diff-list li {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding-top: 18px;
+	border-top: 1px solid var(--zg-line);
+}
+
+.zg-diff-list strong {
+	font-size: 18px;
+	font-weight: 600;
+	letter-spacing: -0.02em;
+}
+
+.zg-diff-list span {
+	color: var(--zg-muted);
+	font-size: 14px;
+	line-height: 1.55;
+}
+
+/* 内测申请 */
+
+.zg-beta-layout {
+	display: grid;
+	grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+	gap: 48px;
+	align-items: start;
+	margin: 12px 0 80px;
+}
+
+.zg-beta-aside h2 {
+	margin: 0 0 18px;
+	font-size: 22px;
+	letter-spacing: -0.03em;
+}
+
+.zg-beta-aside ul {
+	margin: 0 0 20px;
+	padding-left: 1.1em;
+	color: var(--zg-muted);
+	line-height: 1.7;
+}
+
+.zg-beta-aside p {
+	margin: 0;
+	color: var(--zg-muted);
+	font-size: 14px;
+	line-height: 1.6;
+}
+
+.zg-beta-form,
+.zg-beta-done {
+	padding: 32px;
+	border: 1px solid var(--zg-line);
+	border-radius: 28px;
+	background: #fafbff;
+}
+
+.zg-beta-field {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin-bottom: 18px;
+}
+
+.zg-beta-field span {
+	font-size: 13px;
+	color: #3d3f45;
+}
+
+.zg-beta-field input,
+.zg-beta-field select,
+.zg-beta-field textarea {
+	width: 100%;
+	padding: 12px 14px;
+	border: 1px solid #d9dce6;
+	border-radius: 14px;
+	background: #fff;
+	color: var(--zg-ink);
+	font: inherit;
+	font-size: 15px;
+}
+
+.zg-beta-field textarea {
+	resize: vertical;
+	min-height: 110px;
+}
+
+.zg-beta-row {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 16px;
+}
+
+.zg-beta-check {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	margin: 0 0 12px;
+	font-size: 13px;
+	line-height: 1.5;
+	color: #4f514f;
+}
+
+.zg-beta-check input {
+	margin-top: 3px;
+}
+
+.zg-beta-check a {
+	color: var(--zg-brand-deep);
+}
+
+.zg-beta-form .zg-primary {
+	margin-top: 10px;
+	width: 100%;
+	justify-content: center;
+}
+
+.zg-beta-form .zg-primary:disabled {
+	opacity: 0.65;
+	cursor: wait;
+}
+
+.zg-beta-error {
+	margin: 0 0 12px;
+	color: #b42318;
+	font-size: 13px;
+}
+
+.zg-beta-alt {
+	margin: 14px 0 0;
+	color: var(--zg-muted);
+	font-size: 12px;
+	text-align: center;
+}
+
+.zg-beta-alt a {
+	color: var(--zg-brand-deep);
+}
+
+.zg-beta-hp {
+	position: absolute;
+	left: -9999px;
+	opacity: 0;
+	height: 0;
+	overflow: hidden;
+}
+
+.zg-beta-done {
+	text-align: center;
+}
+
+.zg-beta-done-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 48px;
+	height: 48px;
+	margin-bottom: 12px;
+	border-radius: 999px;
+	background: var(--zg-brand-soft);
+	color: var(--zg-brand-deep);
+}
+
+.zg-beta-done h2 {
+	margin: 0 0 12px;
+	font-size: 28px;
+	letter-spacing: -0.03em;
+}
+
+.zg-beta-done p {
+	margin: 0;
+	color: var(--zg-muted);
+	line-height: 1.65;
+}
+
+.zg-beta-done-note {
+	margin-top: 18px !important;
+	font-size: 13px;
+}
+
+.zg-beta-done a {
+	color: var(--zg-brand-deep);
+}
+
+/* 法务长文 */
+
+.zg-legal {
+	max-width: 820px;
+}
+
+.zg-legal-updated {
+	margin: 0 0 12px !important;
+	color: var(--zg-muted);
+	font-size: 14px !important;
+}
+
+.zg-legal-toc {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 8px 16px;
+	margin: 8px 0 40px;
+	padding: 20px 22px;
+	border: 1px solid var(--zg-line);
+	border-radius: 20px;
+	background: #fafbff;
+}
+
+.zg-legal-toc a {
+	color: #3d3f45;
+	font-size: 13px;
+	text-decoration: none;
+}
+
+.zg-legal-toc a:hover {
+	color: var(--zg-brand-deep);
+}
+
+.zg-legal-section {
+	margin: 0 0 36px;
+}
+
+.zg-legal-section h2 {
+	margin: 0 0 14px;
+	font-size: 22px;
+	letter-spacing: -0.03em;
+}
+
+.zg-legal-body p,
+.zg-legal-body li {
+	color: #3d3f45;
+	font-size: 15px;
+	line-height: 1.75;
+}
+
+.zg-legal-body p {
+	margin: 0 0 14px;
+}
+
+.zg-legal-body ul {
+	margin: 0 0 14px;
+	padding-left: 1.2em;
+}
+
+.zg-legal-body a {
+	color: var(--zg-brand-deep);
+}
+
+.zg-legal-body code {
+	padding: 1px 6px;
+	border-radius: 6px;
+	background: #eef0f7;
+	font-size: 0.92em;
+}
+
+.zg-legal-table-wrap {
+	overflow-x: auto;
+	margin: 16px 0 20px;
+	border: 1px solid var(--zg-line);
+	border-radius: 16px;
+}
+
+.zg-legal-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 13px;
+}
+
+.zg-legal-table th,
+.zg-legal-table td {
+	padding: 12px 14px;
+	border-bottom: 1px solid var(--zg-line);
+	text-align: left;
+	vertical-align: top;
+	line-height: 1.5;
+}
+
+.zg-legal-table th {
+	background: #f5f6fb;
+	color: #202124;
+	font-weight: 600;
+}
+
+.zg-legal-table tr:last-child td {
+	border-bottom: 0;
+}
+
+@media (max-width: 880px) {
+	.zg-diff-list {
+		grid-template-columns: 1fr 1fr;
+	}
+
+	.zg-beta-layout {
+		grid-template-columns: 1fr;
+	}
+
+	.zg-legal-toc {
+		grid-template-columns: 1fr 1fr;
+	}
+}
+
+@media (max-width: 520px) {
+	.zg-diff-list {
+		grid-template-columns: 1fr;
+	}
+
+	.zg-beta-row {
+		grid-template-columns: 1fr;
+	}
+
+	.zg-legal-toc {
+		grid-template-columns: 1fr;
 	}
 }

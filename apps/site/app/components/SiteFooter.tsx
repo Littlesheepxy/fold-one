@@ -5,7 +5,9 @@ const footerLinks = [
 	{ href: "/about", label: "关于知更" },
 	{ href: "/blog", label: "博客" },
 	{ href: "/pricing", label: "定价" },
-	{ href: "/privacy", label: "隐私" },
+	{ href: "/beta", label: "申请内测码" },
+	{ href: "/privacy", label: "隐私政策" },
+	{ href: "/terms", label: "用户协议" },
 ];
 
 export function SiteFooter() {
@@ -25,7 +27,10 @@ export function SiteFooter() {
 					</Link>
 				))}
 			</nav>
-			<p className="zg-footer-meta">© {new Date().getFullYear()} 知更 · 为 macOS 而生</p>
+			<p className="zg-footer-meta">
+				© {new Date().getFullYear()} 知更 · 为 macOS 而生 ·{" "}
+				<a href="mailto:hello@zhigeng.app">hello@zhigeng.app</a>
+			</p>
 		</footer>
 	);
 }
