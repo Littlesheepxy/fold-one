@@ -276,6 +276,16 @@ napi_value pasteboard_change_count(napi_env env, napi_callback_info info) {
 	}
 }
 
+napi_value idle_seconds(napi_env env, napi_callback_info info) {
+	@autoreleasepool {
+		const CFTimeInterval seconds =
+			CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateHIDSystemState, kCGAnyInputEventType);
+		napi_value value;
+		napi_create_double(env, seconds, &value);
+		return value;
+	}
+}
+
 napi_value init(napi_env env, napi_value exports) {
 	napi_property_descriptor properties[] = {
 		{"captureTarget", nullptr, capture_target, nullptr, nullptr, nullptr, napi_default, nullptr},
@@ -284,6 +294,7 @@ napi_value init(napi_env env, napi_value exports) {
 		{"postPaste", nullptr, post_paste, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"insertTextDirect", nullptr, insert_text_direct, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"pasteboardChangeCount", nullptr, pasteboard_change_count, nullptr, nullptr, nullptr, napi_default, nullptr},
+		{"idleSeconds", nullptr, idle_seconds, nullptr, nullptr, nullptr, napi_default, nullptr},
 	};
 	napi_define_properties(env, exports, sizeof(properties) / sizeof(properties[0]), properties);
 	return exports;

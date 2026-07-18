@@ -10,6 +10,7 @@ import { defaultWatchRoots, FILE_WATCH_IGNORED, mergeWatchRoots, watchRootsFromE
 const execFileAsync = promisify(execFile);
 
 const FILE_MODIFIED_DEBOUNCE_MS = 2_000;
+const AFK_THRESHOLD_SECONDS = 180;
 
 export interface ContextEngineOptions {
 	downloadsDir?: string;
@@ -17,6 +18,8 @@ export interface ContextEngineOptions {
 	watchDirs?: string[];
 	/** 前台轮询忽略的 App（如 Fold 自身），避免打开 Home 窗口时锚点变成自己 */
 	ignoreApps?: string[];
+	/** 注入 idle 秒数（如 @fold/macos-input 的 idleSeconds）；缺省则不采 AFK 事件 */
+	getIdleSeconds?: () => number;
 	onEvent?: (event: ContextEvent) => void;
 }
 
@@ -27,6 +30,7 @@ export class ContextEngine {
 	private appTimer: ReturnType<typeof setInterval> | null = null;
 	private lastClipboard = "";
 	private lastBrowserUrl = "";
+	private isAfk = false;
 	private suppressClipboardUntil = 0;
 	private modifiedTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -128,8 +132,28 @@ export class ContextEngine {
 		);
 	}
 
+	private checkAfk(now = Date.now()) {
+		const getIdle = this.opts.getIdleSeconds;
+		if (!getIdle) return;
+		let idle: number;
+		try {
+			idle = getIdle();
+		} catch {
+			return;
+		}
+		if (!Number.isFinite(idle) || idle < 0) return;
+		if (!this.isAfk && idle >= AFK_THRESHOLD_SECONDS) {
+			this.isAfk = true;
+			this.push({ type: "user.afk", source: "input", timestamp: now, data: {} });
+		} else if (this.isAfk && idle < AFK_THRESHOLD_SECONDS) {
+			this.isAfk = false;
+			this.push({ type: "user.active", source: "input", timestamp: now, data: {} });
+		}
+	}
+
 	private async pollActiveApp() {
 		if (process.platform !== "darwin") return;
+		this.checkAfk();
 		try {
 			const { stdout } = await execFileAsync("osascript", [
 				"-e",

@@ -34,3 +34,4 @@ export function inspectTarget(): TextState;
 export function postPaste(): PasteDispatchResult;
 export function insertTextDirect(text: string): DirectInsertResult;
 export function pasteboardChangeCount(): number;
+export function idleSeconds(): number;

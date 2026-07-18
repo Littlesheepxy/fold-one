@@ -9,3 +9,4 @@ apps/desktop/dist-electron
 apps/desktop/out
 apps/desktop/release
 *.db
+audit-output/

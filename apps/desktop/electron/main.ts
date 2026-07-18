@@ -35,6 +35,7 @@ import {
 	resolveReplyPredictions,
 	setPredictTargetApp,
 } from "./predict-enrich.js";
+import * as macosInput from "@fold/macos-input";
 import {
 	captureTextInsertionTarget,
 	clearTextInsertionTarget,
@@ -175,6 +176,13 @@ applyConfigToEnv();
 
 const contextEngine = new ContextEngine({
 	ignoreApps: ["Electron", "Fold", "fold", "知更", "Zhigeng", "zhigeng"],
+	getIdleSeconds: () => {
+		try {
+			return macosInput.idleSeconds();
+		} catch {
+			return -1;
+		}
+	},
 	onEvent: (event) => {
 		try {
 			saveContextEvent(event);

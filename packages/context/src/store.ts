@@ -14,6 +14,8 @@ const IMPORTANT_TYPES = new Set<ContextEvent["type"]>([
 	"file.modified",
 	"clipboard.changed",
 	"browser.urlChanged",
+	"user.afk",
+	"user.active",
 ]);
 
 function isUserClipboardEvent(event: ContextEvent): boolean {

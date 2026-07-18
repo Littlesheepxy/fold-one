@@ -6,35 +6,50 @@ function focusKey(app: string, windowTitle?: string): string {
 	return `${app}|${windowTitle ?? ""}`;
 }
 
-/** 从 app.active 事件链推算各窗口停留时长（末段延续到 now）。 */
+/** 从 app.active 事件链推算各窗口停留时长（末段延续到 now；user.afk 期间不计时）。 */
 export function computeFocusDwells(events: ContextEvent[], now = Date.now()): FocusDwell[] {
-	const appEvents = events
-		.filter((e) => e.type === "app.active" && e.data.appName)
-		.sort((a, b) => a.timestamp - b.timestamp);
-
-	if (!appEvents.length) return [];
+	const sorted = [...events].sort((a, b) => a.timestamp - b.timestamp);
 
 	const byKey = new Map<string, FocusDwell>();
+	let open: { app: string; windowTitle?: string; start: number } | null = null;
+	let pausedAt: number | null = null;
 
-	for (let i = 0; i < appEvents.length; i++) {
-		const e = appEvents[i]!;
-		const app = e.data.appName!;
-		if (FOLD_APP_RE.test(app)) continue;
-
-		const windowTitle = e.data.windowTitle?.trim() || undefined;
-		const endAt = i + 1 < appEvents.length ? appEvents[i + 1]!.timestamp : now;
-		const dwellMs = Math.max(0, endAt - e.timestamp);
-		if (dwellMs < 3_000) continue;
-
-		const key = focusKey(app, windowTitle);
+	const closeOpen = (endAt: number) => {
+		if (!open) return;
+		const seg = open;
+		open = null;
+		const dwellMs = Math.max(0, endAt - seg.start);
+		if (dwellMs < 3_000) return;
+		const key = focusKey(seg.app, seg.windowTitle);
 		const row = byKey.get(key);
 		if (row) {
 			row.dwellMs += dwellMs;
 			row.lastActiveAt = endAt;
 		} else {
-			byKey.set(key, { app, windowTitle, dwellMs, lastActiveAt: endAt });
+			byKey.set(key, { app: seg.app, windowTitle: seg.windowTitle, dwellMs, lastActiveAt: endAt });
 		}
+	};
+
+	for (const e of sorted) {
+		if (e.type === "user.afk") {
+			if (open && pausedAt === null) pausedAt = e.timestamp;
+			continue;
+		}
+		if (e.type === "user.active") {
+			// afk 期间打开的段起点后移，整段 afk 不计时
+			if (open && pausedAt !== null) open.start += e.timestamp - pausedAt;
+			pausedAt = null;
+			continue;
+		}
+		if (e.type !== "app.active" || !e.data.appName) continue;
+		const app = e.data.appName;
+		const windowTitle = e.data.windowTitle?.trim() || undefined;
+		if (open && open.app === app && open.windowTitle === windowTitle && pausedAt === null) continue;
+		closeOpen(pausedAt ?? e.timestamp);
+		pausedAt = null;
+		open = FOLD_APP_RE.test(app) ? null : { app, windowTitle, start: e.timestamp };
 	}
+	closeOpen(pausedAt ?? now);
 
 	return [...byKey.values()].sort((a, b) => b.dwellMs - a.dwellMs);
 }
