@@ -5,6 +5,8 @@ import {
 	readFrontWindowAccessibilityText,
 	readProcessAccessibilityText,
 } from "@fold/connectors";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import {
 	formatContextBrief,
 	formatContextSummary,
@@ -57,6 +59,16 @@ function isSelfApp(name: string | null | undefined): boolean {
 export interface EnrichContextOptions {
 	/** 语音/代回锁定的目标 App；overlay 在前台时仍能读到正确窗口 */
 	targetApp?: string | null;
+	/**
+	 * 可选：任务时刻截图 + Apple Vision OCR 兜底。
+	 * 由 desktop 主进程注入（macos-input addon 只在 Electron 上下文可用）。
+	 * - capture: 截屏到本地路径，返回路径
+	 * - ocr: 对截图文件跑 Vision OCR，返回文本
+	 */
+	captureTaskMomentScreenshot?: (taskId: string) => Promise<string | null>;
+	ocrImageFile?: (path: string) => Promise<{ text?: string } | null>;
+	/** 当前任务 id（截图命名用） */
+	taskId?: string;
 }
 
 /** L2：按需加深 Context（只读），供代回 / Aha / 预测 / Agent 共用。 */
@@ -93,13 +105,35 @@ export async function enrichContext(
 	const chromeTabs =
 		scope === "aha" ? filterChromeTabsForAha(ctx, chromeTabsRaw) : chromeTabsRaw;
 
-	const accessibilityText = ax?.text;
+	// AX 空或过短时，截图 + Apple Vision OCR 兜底；截图同时落盘供任务时刻引用
+	let accessibilityText = ax?.text;
+	let accessibilitySourceKind: "ax" | "ocr" | undefined = accessibilityText ? "ax" : undefined;
+	let screenshotPath: string | null = null;
+	const axTooThin = !accessibilityText || accessibilityText.trim().length < 40;
+	if (axTooThin && options?.captureTaskMomentScreenshot && options?.ocrImageFile) {
+		try {
+			screenshotPath = await options.captureTaskMomentScreenshot(options.taskId ?? "moment");
+			if (screenshotPath) {
+				const ocr = await options.ocrImageFile(screenshotPath);
+				const ocrText = ocr?.text?.trim();
+				if (ocrText && ocrText.length > (accessibilityText?.trim().length ?? 0)) {
+					accessibilityText = ocrText.slice(0, 3000);
+					accessibilitySourceKind = "ocr";
+				}
+			}
+		} catch {
+			/* OCR 兜底失败不阻断 enrich */
+		}
+	}
+
 	const entities = extractEntityTokens(accessibilityText);
 	const enrichment: PredictEnrichment = {
 		chromeTabs,
 		accessibilityText,
 		accessibilityApp: ax?.app,
 		accessibilityWindowTitle: ax?.windowTitle,
+		accessibilitySourceKind,
+		screenshotPath: screenshotPath ?? undefined,
 		entities,
 		calendarEvents,
 	};

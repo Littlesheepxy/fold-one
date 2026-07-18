@@ -78,7 +78,7 @@ export async function runShellDetailed(
 	args: string[],
 	timeoutMs = 10000,
 	cwd?: string,
-	options?: { closeStdin?: boolean; signal?: AbortSignal },
+	options?: { closeStdin?: boolean; signal?: AbortSignal; stdin?: string },
 ): Promise<ShellResult> {
 	const searchDirs = executableSearchDirs();
 	const executable = await resolveExecutable(command, searchDirs);
@@ -101,8 +101,12 @@ export async function runShellDetailed(
 			cwd,
 			env: { ...process.env, PATH: searchDirs.join(delimiter) },
 			// GUI apps may not have a valid inherited stdin descriptor.
-			stdio: ["ignore", "pipe", "pipe"],
+			stdio: [options?.stdin !== undefined ? "pipe" : "ignore", "pipe", "pipe"],
 		});
+		if (options?.stdin !== undefined) {
+			child.stdin?.write(options.stdin);
+			child.stdin?.end();
+		}
 		const timer = setTimeout(() => {
 			child.kill("SIGTERM");
 			finish({ stdout, stderr: stderr || `Command timed out: ${command}`, exitCode: 124 });

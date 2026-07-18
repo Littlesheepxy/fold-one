@@ -45,8 +45,16 @@ export interface WatchStartResult {
 	error?: string;
 }
 
+export interface OcrResult {
+	ok: boolean;
+	text?: string;
+	lineCount?: number;
+	error?: string;
+}
+
 export function insertTextDirect(text: string): DirectInsertResult;
 export function pasteboardChangeCount(): number;
 export function idleSeconds(): number;
 export function startFrontAppWatch(callback: (change: FrontAppChange) => void): WatchStartResult;
 export function stopFrontAppWatch(): void;
+export function ocrImageFile(path: string): OcrResult;

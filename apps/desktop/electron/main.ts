@@ -833,6 +833,24 @@ async function executeTask(intent: string) {
 			resolveUserAction,
 			runUserAction,
 			signal: abortController.signal,
+			captureTaskMomentScreenshot: async (taskId) => {
+				try {
+					const dir = join(app.getPath("home"), ".fold", "moments");
+					const outPath = join(dir, `${taskId}.png`);
+					const shot = await captureScreenshot({ target: "screen", outPath });
+					return shot.path;
+				} catch {
+					return null;
+				}
+			},
+			ocrImageFile: async (path) => {
+				try {
+					const r = macosInput.ocrImageFile(path);
+					return r.ok ? { text: r.text } : null;
+				} catch {
+					return null;
+				}
+			},
 		});
 		if (smartAccess.usesTrial && hasPlannerApiKey()) consumeSmartActionTrial();
 	} catch (err) {

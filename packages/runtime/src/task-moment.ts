@@ -9,7 +9,11 @@ export interface TaskMomentEnrichment {
 	accessibilityText?: string;
 	accessibilityApp?: string;
 	accessibilityWindowTitle?: string;
+	/** AX 文本来源：ax=辅助功能树，ocr=Apple Vision 图像识别兜底 */
+	accessibilitySourceKind?: "ax" | "ocr";
 	entities?: string[];
+	/** 任务时刻截图的本地路径（~/.fold/moments/<taskId>.jpg） */
+	screenshotPath?: string;
 }
 
 export interface TaskMoment {
@@ -27,8 +31,11 @@ export interface TaskMoment {
 		app?: string;
 		windowTitle?: string;
 		excerpt?: string;
+		/** AX 文本来源标记 */
+		sourceKind?: "ax" | "ocr";
 		entities: string[];
 	};
+	screenshot?: { path: string };
 	clipboard: {
 		current?: { text: string; timestamp: number; redacted: boolean };
 		recent: Array<{
@@ -108,8 +115,10 @@ export function createTaskMoment(
 			app: enrichment?.accessibilityApp,
 			windowTitle: enrichment?.accessibilityWindowTitle,
 			excerpt: clip(enrichment?.accessibilityText, MAX_AX_CHARS),
+			sourceKind: enrichment?.accessibilitySourceKind,
 			entities: [...new Set(enrichment?.entities ?? [])].slice(0, 20),
 		},
+		screenshot: enrichment?.screenshotPath ? { path: enrichment.screenshotPath } : undefined,
 		clipboard: {
 			current: currentClipboard?.text ? currentClipboard : undefined,
 			recent: ctx.recentClipboards.slice(0, 5).map((item) => {

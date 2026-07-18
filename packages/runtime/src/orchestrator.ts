@@ -173,6 +173,10 @@ export async function runTask(
 				context,
 				deps.dataDir,
 				taskMoment.taskId,
+				{
+					captureTaskMomentScreenshot: deps.captureTaskMomentScreenshot,
+					ocrImageFile: deps.ocrImageFile,
+				},
 			);
 			taskMoment = assembledContext.moment;
 			plannerContextSummary = assembledContext.agentContext;
@@ -192,6 +196,10 @@ export async function runTask(
 				context,
 				deps.dataDir,
 				taskMoment.taskId,
+				{
+					captureTaskMomentScreenshot: deps.captureTaskMomentScreenshot,
+					ocrImageFile: deps.ocrImageFile,
+				},
 			);
 			taskMoment = assembledContext.moment;
 			plannerContextSummary = assembledContext.agentContext;

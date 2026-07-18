@@ -25,14 +25,23 @@ export async function assembleTaskContext(
 	ctx: LiveContext,
 	dataDir?: string,
 	taskId?: string,
+	enrichOptions?: {
+		captureTaskMomentScreenshot?: (taskId: string) => Promise<string | null>;
+		ocrImageFile?: (path: string) => Promise<{ text?: string } | null>;
+	},
 ): Promise<AssembledTaskContext> {
-	const { summary, enriched } = await buildAgentPlannerContextSummary(ctx);
+	const { summary, enriched } = await buildAgentPlannerContextSummary(ctx, {
+		...enrichOptions,
+		taskId,
+	});
 	const moment = createTaskMoment(intent, ctx, {
 		taskId,
 		enrichment: {
 			accessibilityText: enriched.enrichment.accessibilityText,
 			accessibilityApp: enriched.enrichment.accessibilityApp,
 			accessibilityWindowTitle: enriched.enrichment.accessibilityWindowTitle,
+			accessibilitySourceKind: enriched.enrichment.accessibilitySourceKind,
+			screenshotPath: enriched.enrichment.screenshotPath,
 			entities: enriched.enrichment.entities,
 		},
 	});

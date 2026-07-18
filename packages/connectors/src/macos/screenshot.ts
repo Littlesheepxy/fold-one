@@ -80,8 +80,42 @@ end tell
 return ""
 `);
 		const id = Number.parseInt(out.trim(), 10);
-		if (!Number.isFinite(id)) return null;
-		return id;
+		if (Number.isFinite(id)) return id;
+	} catch {
+		/* fall through to CGWindowList */
+	}
+	// ponytail: AX 对自绘 UI（WeChat 等）拿不到 window 1，退到 CGWindowList 按 owner 名匹配
+	return getWindowIdViaCGWindowList(names);
+}
+
+/** 用 CGWindowList 按进程 owner 名查窗口号（覆盖 WeChat 等无 AX 窗口的 App）。
+ *  取面积最大的 layer-0 窗口（主窗口）；不加 onScreenOnly，否则后台 App 查不到。 */
+async function getWindowIdViaCGWindowList(names: string[]): Promise<number | null> {
+	const swift = `
+import CoreGraphics
+import Foundation
+let wanted = Set(${JSON.stringify(names)})
+let list = CGWindowListCopyWindowInfo([.excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+var best: (num: Int, area: CGFloat)? = nil
+for w in list {
+  let owner = w[kCGWindowOwnerName as String] as? String ?? ""
+  let layer = w[kCGWindowLayer as String] as? Int ?? -1
+  let bounds = w[kCGWindowBounds as String] as? [String: CGFloat] ?? [:]
+  let width = bounds["Width"] ?? 0
+  let height = bounds["Height"] ?? 0
+  if wanted.contains(owner) && layer == 0 && width > 200 && height > 200 {
+    if let num = w[kCGWindowNumber as String] as? Int {
+      let area = width * height
+      if best == nil || area > best!.area { best = (num, area) }
+    }
+  }
+}
+if let b = best { print(b.num) }
+`;
+	try {
+		const result = await runShellDetailed("swift", ["-"], 15_000, undefined, { stdin: swift });
+		const id = Number.parseInt(result.stdout.trim().split("\n")[0] ?? "", 10);
+		return Number.isFinite(id) ? id : null;
 	} catch {
 		return null;
 	}

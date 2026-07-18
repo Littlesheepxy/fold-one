@@ -4,6 +4,7 @@
 
 #import <AppKit/AppKit.h>
 #import <ApplicationServices/ApplicationServices.h>
+#import <Vision/Vision.h>
 
 #include <unistd.h>
 
@@ -352,6 +353,82 @@ void clear_watch(napi_env env) {
 	watch_env = nullptr;
 }
 
+// MARK: - Apple Vision OCR（截屏图像 -> 文本，AX 兜底）
+
+napi_value ocr_image_file(napi_env env, napi_callback_info info) {
+	@autoreleasepool {
+		napi_value result = make_object(env);
+		size_t argc = 1;
+		napi_value args[1];
+		napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+		if (argc != 1) {
+			set_bool(env, result, "ok", false);
+			set_string(env, result, "error", @"path-required");
+			return result;
+		}
+		size_t path_len = 0;
+		if (napi_get_value_string_utf8(env, args[0], nullptr, 0, &path_len) != napi_ok) {
+			set_bool(env, result, "ok", false);
+			set_string(env, result, "error", @"invalid-path");
+			return result;
+		}
+		std::string path(path_len + 1, '\0');
+		napi_get_value_string_utf8(env, args[0], path.data(), path.size(), &path_len);
+
+		NSURL* url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:path.c_str()]];
+		NSImage* image = [[NSImage alloc] initWithContentsOfURL:url];
+		CGImageRef cg_image = [image CGImageForProposedRect:nullptr context:nil hints:nil];
+		if (cg_image == nullptr) {
+			set_bool(env, result, "ok", false);
+			set_string(env, result, "error", @"image-load-failed");
+			return result;
+		}
+
+		VNRecognizeTextRequest* request = [[VNRecognizeTextRequest alloc] init];
+		request.recognitionLevel = VNRequestTextRecognitionLevelAccurate;
+		request.usesLanguageCorrection = YES;
+		request.recognitionLanguages = @[ @"zh-Hans", @"en-US" ];
+
+		VNImageRequestHandler* handler =
+			[[VNImageRequestHandler alloc] initWithCGImage:cg_image options:@{}];
+		NSError* error = nil;
+		const BOOL performed = [handler performRequests:@[ request ] error:&error];
+		if (!performed || error != nil) {
+			set_bool(env, result, "ok", false);
+			set_string(env, result, "error", error.localizedDescription ?: @"vision-perform-failed");
+			return result;
+		}
+
+		// 按阅读顺序（上->下，左->右）排序，并过滤低置信度噪声
+		NSMutableArray<VNRecognizedTextObservation*>* observations = [NSMutableArray array];
+		for (VNRecognizedTextObservation* observation in request.results) {
+			VNRecognizedText* candidate = [observation topCandidates:1].firstObject;
+			if (candidate.string.length > 0 && candidate.confidence >= 0.5) {
+				[observations addObject:observation];
+			}
+		}
+		[observations sortUsingComparator:^NSComparisonResult(VNRecognizedTextObservation* a, VNRecognizedTextObservation* b) {
+			const CGFloat ya = a.boundingBox.origin.y;
+			const CGFloat yb = b.boundingBox.origin.y;
+			// Vision 坐标系原点在左下；y 越大越靠上
+			if (fabs(ya - yb) > 0.012) return ya > yb ? NSOrderedAscending : NSOrderedDescending;
+			const CGFloat xa = a.boundingBox.origin.x;
+			const CGFloat xb = b.boundingBox.origin.x;
+			return xa < xb ? NSOrderedAscending : NSOrderedDescending;
+		}];
+		NSMutableArray<NSString*>* lines = [NSMutableArray array];
+		for (VNRecognizedTextObservation* observation in observations) {
+			NSString* s = [observation topCandidates:1].firstObject.string;
+			if (s.length > 0) [lines addObject:s];
+		}
+		NSString* text = [lines componentsJoinedByString:@"\n"];
+		set_bool(env, result, "ok", true);
+		set_string(env, result, "text", text);
+		set_int(env, result, "lineCount", (int64_t)lines.count);
+		return result;
+	}
+}
+
 napi_value start_front_app_watch(napi_env env, napi_callback_info info) {
 	@autoreleasepool {
 		napi_value result = make_object(env);
@@ -433,6 +510,7 @@ napi_value init(napi_env env, napi_value exports) {
 		{"idleSeconds", nullptr, idle_seconds, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"startFrontAppWatch", nullptr, start_front_app_watch, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"stopFrontAppWatch", nullptr, stop_front_app_watch, nullptr, nullptr, nullptr, napi_default, nullptr},
+		{"ocrImageFile", nullptr, ocr_image_file, nullptr, nullptr, nullptr, napi_default, nullptr},
 	};
 	napi_define_properties(env, exports, sizeof(properties) / sizeof(properties[0]), properties);
 	return exports;
