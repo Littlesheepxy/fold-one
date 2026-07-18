@@ -19,6 +19,8 @@ export {
 	formatFocusDwellBrief,
 } from "./dwell.js";
 export {
+	extractClipboardContentQuery,
+	isClipboardContentRecallIntent,
 	isClipboardRecallIntent,
 	offerClipboardRecovery,
 	resolveClipboardRecall,

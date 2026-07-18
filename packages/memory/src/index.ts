@@ -10,10 +10,13 @@ export {
 	listEpisodesInRange,
 	listEpisodeSummaries,
 	getEpisodeById,
+	searchContextEvents,
+	searchEpisodes,
 	getDb,
 	type Episode,
 	type EpisodeSummary,
 	type EpisodeSummaryRow,
+	type FtsHit,
 	type MemoryRecord,
 	type RawContextEventInput,
 } from "./episode.js";

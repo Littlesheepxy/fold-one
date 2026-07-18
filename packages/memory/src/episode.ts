@@ -196,6 +196,38 @@ export function getDb(dataDir?: string): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(type);
     CREATE INDEX IF NOT EXISTS idx_context_events_timestamp ON context_events(timestamp);
   `);
+	// ponytail: trigram tokenizer，中文/英文都按 3 字符滑窗索引，子串匹配够用；查询词 <3 字符时静默跳过（见 toFtsQuery）
+	db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS context_events_fts USING fts5(
+      body, app, path, url,
+      content='context_events', content_rowid='rowid',
+      tokenize='trigram case_sensitive 0'
+    );
+    CREATE TRIGGER IF NOT EXISTS context_events_fts_ai AFTER INSERT ON context_events BEGIN
+      INSERT INTO context_events_fts(rowid, body, app, path, url) VALUES (
+        new.rowid,
+        coalesce(json_extract(new.data_json, '$.text'), ''),
+        coalesce(json_extract(new.data_json, '$.appName'), ''),
+        coalesce(json_extract(new.data_json, '$.filePath'), ''),
+        coalesce(json_extract(new.data_json, '$.url'), '')
+      );
+    END;
+    CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts USING fts5(
+      intent, summary, goal,
+      content='episodes', content_rowid='rowid',
+      tokenize='trigram case_sensitive 0'
+    );
+    CREATE TRIGGER IF NOT EXISTS episodes_fts_ai AFTER INSERT ON episodes BEGIN
+      INSERT INTO episodes_fts(rowid, intent, summary, goal) VALUES (
+        new.rowid,
+        new.intent,
+        coalesce(new.summary, ''),
+        coalesce(new.goal, '')
+      );
+    END;
+  `);
+	// 存量回填说明：FTS rebuild 与「外部内容表 + 自建触发器」组合在 SQLite 会报 no such column T.body（rebuild 内部用 T.<col> 引用），
+	// 因此不做 rebuild；触发器只覆盖增量，老数据由 consolidate 的 14 天 retention 自然滚出索引窗口。
 	ensureColumn(db, "episodes", "summary_json", "TEXT");
 	ensureColumn(db, "episodes", "steps_json", "TEXT");
 	ensureColumn(db, "episodes", "probe_summary", "TEXT");
@@ -514,4 +546,76 @@ export function getEpisodeById(id: string, dataDir?: string): Episode | null {
 	const conn = getDb(dataDir);
 	const row = conn.prepare(`${EPISODE_SELECT} WHERE id = ?`).get(id) as EpisodeRow | undefined;
 	return row ? mapEpisodeRow(row) : null;
+}
+
+/** FTS5 query 构建：trigram 要求 term ≥3 字符，过短的词丢弃；逐词加引号避免操作符注入 */
+function toFtsQuery(raw: string): string {
+	const terms = raw
+		.split(/[\s,，。.!！?？]+/)
+		.map((t) => t.trim())
+		.filter(Boolean)
+		.slice(0, 6);
+	const usable = terms.filter((t) => [...t].length >= 3);
+	if (!usable.length) return "";
+	return usable.map((t) => `"${t.replace(/"/g, '""')}"`).join(" OR ");
+}
+
+export interface FtsHit<T> {
+	row: T;
+	score: number;
+}
+
+/** 全文搜 context_events（按 bm25 排序），返回最近匹配的事件。 */
+export function searchContextEvents(
+	query: string,
+	limit = 20,
+	dataDir?: string,
+): FtsHit<ContextEventRow>[] {
+	const conn = getDb(dataDir);
+	const ftsQuery = toFtsQuery(query);
+	if (!ftsQuery) return [];
+	const rows = conn
+		.prepare(
+			`SELECT ce.id, ce.timestamp, ce.type, ce.source, ce.data_json, bm25(context_events_fts) AS score
+			 FROM context_events_fts
+			 JOIN context_events ce ON ce.rowid = context_events_fts.rowid
+			 WHERE context_events_fts MATCH ?
+			 ORDER BY score
+			 LIMIT ?`,
+		)
+		.all(ftsQuery, limit) as Array<{
+		id: string;
+		timestamp: number;
+		type: string;
+		source: string;
+		data_json: string;
+		score: number;
+	}>;
+	return mapContextEventRows(rows).map((row, i) => ({ row, score: rows[i]!.score }));
+}
+
+/** 全文搜 episodes（intent/summary/goal），按 bm25 排序。 */
+export function searchEpisodes(query: string, limit = 20, dataDir?: string): FtsHit<Episode>[] {
+	const conn = getDb(dataDir);
+	const ftsQuery = toFtsQuery(query);
+	if (!ftsQuery) return [];
+	const rows = conn
+		.prepare(
+			`SELECT e.rowid AS _rowid, bm25(episodes_fts) AS score
+			 FROM episodes_fts
+			 JOIN episodes e ON e.rowid = episodes_fts.rowid
+			 WHERE episodes_fts MATCH ?
+			 ORDER BY score
+			 LIMIT ?`,
+		)
+		.all(ftsQuery, limit) as Array<{ _rowid: number; score: number }>;
+	if (!rows.length) return [];
+	return rows
+		.map((r) => {
+			const row = conn
+				.prepare(`${EPISODE_SELECT} WHERE rowid = ?`)
+				.get(r._rowid) as EpisodeRow | undefined;
+			return row ? { row: mapEpisodeRow(row), score: r.score } : null;
+		})
+		.filter((hit): hit is FtsHit<Episode> => hit !== null);
 }

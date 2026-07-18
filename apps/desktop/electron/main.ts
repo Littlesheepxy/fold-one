@@ -1,9 +1,9 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, powerSaveBlocker, screen, shell } from "electron";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { ContextEngine, isClipboardRecallIntent, resolveClipboardRecall, type ContextEvent } from "@fold/context";
+import { ContextEngine, extractClipboardContentQuery, isClipboardContentRecallIntent, isClipboardRecallIntent, resolveClipboardRecall, type ContextEvent } from "@fold/context";
 import { captureScreenshot, createNangoConnectLink, openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal, openOfficeSetupInTerminal, openWorkBuddyApp, activateAgentConnectFlow, cancelConnectFlow, pollConnectFlow, resolveConnectTarget, startConnectFlow } from "@fold/connectors";
-import { saveContextEvent, listContextEvents, saveVoiceInteraction, listMemoryEntities, saveProductEvent, deactivateMemory, removeProfileConstraint } from "@fold/memory";
+import { saveContextEvent, listContextEvents, saveVoiceInteraction, listMemoryEntities, saveProductEvent, deactivateMemory, removeProfileConstraint, searchContextEvents } from "@fold/memory";
 import {
 	hasPlannerApiKey,
 	buildWeeklyRecap,
@@ -1096,7 +1096,33 @@ async function structureVoiceTranscript(
 	});
 	try {
 		if (isClipboardRecallIntent(text)) {
-			const recall = resolveClipboardRecall(text, ctx.recentClipboards ?? []);
+			let recall = resolveClipboardRecall(text, ctx.recentClipboards ?? []);
+			if (!recall.ok && isClipboardContentRecallIntent(text)) {
+				const hits = searchContextEvents(extractClipboardContentQuery(text), 5);
+				const clipHit = hits.find((h) => h.row.type === "clipboard.changed");
+				if (clipHit && typeof clipHit.row.data.text === "string") {
+					const when = new Date(clipHit.row.timestamp).toLocaleString("zh-CN", {
+						month: "numeric",
+						day: "numeric",
+						hour: "2-digit",
+						minute: "2-digit",
+					});
+					const where = (clipHit.row.data.appName as string) ?? "未知应用";
+					recall = {
+						ok: true,
+						summary: `找到匹配的复制（${when} · ${where}）：${clipHit.row.data.text.slice(0, 240)}`,
+						text: clipHit.row.data.text,
+						entry: {
+							id: clipHit.row.id,
+							text: clipHit.row.data.text,
+							timestamp: clipHit.row.timestamp,
+							appName: (clipHit.row.data.appName as string) ?? null,
+							windowTitle: (clipHit.row.data.windowTitle as string) ?? null,
+							appPath: (clipHit.row.data.appPath as string) ?? null,
+						},
+					};
+				}
+			}
 			recordVoiceInteraction("structure", text, recall.summary);
 			emitState({
 				status: "done",
