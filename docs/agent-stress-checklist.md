@@ -122,11 +122,26 @@ pnpm exec tsx scripts/read-stress-log.ts --since=30m
 用 T6 dry-run 里真实 ASR 引擎（sherpa_zipformer/paraformer）啃 TTS 音频后吐出的错字文本（如 `sure face`→应为 `InputSurface`、`on`→应为 `ARR`），直接灌进产品的 `structureSpeechText` 纠错函数验证，起初 **0/4** 关键词纠回来，查出两个问题：
 
 1. **`generateFastText`/`generateFastVision` 硬编码 temperature，Kimi Code Plan 接口只接受 1**：`.env` 里 `FOLD_PLANNER_PROVIDER=moonshot` 走的是 `MOONSHOT_BASE_URL` 指向的 Kimi Code Plan 端点，该端点要求 `temperature` 必须等于 1，但 `structure-speech.ts`/`predict-drafts.ts` 三处硬编码了 0.2/0.35/0.4，全部收到 `400 invalid temperature`。因为上层都有 `catch { return heuristicStructure(text) }` 式静默兜底，**从不报错**，直接退化成本地啟发式清洗（去口头禅，不纠专名）——语音专名纠错、AI 代回草稿、Aha 主动提示三个云端能力，在当前 `.env` 配置下全部静默失效。已修：`fast-text.ts`/`fast-vision.ts` 在 `choice.provider === "moonshot"` 时强制 `temperature=1`，回归见 `packages/ai/src/fast-text.self-check.ts`。
-2. **`profileKeywords` 在真实语音链路里从没传过**：`structureSpeechText` 的 `profileKeywords` 纠错入参此前只在 onboarding 演示页（`onboarding-compare.ts`）用到，`main.ts` 里两处真实语音调用都没传——机制设计上就没接上生产链路。已接：`main.ts` 两处都改成 `profileKeywords: extractProfileKeywords(loadProfileMemories())`。
+2. **`profileKeywords` 在真实语音链路里从没传过**：`structureSpeechText` 的 `profileKeywords` 纠错入参此前只在 onboarding 演示页（`onboarding-compare.ts`）用到，`main.ts` 里两处真实语音调用都没传——机制设计上就没接上生产链路。已接：`main.ts` 两处都改成 `profileKeywords: getSpeechHotwords()`（见下「热词合并」）。
 
 修完后拿同一批错字文本重跑：**2/4**（`Fast Path`、`ARR` 纠对了；`InputSurface`/`ThoughtSurface`、`compare/branch/diff` 这两条云端模型返回空结果，退回本地兜底，看起来是 `moonshot-v1-8k` 这个快模型本身对高度混乱的中英混杂错字处理不稳，不是代码 bug）。
 
 **新发现但没动的架构问题**：`shouldCleanSpeechLocally()` 对所有单句、≤200 字的输入（V1–V8 全部命中）会直接短路走本地啟发式，**根本不会调用云端**，`profileKeywords` 纠错在这类短语音命令上目前形同没接——这是刻意的低延迟设计（短命令快、长语音才上云修正），但意味着「专名容易被吃掉」这类问题恰好集中在被短路掉的那一类命令上。是否要为命中已知专名的短命令破例走云端，是产品取舍问题，本次没动，需要单独决定。
+
+### 热词合并（07-19）：profile + 输入法词库
+
+`structureSpeechText` 的 `profileKeywords` 现在由 `resolveSpeechHotwords()`（`packages/runtime/src/speech-hotwords.ts`）统一产出：profile 专名（`extractProfileKeywords`，角色/领域/工具/摘要/迁移档案抽取）优先，已导入的输入法词库（`loadImportedInputHabits()`，`hot_word` > `text_replacement` > `word` > `phrase`）补足余量，去重后截 12 个（宁少勿多，避免净化 prompt 膨胀）。未导入词库时行为与之前一致（仅 profile）。
+
+**补测法**（验证词库真的起作用）：
+1. 设置 → Input Habit Scanner → 一键导入 PoC，确认"已导入 N 条"且无报错。
+2. 从导入样例里挑一条日常口语不太可能自动识别的词（如自定义缩写/小众专名），用它造一句语音指令（长句 >200 字、或多句，避开上面 `shouldCleanSpeechLocally` 的短路）。
+3. 真说一遍，看 `read-stress-log` 报告里该词在净化后 outcome 的命中：词库导入前净化丢了、导入后纠回来 = 热词通路通了。
+
+### 自动 Aha 主动建议（07-19）
+
+后台监测 → 系统通知 → 点通知进完整预测卡（复用现有 `PredictConfirmCard` 交互）。核心决策：`packages/runtime/src/aha-proactive.ts` 的 `decideAhaProactiveShow()`，信心 + top 建议信心双高阈值（normal 档 0.72/0.8），冷却 + 每日上限节制。档位（`FoldConfig.ahaProactiveFrequency`）：off（默认）/ low（30min·3次）/ normal（10min·6次）/ high（3min·12次）。首页「知更 注意到了」框右上角可直接调档；后台每 60s 检查一次（`startAhaProactiveLoop`），弹出用 macOS 系统通知（不抢焦点、尊重勿扰模式），点通知才弹自有卡（`ahaProactiveReason` 标记「主动建议」，反馈 surface 与手动触发区分）。
+
+**补测法**：设置 normal 档 → 在一个聊天 App 里停留 ≥2 分钟（让情境信心升上去）→ 等系统通知弹出；点通知 → 预测卡应显示「主动建议 · 猜你想做」；Esc 关 → dismiss 落库（surface=task）。
 
 ### T6 dry-run 记录（07-18）
 

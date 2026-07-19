@@ -1,13 +1,14 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, powerSaveBlocker, screen, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Notification, powerSaveBlocker, screen, shell } from "electron";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ContextEngine, extractClipboardContentQuery, isClipboardContentRecallIntent, isClipboardRecallIntent, resolveClipboardRecall, type ContextEvent } from "@fold/context";
 import { captureScreenshot, createNangoConnectLink, openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal, openOfficeSetupInTerminal, openWorkBuddyApp, activateAgentConnectFlow, cancelConnectFlow, pollConnectFlow, resolveConnectTarget, startConnectFlow } from "@fold/connectors";
-import { saveContextEvent, listContextEvents, saveVoiceInteraction, listMemoryEntities, saveProductEvent, deactivateMemory, removeProfileConstraint, searchContextEvents, loadProfileMemories } from "@fold/memory";
+import { saveContextEvent, listContextEvents, saveVoiceInteraction, listMemoryEntities, saveProductEvent, deactivateMemory, removeProfileConstraint, searchContextEvents, loadProfileMemories, type UserProfileData } from "@fold/memory";
 import {
+	ahaProactiveTierFor,
+	decideAhaProactiveShow,
 	hasPlannerApiKey,
 	buildWeeklyRecap,
-	extractProfileKeywords,
 	markWeeklyRecapShown,
 	recallHabitsFromUsage,
 	resolveEntitlements,
@@ -144,6 +145,7 @@ import {
 	shouldUseSmartVoice,
 } from "./voice-setup.js";
 import { scanInputHabits, listInstalledInputMethods } from "./input-habit-scanner/index.js";
+import { resolveSpeechHotwords } from "@fold/runtime";
 import { exportInputHabitsToRime } from "./input-habit-scanner/export-rime.js";
 import {
 	importInputHabitsOneClick,
@@ -303,6 +305,16 @@ function snapshotContextEvents() {
 		source: e.source,
 		data: e.data as Record<string, unknown>,
 	}));
+}
+
+/** 语音纠错热词：profile 专名 + 已导入输入法词库（未导入则只用 profile）。 */
+function getSpeechHotwords(): string[] {
+	const profile: UserProfileData | null = loadProfileMemories();
+	const imported = loadImportedInputHabits();
+	return resolveSpeechHotwords({
+		profile,
+		lexicon: imported?.entries ?? [],
+	});
 }
 
 function recordVoiceInteraction(
@@ -887,6 +899,100 @@ function getCursorInOverlay(): { x: number; y: number } {
 	return cursorPointInOverlay(overlayWindow);
 }
 
+// ---- 自动 Aha 主动建议（后台监测 → 系统通知 → 点通知进卡） ----
+let ahaProactiveTimer: ReturnType<typeof setInterval> | null = null;
+let ahaProactiveLastShownAt = 0;
+let ahaProactiveShownToday = 0;
+let ahaProactiveShownDay = "";
+let ahaProactiveRunning = false;
+
+function startAhaProactiveLoop(): void {
+	if (ahaProactiveTimer) return;
+	// 每 60s 检查一次档位与冷却；档位内具体节奏由 cooldownMs 控制。
+	ahaProactiveTimer = setInterval(() => {
+		void runAhaProactiveCheck();
+	}, 60_000);
+}
+
+async function runAhaProactiveCheck(): Promise<void> {
+	if (ahaProactiveRunning) return;
+	const frequency = loadConfig().ahaProactiveFrequency ?? "off";
+	const tier = ahaProactiveTierFor(frequency);
+	if (!tier) return;
+
+	const today = new Date().toDateString();
+	if (today !== ahaProactiveShownDay) {
+		ahaProactiveShownDay = today;
+		ahaProactiveShownToday = 0;
+	}
+	const msSinceLastShow = ahaProactiveLastShownAt
+		? Date.now() - ahaProactiveLastShownAt
+		: Infinity;
+
+	ahaProactiveRunning = true;
+	try {
+		const ctx = contextEngine.getLiveContext();
+		const result = await streamAhaGuessForHome(
+			ctx,
+			undefined,
+			() => {},
+			() => false,
+		);
+		const decision = decideAhaProactiveShow({
+			enabled: true,
+			confidence: {
+				score: result.confidenceScore ?? 0,
+				level: result.confidenceLevel ?? "low",
+				reasons: [],
+			},
+			suggestions: result.suggestions,
+			msSinceLastShow,
+			shownToday: ahaProactiveShownToday,
+			maxPerDay: tier.maxPerDay,
+			cooldownMs: tier.cooldownMs,
+			confidenceThreshold: tier.confidenceThreshold,
+			suggestionThreshold: tier.suggestionThreshold,
+		});
+		if (!decision.show) return;
+
+		const top = result.suggestions[0]!;
+		const notification = new Notification({
+			title: "知更 猜你想做",
+			body: `${top.label} · 点「看看」展开`,
+			silent: true,
+		});
+		notification.on("click", () => {
+			showAhaProactiveCard(result);
+		});
+		notification.show();
+		ahaProactiveLastShownAt = Date.now();
+		ahaProactiveShownToday += 1;
+	} catch {
+		// 后台监测失败静默，不打扰用户
+	} finally {
+		ahaProactiveRunning = false;
+	}
+}
+
+function showAhaProactiveCard(result: Awaited<ReturnType<typeof streamAhaGuessForHome>>): void {
+	createOverlayWindow();
+	const ctx = contextEngine.getLiveContext();
+	emitState({
+		status: "predict",
+		...clearPredictState(),
+		predictMode: "full",
+		predictPhase: "pick",
+		predictSurface: "task",
+		predictAnchor: ctx.activeWindow ?? ctx.activeApp ?? null,
+		predictSuggestions: result.suggestions,
+		predictCursor: getCursorInOverlay(),
+		contextAppName: ctx.activeApp,
+		contextAppPath: ctx.activeAppPath,
+		contextWindowTitle: ctx.activeWindow,
+		ahaProactiveReason: "自动建议",
+	});
+}
+
 function clearPredictState(): Partial<FoldStateEvent> {
 	return {
 		predictMode: null,
@@ -1115,9 +1221,10 @@ async function structureVoiceTranscript(
 				: await structureSpeechText(text, {
 						app,
 						windowTitle: onboardingVoiceWindowTitle ?? "Onboarding",
-						profileKeywords: extractProfileKeywords(loadProfileMemories()),
+						profileKeywords: getSpeechHotwords(),
 						allowCloud: smartAccess.allowed,
 						preferQuality: true,
+						cleanupLevel: loadConfig().speechCleanupLevel ?? "smart",
 					});
 			const body = [structured.headline, structured.detail]
 				.map((part) => part.trim())
@@ -1202,8 +1309,9 @@ async function structureVoiceTranscript(
 						structureSpeechText(text, {
 							app: ctx.activeApp,
 							windowTitle: ctx.activeWindow,
-							profileKeywords: extractProfileKeywords(loadProfileMemories()),
+							profileKeywords: getSpeechHotwords(),
 							allowCloud: useLocal ? false : smartAccess.allowed,
+							cleanupLevel: loadConfig().speechCleanupLevel ?? "smart",
 							onCloudSuccess: smartAccess.usesTrial
 								? () => {
 										consumeSmartActionTrial();
@@ -2600,6 +2708,7 @@ app.whenReady().then(() => {
 	createOverlayWindow();
 	registerHotkeys();
 	void refreshPredictCacheEnriched(contextEngine.getLiveContext());
+	startAhaProactiveLoop();
 
 	// Development-only product E2E entry. This deliberately enters through
 	// executeTask (the same IPC/voice path), never by calling runtime/connectors directly.

@@ -118,6 +118,20 @@ export {
 	extractProfileKeywords,
 	type OnboardingDemoSentence,
 } from "./profile-brief.js";
+export {
+	resolveSpeechHotwords,
+	type SpeechHotwordLexiconEntry,
+} from "./speech-hotwords.js";
+export {
+	ahaProactiveTierFor,
+	AHA_PROACTIVE_TIERS,
+	decideAhaProactiveShow,
+	DEFAULT_AHA_PROACTIVE,
+	type AhaProactiveFrequency,
+	type AhaProactiveGateInput,
+	type AhaProactiveGateDecision,
+	type AhaProactiveTier,
+} from "./aha-proactive.js";
 export { runPlan } from "./executor.js";
 export { formatRelevantEpisodes } from "./episode-context.js";
 export { formatProbeSummary, runProbes } from "./probe-runner.js";
