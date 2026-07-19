@@ -90,6 +90,8 @@ export interface FoldStateEvent {
 	voiceHint?: string | null;
 	/** 悬浮球所在显示器 workArea，overlay 窗口内坐标（多屏 span 下吸附边界） */
 	widgetDisplayBounds?: { x: number; y: number; width: number; height: number } | null;
+	/** 自动 Aha 主动弹出的原因（用户手动按热键触发时为空） */
+	ahaProactiveReason?: string | null;
 	/** 转写完成且未开启自动插入时，展示可编辑草稿卡 */
 	structureDraftOpen?: boolean;
 	/** 语音待机截止时间戳（ms）；非空且未过期时热键可复用目标 App */

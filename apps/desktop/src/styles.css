@@ -3310,6 +3310,34 @@ body:has(.react-grid-item.resizing) {
   color: #b25000;
 }
 
+.fold-aha-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fold-aha-frequency {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.fold-aha-frequency-label {
+  font-size: 11px;
+  color: #86868b;
+  white-space: nowrap;
+}
+
+.fold-aha-frequency-select {
+  border: 1px solid rgb(0 0 0 / 0.1);
+  border-radius: 6px;
+  background: #fff;
+  color: #1d1d1f;
+  font-size: 11px;
+  padding: 3px 6px;
+  cursor: pointer;
+}
+
 .fold-aha-close {
   display: inline-flex;
   align-items: center;

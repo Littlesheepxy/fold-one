@@ -198,12 +198,15 @@ function PredictSuggestions({
 	anchor,
 	suggestions,
 	mode,
+	proactive,
 	onRun,
 	onDismiss,
 }: {
 	anchor: string | null | undefined;
 	suggestions: Array<{ intent: string; label: string; confidence: number; reason: string }>;
 	mode: string | null | undefined;
+	/** 自动 Aha 主动弹出（区别于用户按热键触发的预测） */
+	proactive?: boolean;
 	onRun: (intent: string) => void;
 	onDismiss: () => void;
 }) {
@@ -321,6 +324,7 @@ export function OverlayApp() {
 		contextPageUrl,
 		contextPageLabel,
 		predictRefining,
+		ahaProactiveReason,
 		voiceTabPlacement,
 		voiceHint,
 		voiceStandbyUntil,
@@ -1061,6 +1065,7 @@ export function OverlayApp() {
 					suggestions={predictSuggestions ?? []}
 					drafts={predictDrafts}
 					memoryRefs={predictMemoryRefs}
+					proactiveReason={ahaProactiveReason}
 					loading={Boolean(predictAnchor?.includes("正在"))}
 					draftsLoading={predictDraftsLoading}
 					selectedIntent={predictSelectedIntent}
