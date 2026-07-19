@@ -13,6 +13,8 @@ export interface SpeechFormatContext {
 	allowCloud?: boolean;
 	/** 引导/演示：跳过本地快路径，优先走模型（改口、渠道语气） */
 	preferQuality?: boolean;
+	/** 转写整理程度：minimal=仅去语气词，smart=智能整理（默认），off=原文直出 */
+	cleanupLevel?: "minimal" | "smart" | "off";
 	onCloudSuccess?: () => void;
 }
 
@@ -129,7 +131,9 @@ export async function structureSpeechText(
 ): Promise<StructuredSpeech> {
 	const text = transcript.trim();
 	if (!text) return { headline: "", detail: "" };
+	if (context.cleanupLevel === "off") return { headline: text, detail: "" };
 	const cleaned = formatCleanedText(cleanSpeechText(text), context);
+	if (context.cleanupLevel === "minimal") return { headline: cleaned, detail: "" };
 	const useLocal = !context.preferQuality && shouldCleanSpeechLocally(text);
 	if (useLocal) return { headline: cleaned, detail: "" };
 	if (context.allowCloud === false || !hasFastModelApiKey()) return heuristicStructure(text);

@@ -181,6 +181,29 @@ export function SettingsSection({
 									onChange={(v) => void onPersistBoolean("structureAutoInsert", v)}
 									hint="关闭后先在 知更 草稿窗里查看、修改，再手动插入或复制"
 								/>
+								<div className="fold-home-setting-row">
+									<div className="fold-home-setting-copy">
+										<span className="fold-home-setting-row-title">转写整理程度</span>
+										<span className="fold-home-setting-row-desc">
+											仅去语气词：只清理口头禅；智能整理：按 App 场景调语气断句；关闭：原文直出
+										</span>
+									</div>
+									<label className="fold-home-field shrink-0">
+										<select
+											className="min-w-[120px]"
+											value={config.speechCleanupLevel ?? "smart"}
+											onChange={(event) => {
+												const next = { ...config, speechCleanupLevel: event.target.value as FoldConfig["speechCleanupLevel"] };
+												void window.fold.saveConfig(next);
+											}}
+											aria-label="转写整理程度"
+										>
+											<option value="minimal">仅去语气词</option>
+											<option value="smart">智能整理</option>
+											<option value="off">关闭</option>
+										</select>
+									</label>
+								</div>
 							</div>
 							<HotkeyBindingRow
 								title="Agent"
