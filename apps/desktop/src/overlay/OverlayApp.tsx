@@ -340,6 +340,7 @@ export function OverlayApp() {
 	const [panelOpen, setPanelOpen] = useState(false);
 	const [displayBounds, setDisplayBounds] = useState<DisplayBounds>(fallbackDisplayBounds);
 	const [bootstrapped, setBootstrapped] = useState(false);
+	const [smartCleanup, setSmartCleanup] = useState(true);
 	const initialPosition = useRef<WidgetPosition>({ x: 0, y: 0, snapSide: null });
 	const x = useMotionValue(initialPosition.current.x);
 	const y = useMotionValue(initialPosition.current.y);
@@ -353,6 +354,23 @@ export function OverlayApp() {
 
 	useVoiceHandlers();
 	useMousePassthrough();
+
+	useEffect(() => {
+		void window.fold.getConfig().then((config) => {
+			// Overlay 只切 smart↔minimal；设置页的 off 显示为关，避免被当成智能整理
+			setSmartCleanup((config.speechCleanupLevel ?? "smart") === "smart");
+		});
+	}, []);
+
+	const toggleSmartCleanup = async () => {
+		const nextSmart = !smartCleanup;
+		setSmartCleanup(nextSmart);
+		const config = await window.fold.getConfig();
+		await window.fold.saveConfig({
+			...config,
+			speechCleanupLevel: nextSmart ? "smart" : "minimal",
+		});
+	};
 
 	const applyWidgetPosition = (pos: WidgetPosition, area: DisplayBounds) => {
 		const next = clampWidgetPosition(pos, area);
@@ -784,16 +802,38 @@ export function OverlayApp() {
 											<p className="text-sm font-medium whitespace-nowrap">{PRODUCT_NAME} 准备好了</p>
 											<p className="mt-1 text-xs text-white/45 whitespace-nowrap">⌥Space Agent · 右⌘ 转写/代回</p>
 										</div>
-										<button
-											type="button"
-											onClick={(e) => {
-												e.stopPropagation();
-												void window.fold.toggleVoice();
-											}}
-											className="shrink-0 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-black hover:bg-white/90"
+										<div
+											className="fold-idle-cleanup"
+											onClick={(e) => e.stopPropagation()}
+											onPointerDown={(e) => e.stopPropagation()}
 										>
-											开始语音
-										</button>
+											<button
+												type="button"
+												className="fold-idle-cleanup-tip"
+												tabIndex={-1}
+												aria-hidden="true"
+												onClick={() => void toggleSmartCleanup()}
+											>
+												{smartCleanup
+													? "智能整理 · 按应用调语气"
+													: "仅去语气词 · 不跟应用走"}
+												<em>点击切换</em>
+											</button>
+											<button
+												type="button"
+												role="switch"
+												aria-checked={smartCleanup}
+												aria-label={
+													smartCleanup
+														? "当前智能整理，点击改为仅去语气词"
+														: "当前仅去语气词，点击改为智能整理"
+												}
+												className={`fold-idle-cleanup-switch${smartCleanup ? " is-on" : ""}`}
+												onClick={() => void toggleSmartCleanup()}
+											>
+												<span />
+											</button>
+										</div>
 										<IdleActionRail onOpenChange={setIdleRailOpen} />
 									</>
 								)}

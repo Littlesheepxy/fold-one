@@ -104,8 +104,47 @@ const speakOffsets = speakTokens.reduce<number[]>((acc, token, i) => {
 	return acc;
 }, []);
 
-function speakTokenClass(kind: (typeof speakTokens)[number]["kind"], cleaned: boolean) {
+const speakTargets = [
+	{
+		id: "feishu",
+		logo: "/brand/icons/feishu.svg",
+		label: "飞书",
+		scene: "项目群 · 输入框",
+		smart: "设计评审改到周四下午，麻烦大家留意；最新的设计稿链接我放在下面。",
+		badge: "已按飞书语气插入",
+	},
+	{
+		id: "wechat",
+		logo: "/brand/icons/wechat.svg",
+		label: "微信",
+		scene: "工作群 · 输入框",
+		smart: "评审改到周四下午啦，最新设计稿链接我一起带上。",
+		badge: "已按微信语气插入",
+	},
+	{
+		id: "gmail",
+		logo: "/brand/icons/gmail.svg",
+		label: "邮件",
+		scene: "Gmail · 草稿",
+		smart:
+			"Hi team,\n\nThe design review has been moved to Thursday afternoon. I’ll attach the latest design draft.\n\nBest regards",
+		subject: "Design review → Thursday afternoon",
+		to: "design-team@",
+		badge: "已按邮件语气插入",
+	},
+] as const;
+
+const speakMinimalResult =
+	"帮我跟设计组说一下，评审改到周三，不对，是周四下午，把最新的设计稿链接带上。";
+
+function speakTokenClass(
+	kind: (typeof speakTokens)[number]["kind"],
+	cleaned: boolean,
+	smartMode: boolean,
+) {
 	if (!cleaned || kind === "keep") return "zg-token";
+	// 仅去语气词：只划掉口头禅；改口（slip）留给智能整理
+	if (!smartMode && kind === "slip") return "zg-token";
 	if (kind === "slip") return "zg-token zg-token-cut zg-token-slip";
 	return "zg-token zg-token-cut";
 }
@@ -115,6 +154,11 @@ function SpeakDemo() {
 	const ref = useRef<HTMLDivElement | null>(null);
 	const inView = useInView(ref, { once: true, amount: 0.45 });
 	const phase = usePhases(inView, speakPhaseTimes, reduce);
+	const [targetId, setTargetId] = useState<(typeof speakTargets)[number]["id"]>("feishu");
+	const [smartMode, setSmartMode] = useState(true);
+	const target = speakTargets.find((item) => item.id === targetId) ?? speakTargets[0];
+	const result = smartMode ? target.smart : speakMinimalResult;
+	const badge = smartMode ? target.badge : "已插入 · 只去掉口头禅";
 	const cleaned = phase >= 2;
 	const pillState =
 		phase === 0 ? "hidden" : phase <= 2 ? "listening" : phase === 3 ? "processing" : "done";
@@ -123,9 +167,15 @@ function SpeakDemo() {
 
 	return (
 		<div className="zg-demo-card zg-demo-card--speak" ref={ref}>
-			<div className="zg-demo-chrome">
-				<Mic size={14} />
-				正在听你说…
+			<div className="zg-speak-intent">
+				<span className="zg-reply-shortcut">
+					<Command size={13} />
+					<span className="zg-speak-tap">短按</span>
+				</span>
+				<div>
+					<small>短按右 ⌘ · 转写</small>
+					<p>口述进当前输入框；整理程度可用开关切换。</p>
+				</div>
 			</div>
 			<p className="zg-speak-raw" aria-label="原始口述逐字出现，口头语与改口被清理">
 				{speakTokens.map((token, i) => {
@@ -135,7 +185,7 @@ function SpeakDemo() {
 					);
 					if (visible === 0) return null;
 					return (
-						<span key={i} className={speakTokenClass(token.kind, cleaned)}>
+						<span key={i} className={speakTokenClass(token.kind, cleaned, smartMode)}>
 							{token.t.slice(0, visible)}
 						</span>
 					);
@@ -143,39 +193,94 @@ function SpeakDemo() {
 				{typing && <span className="zg-typewriter-cursor" aria-hidden="true" />}
 			</p>
 			<div className="zg-speak-pill-slot">
-				<VoicePill state={pillState} appLogo="/brand/icons/feishu.svg" />
+				<VoicePill state={pillState} appLogo={target.logo} />
+			</div>
+			<div className="zg-speak-controls">
+				<div className="zg-app-tabs" role="tablist" aria-label="插入目标">
+					{speakTargets.map((item) => (
+						<button
+							key={item.id}
+							type="button"
+							role="tab"
+							aria-selected={targetId === item.id}
+							className={targetId === item.id ? "is-active" : ""}
+							onClick={() => setTargetId(item.id)}
+						>
+							<img src={item.logo} alt="" width={14} height={14} />
+							{item.label}
+						</button>
+					))}
+				</div>
+				<div className="zg-speak-mode">
+					<span className={!smartMode ? "is-on" : ""}>仅去语气词</span>
+					<button
+						type="button"
+						role="switch"
+						aria-checked={smartMode}
+						aria-label="智能整理：按应用调语气"
+						className={`zg-speak-switch${smartMode ? " is-on" : ""}`}
+						onClick={() => setSmartMode((value) => !value)}
+					>
+						<span />
+					</button>
+					<span className={smartMode ? "is-on" : ""}>智能整理</span>
+				</div>
 			</div>
 			<motion.div
-				className="zg-speak-compose"
+				className={`zg-speak-compose${target.id === "gmail" && smartMode ? " zg-speak-compose--mail" : ""}`}
 				initial={{ opacity: 0, y: 14 }}
 				animate={phase >= 1 ? { opacity: 1, y: 0 } : {}}
 				transition={{ duration: 0.45 }}
 			>
 				<div className="zg-speak-compose-head">
 					<span className="zg-speak-compose-logo">
-						<img src="/brand/icons/feishu.svg" alt="" width={22} height={22} />
+						<img src={target.logo} alt="" width={22} height={22} />
 					</span>
 					<div>
-						<strong>飞书 · 项目群</strong>
-						<span className="zg-speak-compose-meta">输入框</span>
+						<strong>{target.label}</strong>
+						<span className="zg-speak-compose-meta">
+							{smartMode ? target.scene : "仅去语气词 · 不跟应用走"}
+						</span>
 					</div>
 				</div>
 				<div className="zg-speak-compose-body">
+					{target.id === "gmail" && smartMode && "to" in target ? (
+						<div className="zg-mail-headers" aria-hidden="true">
+							<div>
+								<span>To</span>
+								<em>{target.to}</em>
+							</div>
+							<div>
+								<span>Subject</span>
+								<em>{target.subject}</em>
+							</div>
+						</div>
+					) : null}
 					<motion.p
+						key={`${target.id}-${smartMode ? "smart" : "minimal"}`}
 						initial={{ opacity: 0 }}
 						animate={phase >= 4 ? { opacity: 1 } : { opacity: 0 }}
 						transition={{ duration: 0.35 }}
+						className={target.id === "gmail" && smartMode ? "zg-mail-body" : undefined}
 					>
-						设计评审改到周四下午，麻烦大家留意；最新的设计稿链接我放在下面。
+						{result}
 					</motion.p>
-					<div className="zg-speak-compose-bar" aria-hidden="true">
-						<span>＋</span>
-						<span>Aa</span>
-						<span>☺</span>
-						<button type="button" tabIndex={-1} disabled>
-							发送
-						</button>
-					</div>
+					{!(target.id === "gmail" && smartMode) ? (
+						<div className="zg-speak-compose-bar" aria-hidden="true">
+							<span>＋</span>
+							<span>Aa</span>
+							<span>☺</span>
+							<button type="button" tabIndex={-1} disabled>
+								发送
+							</button>
+						</div>
+					) : (
+						<div className="zg-mail-actions" aria-hidden="true">
+							<button type="button" tabIndex={-1} disabled>
+								Send
+							</button>
+						</div>
+					)}
 				</div>
 				<motion.span
 					className="zg-done-badge"
@@ -184,10 +289,12 @@ function SpeakDemo() {
 					transition={{ duration: 0.3 }}
 				>
 					<Check size={13} />
-					已按飞书格式插入
+					{badge}
 				</motion.span>
 			</motion.div>
-			<p className="zg-demo-footnote">同一句话，进邮件会更正式，进文档会带上结构 —— 格式跟着目标应用走。</p>
+			<p className="zg-demo-footnote">
+				智能整理：改口会修好，并按飞书 / 微信 / 邮件调语气。仅去语气词：只去掉嗯呃，原话结构不动。
+			</p>
 		</div>
 	);
 }
@@ -221,15 +328,14 @@ function useTypewriter(text: string, active: boolean, skip: boolean, speed = 42)
 	return text.slice(0, count);
 }
 
-const contextPhaseTimes = [900, 1700, 2300, 2900] as const;
+const contextPhaseTimes = [800, 1600] as const;
 
 function ContextDemo() {
 	const reduce = Boolean(useReducedMotion());
 	const ref = useRef<HTMLDivElement | null>(null);
 	const inView = useInView(ref, { once: true, amount: 0.4 });
 	const phase = usePhases(inView, contextPhaseTimes, reduce);
-	const typed = useTypewriter(contextResultText, phase >= 4, reduce);
-	const typingDone = typed.length >= contextResultText.length;
+	const [cardOpen, setCardOpen] = useState(false);
 
 	return (
 		<div className="zg-demo-card" ref={ref}>
@@ -262,105 +368,128 @@ function ContextDemo() {
 					</p>
 				</motion.div>
 			)}
-			{phase >= 2 && phase < 4 && !reduce && (
-				<motion.div
-					className="zg-context-processing"
-					initial={{ opacity: 0, y: 8 }}
-					animate={{ opacity: 1, y: 0 }}
-					exit={{ opacity: 0 }}
-					transition={{ duration: 0.35 }}
-				>
-					<Sparkles size={14} />
-					按这个场景写回复…
-				</motion.div>
-			)}
-			{(phase >= 3 || reduce) && (
-				<motion.div
-					className="zg-context-result"
-					initial={{ opacity: 0, y: 14 }}
-					animate={{ opacity: 1, y: 0 }}
-					transition={{ duration: 0.4 }}
-				>
-					<motion.p
-						className="zg-context-line zg-context-line-raw"
-						initial={{ opacity: 0 }}
-						animate={phase >= 3 || reduce ? { opacity: 1 } : {}}
-						transition={{ duration: 0.35 }}
+			{(phase >= 2 || reduce) && (
+				<>
+					<motion.button
+						type="button"
+						className="zg-aha-notification"
+						initial={{ opacity: 0, y: 10 }}
+						animate={{ opacity: 1, y: 0 }}
+						transition={{ duration: 0.4 }}
+						onClick={() => setCardOpen(true)}
+						aria-expanded={cardOpen}
+						aria-controls="zg-aha-popup"
 					>
-						<span>你说</span>“跟 alex 说 ios 方案今天定稿”
-					</motion.p>
-					<p className="zg-context-line">
-						<span>知更写</span>
-						{phase >= 4 || reduce ? typed : ""}
-						{(phase >= 4 || reduce) && !typingDone && <i className="zg-typewriter-cursor" aria-hidden="true" />}
-					</p>
-					<motion.p
-						className="zg-demo-footnote"
-						initial={{ opacity: 0 }}
-						animate={typingDone ? { opacity: 1 } : {}}
-						transition={{ duration: 0.35 }}
-					>
-						它先猜你在做「知更 iOS」，再把口语补成可直接发出的回复 —— 项目名、称呼、语气都对上了。
-					</motion.p>
-				</motion.div>
+						<div className="zg-aha-notification-head">
+							<img src="/zhigeng-mark.png" alt="" width={18} height={18} />
+							<strong>知更 猜你想做</strong>
+							<span className="zg-aha-notification-time">现在</span>
+						</div>
+						<p>
+							给 Alex 同步定稿 · 点
+							<span className="zg-aha-look">「看看」</span>
+							展开
+						</p>
+					</motion.button>
+					{cardOpen && (
+						<motion.div
+							id="zg-aha-popup"
+							className="zg-aha-popup"
+							role="dialog"
+							aria-label="主动建议"
+							initial={reduce ? false : { opacity: 0, y: 12, scale: 0.98 }}
+							animate={{ opacity: 1, y: 0, scale: 1 }}
+							transition={{ duration: 0.3 }}
+						>
+							<header>
+								<span>
+									<Sparkles size={14} />
+									主动建议
+								</span>
+								<button type="button" onClick={() => setCardOpen(false)} aria-label="关闭">
+									关闭
+								</button>
+							</header>
+							<strong>给 Alex 同步定稿</strong>
+							<p>{contextResultText}</p>
+							<small>只建议，不擅自发送 · 演示</small>
+						</motion.div>
+					)}
+				</>
 			)}
-			<motion.aside
-				className="zg-privacy"
-				initial={{ opacity: 0 }}
-				animate={typingDone ? { opacity: 1 } : {}}
-				transition={{ delay: 0.3, duration: 0.4 }}
-				aria-label="隐私说明"
-			>
-				<p className="zg-privacy-title">
-					<Lock size={14} />
-					<strong>本地优先 · 用完即走</strong>
-				</p>
-				<p>
-					窗口、对话、网页、剪贴板与文件线索默认只在需要时启用，并留在你的 Mac 上。调用模型时，只把完成指令所需的片段直达所选
-					AI，不经我们的服务器落盘；所选模型遵循不用于训练的原则。每一项来源都可以单独关闭。
-				</p>
-				<Link href="/privacy" className="zg-privacy-link">
-					了解隐私原则
-				</Link>
-			</motion.aside>
+			{(phase >= 2 || reduce) && (
+				<motion.p
+					className="zg-context-foot"
+					initial={{ opacity: 0 }}
+					animate={{ opacity: 1 }}
+					transition={{ delay: 0.15, duration: 0.35 }}
+				>
+					你开口时，会写成「{contextResultText}」——一条可用文字，不是多选。
+					{" "}
+					<Link href="/privacy" className="zg-privacy-link">
+						<Lock size={12} />
+						本地优先
+					</Link>
+				</motion.p>
+			)}
 		</div>
 	);
 }
 
-/* ── 03 智能写与回 ─────────────────────────────── */
+/* ── 03 情境代回 ─────────────────────────────── */
 
-const replyResults = [
+const replyApps = [
 	{
 		id: "feishu",
-		app: "飞书",
 		logo: "/brand/icons/feishu.svg",
+		label: "飞书",
 		scene: "工作 IM · 知更 iOS 群",
-		result: "知更 iOS 方案已定稿，最终 Deck 将在周三前同步；今天的结论我也整理好了。",
-	},
-	{
-		id: "gmail",
-		app: "Gmail",
-		logo: "/brand/icons/gmail.svg",
-		scene: "正式邮件 · Sarah",
-		result:
-			"Hi Sarah, the Zhigeng iOS plan is now finalized. I’ll send the final deck by Wednesday, together with a concise summary of today’s decisions.",
+		drafts: [
+			{ id: "a", tone: "直接", text: "知更 iOS 方案今天定稿，最终 Deck 周三前发大家。" },
+			{ id: "b", tone: "带结论", text: "方案已定稿。Deck 周三前同步，今天的决策我也整理好了。" },
+			{ id: "c", tone: "轻松", text: "iOS 方案定了，Deck 周三前发，今日结论一并附上。" },
+		],
 	},
 	{
 		id: "wechat",
-		app: "微信",
 		logo: "/brand/icons/wechat.svg",
+		label: "微信",
 		scene: "熟人沟通 · 王姐",
-		result: "王姐，知更 iOS 定稿啦。最终版周三前发你，今天聊的重点我也顺手整理好了。",
+		drafts: [
+			{ id: "a", tone: "口语", text: "王姐，知更 iOS 定稿啦，Deck 周三前发你。" },
+			{ id: "b", tone: "完整", text: "王姐，知更 iOS 方案定稿了，最终版周三前发，今天聊的重点我也整理好了。" },
+			{ id: "c", tone: "简短", text: "王姐，定稿了，Deck 周三前发你～" },
+		],
 	},
 	{
-		id: "notion",
-		app: "Notion",
-		logo: "/brand/icons/notion.svg",
-		scene: "文档 · 项目主页",
-		title: "知更 iOS · 定稿记录",
-		points: ["最终 Deck：周三前发送", "今日决策：已整理至项目页"],
+		id: "gmail",
+		logo: "/brand/icons/gmail.svg",
+		label: "邮件",
+		scene: "正式邮件 · Sarah",
+		drafts: [
+			{
+				id: "a",
+				tone: "正式",
+				subject: "Zhigeng iOS plan finalized",
+				text: "Hi Sarah,\n\nThe Zhigeng iOS plan is now finalized. I’ll send the final deck by Wednesday.\n\nBest regards",
+			},
+			{
+				id: "b",
+				tone: "简洁",
+				subject: "iOS plan — deck by Wed",
+				text: "Hi Sarah,\n\niOS plan is set. Deck by Wednesday.\n\nThanks",
+			},
+			{
+				id: "c",
+				tone: "带上下文",
+				subject: "Zhigeng iOS — final deck + today’s decisions",
+				text: "Hi Sarah,\n\nThe Zhigeng iOS plan is finalized. I’ll send the final deck by Wednesday, with a short summary of today’s decisions.\n\nBest regards",
+			},
+		],
 	},
 ] as const;
+
+const replyPhaseTimes = [600, 1500, 2400, 3200] as const;
 
 const replyStep = (delay: number) => ({
 	hidden: { opacity: 0, y: 12 },
@@ -371,6 +500,18 @@ function ReplyDemo() {
 	const reduce = Boolean(useReducedMotion());
 	const ref = useRef<HTMLDivElement | null>(null);
 	const inView = useInView(ref, { once: true, amount: 0.35 });
+	const [appId, setAppId] = useState<(typeof replyApps)[number]["id"]>("feishu");
+	const [selected, setSelected] = useState<string | null>(reduce ? "a" : null);
+	const phase = usePhases(inView, replyPhaseTimes, reduce);
+	const app = replyApps.find((item) => item.id === appId) ?? replyApps[0];
+
+	useEffect(() => {
+		setSelected(null);
+	}, [appId]);
+
+	useEffect(() => {
+		if (phase >= 3 && !selected) setSelected("a");
+	}, [phase, selected]);
 
 	return (
 		<div className="zg-demo-card zg-reply-demo" ref={ref}>
@@ -382,45 +523,87 @@ function ReplyDemo() {
 			>
 				<span className="zg-reply-shortcut">
 					<Command size={13} />
-					<Mic size={13} />
+					<span className="zg-speak-tap">长按</span>
 				</span>
 				<div>
-					<small>长按右 ⌘，随口说</small>
-					<p>“知更 iOS 方案定稿了，最终 Deck 周三前发，也把今天的结论整理一下。”</p>
+					<small>长按右 ⌘ · 代回</small>
+					<p>“跟对方说知更 iOS 方案定稿了，Deck 周三前发。”</p>
 				</div>
 			</motion.div>
+
+			{phase >= 1 && (
+				<div className="zg-reply-targets">
+					<div className="zg-app-tabs" role="tablist" aria-label="代回所在应用">
+						{replyApps.map((item) => (
+							<button
+								key={item.id}
+								type="button"
+								role="tab"
+								aria-selected={appId === item.id}
+								className={appId === item.id ? "is-active" : ""}
+								onClick={() => setAppId(item.id)}
+							>
+								<img src={item.logo} alt="" width={14} height={14} />
+								{item.label}
+							</button>
+						))}
+					</div>
+					<p className="zg-reply-scene">
+						<img src={app.logo} alt="" width={16} height={16} />
+						<span>{app.scene}</span>
+					</p>
+				</div>
+			)}
+
 			<motion.div
-				className="zg-reply-results"
+				className="zg-reply-drafts"
+				key={app.id}
 				initial={reduce ? false : "hidden"}
 				animate={inView || reduce ? "visible" : "hidden"}
 			>
-				{replyResults.map((result, i) => (
-					<motion.article key={result.id} variants={replyStep(0.18 + i * 0.12)}>
-						<header>
-							<span className="zg-reply-app-logo">
-								<img src={result.logo} alt="" width={22} height={22} />
-							</span>
-							<div>
-								<strong>{result.app}</strong>
-								<small>{result.scene}</small>
-							</div>
-						</header>
-						{"title" in result ? (
-							<div className="zg-reply-notion">
-								<b>{result.title}</b>
-								<ul>
-									{result.points.map((point) => (
-										<li key={point}>{point}</li>
-									))}
-								</ul>
-							</div>
-						) : (
-							<p>{result.result}</p>
+				{app.drafts.map((draft, i) => (
+					<motion.button
+						key={`${app.id}-${draft.id}`}
+						type="button"
+						className={`zg-reply-draft${selected === draft.id ? " is-selected" : ""}`}
+						variants={replyStep(0.15 + i * 0.12)}
+						onClick={() => setSelected(draft.id)}
+						disabled={phase < 2}
+					>
+						<span className="zg-reply-draft-tone">{draft.tone}</span>
+						{"subject" in draft ? (
+							<span className="zg-reply-draft-subject">Subject · {draft.subject}</span>
+						) : null}
+						<p className={"subject" in draft ? "zg-mail-body" : undefined}>{draft.text}</p>
+						{selected === draft.id && (
+							<motion.span
+								className="zg-reply-draft-check"
+								initial={{ scale: 0 }}
+								animate={{ scale: 1 }}
+								transition={{ duration: 0.2 }}
+							>
+								<Check size={14} />
+							</motion.span>
 						)}
-					</motion.article>
+					</motion.button>
 				))}
 			</motion.div>
-			<p className="zg-demo-footnote">同一句意思，进不同应用，就成为语气与结构都合适的样子。</p>
+
+			{phase >= 3 && selected && (
+				<motion.div
+					className="zg-reply-inserted"
+					initial={{ opacity: 0, y: 10 }}
+					animate={{ opacity: 1, y: 0 }}
+					transition={{ duration: 0.4 }}
+				>
+					<Check size={15} />
+					已插入 {app.label} 输入框，可继续编辑或发送
+				</motion.div>
+			)}
+
+			<p className="zg-demo-footnote">
+				代回：读当前对话，给出多条草案；换到飞书 / 微信 / 邮件，语气跟着变。写是一条整理好的文字，不是多选。
+			</p>
 		</div>
 	);
 }
@@ -428,7 +611,7 @@ function ReplyDemo() {
 /* ── 04 Agent 执行 ─────────────────────────────── */
 
 const agentRoutes = [
-	{ logo: "/zhigeng-mark.png", label: "知更快捷执行", meta: "消息 · 整理文件 · 授权后执行", direct: true },
+	{ logo: "/zhigeng-mark.png", label: "知更快捷执行", meta: "消息 · 文件 · 授权后执行", direct: true },
 	{ logo: "/brand/icons/codex.svg", label: "Codex", meta: "本地已连接" },
 	{ logo: "/brand/icons/claude.svg", label: "Claude Code", meta: "本地已连接" },
 	{ logo: "/brand/icons/workbuddy.png", label: "WorkBuddy", meta: "本地已连接" },
@@ -518,7 +701,7 @@ function MemorySection() {
 	const reduce = Boolean(useReducedMotion());
 
 	return (
-		<section className="zg-feature zg-feature-panel zg-feature--warm" id="memory" aria-label="记忆与主动协助">
+		<section className="zg-feature zg-feature-panel zg-feature--warm" id="memory" aria-label="记忆">
 			<FeatureCopy
 				index="05 · 记忆"
 				title="越用，越懂你的工作方式"
@@ -645,7 +828,7 @@ export function FeatureShowcase() {
 				<FeatureCopy
 					index="01 · 语音输入"
 					title="一开口，就是可用的文字"
-					lead="不是逐字记录你说的话，而是写下你想说的话。"
+					lead="短按右 ⌘。不是逐字记录，而是写下你想说的话；可用开关在「智能整理」与「仅去语气词」之间切换。"
 				/>
 				<div className="zg-feature-demo">
 					<SpeakDemo />
@@ -656,18 +839,18 @@ export function FeatureShowcase() {
 				<FeatureCopy
 					index="02 · 理解当下"
 					title="它知道你正在做什么"
-					lead="先猜你在推进哪件事，再把含糊口令写成可直接发出的回复。窗口、对话与文件线索默认留在本地。"
+					lead="先猜你在推进哪件事。高信心时用系统通知主动建议——只提醒，不执行。线索默认留在本地。"
 				/>
 				<div className="zg-feature-demo">
 					<ContextDemo />
 				</div>
 			</section>
 
-			<section className="zg-feature" id="reply" aria-label="智能写与回">
+			<section className="zg-feature" id="reply" aria-label="情境代回">
 				<FeatureCopy
-					index="03 · 写与回"
-					title="一开口，写与回都恰到好处"
-					lead="只说一次大概意思。知更读当前对话，给出多条草案，你选一条插入真实输入框——长按右 ⌘ 即可。"
+					index="03 · 代回"
+					title="读懂对话，给你几条可选回复"
+					lead="长按右 ⌘。知更读当前对话，给出多条草案；飞书、微信、邮件语气不同，你选一条插入真实输入框。"
 				/>
 				<div className="zg-feature-demo">
 					<ReplyDemo />

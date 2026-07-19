@@ -8,8 +8,8 @@
   },
   "scripts": {
 	"typecheck": "tsc --noEmit",
-	"test:run-store": "pnpm exec tsx src/run.self-check.ts",
-	"test:recipe": "pnpm exec tsx src/recipe.self-check.ts"
+	"test:run-store": "node ../../scripts/ensure-better-sqlite3.mjs node && pnpm exec tsx src/run.self-check.ts",
+	"test:recipe": "node ../../scripts/ensure-better-sqlite3.mjs node && pnpm exec tsx src/recipe.self-check.ts"
   },
   "dependencies": {
     "@fold/ai": "workspace:*",

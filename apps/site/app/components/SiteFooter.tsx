@@ -28,7 +28,7 @@ export function SiteFooter() {
 				))}
 			</nav>
 			<p className="zg-footer-meta">
-				© {new Date().getFullYear()} 知更 · 为 macOS 而生 ·{" "}
+				© {new Date().getFullYear()} 知更 · 知你所言，才更懂你意 ·{" "}
 				<a href="mailto:hello@zhigeng.app">hello@zhigeng.app</a>
 			</p>
 		</footer>

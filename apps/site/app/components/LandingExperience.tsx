@@ -100,6 +100,10 @@ function HeroProductMoment({ reduceMotion }: { reduceMotion: boolean }) {
 			aria-label="知更把自然口述整理成可直接发送的文字"
 		>
 			<div className="zg-hero-product-mist" aria-hidden="true" />
+			<div className="zg-hero-context-hint" aria-hidden="true">
+				<img src="/brand/icons/feishu.svg" alt="" width={14} height={14} />
+				<span>检测到你在飞书 · 项目群</span>
+			</div>
 			<p className="zg-hero-utterance">“嗯……评审改到周三，不对，周四下午。把最新设计稿也带上。”</p>
 			<div className="zg-hero-pill">
 				<VoicePill state={state} />

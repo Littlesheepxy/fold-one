@@ -33,12 +33,19 @@ export default function AboutPage() {
 			</PageIntro>
 
 			<section className="zg-origin">
-				<div className="zg-origin-mark" aria-hidden="true">知</div>
+				<div className="zg-origin-mark" aria-hidden="true">
+					<img src="/zhigeng-mark.png" alt="" width={160} height={160} />
+				</div>
 				<div>
-					<span>名字的由来</span>
+					<span>名字与标识</span>
 					<h2>知你所言，才更懂你意。</h2>
 					<p>
-						我们想做的不是另一个需要你学习如何提问的工具，而是一个能进入日常工作、安静理解上下文，并在需要时往前多走一步的伙伴。
+						<strong>知更</strong>
+						：知你所言，才更懂你意。我们想做的不是另一个需要你学习如何提问的工具，而是一个能进入日常工作、安静理解上下文，并在需要时往前多走一步的伙伴。
+					</p>
+					<p>
+						<strong>标识</strong>
+						：一只知更鸟，藏进对话气泡里——圆身是气泡，尾尖是气泡角。对话是入口，理解是鸟鸣：听懂你说的，也读懂你正处在什么情境。
 					</p>
 				</div>
 			</section>

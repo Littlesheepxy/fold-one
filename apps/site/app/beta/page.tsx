@@ -28,7 +28,7 @@ export default function BetaPage() {
 						<li>外发前确认：敏感操作可取消，无副作用</li>
 					</ul>
 					<p>
-						需要 Apple Silicon Mac。部分语音与生成能力需联网；工作上下文默认本地存储，详见隐私政策。
+						需要 macOS 14+。部分语音与生成能力需联网；工作上下文默认本地存储，详见隐私政策。
 					</p>
 				</div>
 				<BetaApplyForm />

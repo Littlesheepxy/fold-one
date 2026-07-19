@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node scripts/clean-electron-artifacts.mjs && vite",
     "build": "node scripts/clean-electron-artifacts.mjs && vite build",
-		"rebuild:native": "electron-rebuild -f -w better-sqlite3,@fold/macos-input && node scripts/prepare-whisper-addon.mjs",
+		"rebuild:native": "electron-rebuild -f -w better-sqlite3,@fold/macos-input && node scripts/prepare-whisper-addon.mjs && node ../../scripts/ensure-better-sqlite3.mjs electron",
     "build:icons": "bash scripts/build-zhigeng-assets.sh",
 		"typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
 		"test:hitl": "tsx electron/interaction-broker.self-check.ts",

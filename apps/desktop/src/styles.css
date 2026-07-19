@@ -500,6 +500,109 @@ body.fold-home-page #root {
   white-space: nowrap;
 }
 
+.fold-idle-cleanup {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* 悬停桥：鼠标移向上方胶囊时不断开 hover */
+.fold-idle-cleanup::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  width: 180px;
+  height: 14px;
+  transform: translateX(-50%);
+}
+
+.fold-idle-cleanup-tip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 999px;
+  background: rgb(28 28 30 / 0.96);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.35);
+  color: rgb(255 255 255 / 0.92);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(4px);
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease,
+    background-color 0.16s ease;
+}
+
+.fold-idle-cleanup-tip em {
+  color: rgb(255 255 255 / 0.45);
+  font-style: normal;
+  font-weight: 500;
+}
+
+.fold-idle-cleanup:hover .fold-idle-cleanup-tip,
+.fold-idle-cleanup:focus-within .fold-idle-cleanup-tip {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0);
+}
+
+.fold-idle-cleanup-tip:hover {
+  background: rgb(40 40 44 / 0.98);
+}
+
+.fold-idle-cleanup-switch {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.22);
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.fold-idle-cleanup-switch:hover {
+  background: rgb(255 255 255 / 0.32);
+}
+
+.fold-idle-cleanup-switch.is-on {
+  background: rgb(255 255 255 / 0.9);
+}
+
+.fold-idle-cleanup-switch.is-on:hover {
+  background: #fff;
+}
+
+.fold-idle-cleanup-switch > span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #1d1d1f;
+  transition: transform 0.2s;
+}
+
+.fold-idle-cleanup-switch.is-on > span {
+  transform: translateX(14px);
+  background: #111;
+}
+
 .fold-shell-executing {
   padding: 8px 14px;
   gap: 12px;
@@ -784,6 +887,7 @@ body.fold-home-page #root {
 
 .fold-shell-idle {
   padding-right: 8px;
+  overflow: visible;
 }
 
 .fold-shell-predict {
