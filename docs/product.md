@@ -226,6 +226,14 @@ Done → 记录 Episode
 - UI-TARS / Accessibility 兜底（Tier 2）
 - 向量 Memory
 
+### 5.4 移动端（iOS）
+
+iOS 端单独立项，不在 PC 端 repo 内。
+
+- **流式 ASR：豆包 / 火山引擎**（`SpeechEngineAsrToB`，CocoaPods）。理由：输入工具场景流式体验刚需（边说边出、后面改前面），C 端体验对标豆包 App；请求级热词（`boosting_table_id`）支持 Fold 热词合并（profile + 输入法词库）按用户动态下发。
+- **凭证安全**：Token 不能写在 App 里，需 Fold 后端下发临时 Token（Supabase Edge Function 或自建端点）。
+- **PC 端不做流式改造**：指令/代回场景用户不看屏幕，非流式 1-2s 延迟可接受，阿里非流式按次计费更便宜。PC 端继续用阿里 DashScope（非流式）。
+
 ---
 
 ## 6. 非目标（Demo 阶段不做）
