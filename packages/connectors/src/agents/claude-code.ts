@@ -1,20 +1,56 @@
 import { runShellDetailed } from "../shell.js";
-import { LOCAL_TASK_RETURN_INSTRUCTIONS } from "../task-events.js";
+import type { LocalTaskEmit } from "../task-events.js";
+import { buildAgentPrompt } from "./prompt.js";
 import type { AgentConnector, AgentResult, AgentTask } from "./types.js";
 
-function parseClaudeJson(stdout: string): { result?: string; session_id?: string; total_cost_usd?: number } {
-	const trimmed = stdout.trim();
-	const start = trimmed.indexOf("{");
-	const end = trimmed.lastIndexOf("}");
-	if (start < 0 || end <= start) return {};
+/**
+ * stream-json 每行是独立的 JSON 事件（不再是一整块 JSON），最终结果取最后一条 type:"result" 行。
+ * 字段名（result/session_id/total_cost_usd）与旧 --output-format json 一致，真机跑 stream-json 验证过。
+ */
+export function parseClaudeStreamJson(stdout: string): {
+	result?: string;
+	session_id?: string;
+	total_cost_usd?: number;
+} {
+	let final: { result?: string; session_id?: string; total_cost_usd?: number } | undefined;
+	for (const line of stdout.split(/\r?\n/)) {
+		const trimmed = line.trim();
+		if (!trimmed.startsWith("{")) continue;
+		try {
+			const event = JSON.parse(trimmed) as {
+				type?: string;
+				result?: string;
+				session_id?: string;
+				total_cost_usd?: number;
+			};
+			if (event.type === "result") final = event;
+		} catch {
+			// stderr 混入或非 JSON 噪音行，忽略
+		}
+	}
+	return final ?? {};
+}
+
+/**
+ * 把一行 stream-json 事件转成人话进度提示，取代「Claude Code 仍在执行(45s)」式的傻心跳。
+ * tool_use content block 是 Anthropic Messages API 的标准形状（文档稳定），本机未能用真实工具调用验证——
+ * 账号计费问题（volcengine ARK CodingPlan 过期）在任何工具调用前就报错，只验证了 system/assistant(text)/result。
+ */
+export function describeClaudeStreamLine(line: string): string | null {
+	const trimmed = line.trim();
+	if (!trimmed.startsWith("{")) return null;
 	try {
-		return JSON.parse(trimmed.slice(start, end + 1)) as {
-			result?: string;
-			session_id?: string;
-			total_cost_usd?: number;
+		const event = JSON.parse(trimmed) as {
+			type?: string;
+			message?: { content?: Array<{ type?: string; name?: string }> };
 		};
+		if (event.type !== "assistant") return null;
+		const names = (event.message?.content ?? [])
+			.filter((block) => block.type === "tool_use" && block.name)
+			.map((block) => block.name as string);
+		return names.length ? `使用工具: ${names.join(", ")}` : null;
 	} catch {
-		return {};
+		return null;
 	}
 }
 
@@ -32,22 +68,32 @@ export const claudeCodeConnector: AgentConnector = {
 		return auth.exitCode === 0;
 	},
 
-	async execute(task: AgentTask): Promise<AgentResult> {
+	async execute(task: AgentTask, emit?: LocalTaskEmit): Promise<AgentResult> {
 		const args = [
 			"--bare",
 			"-p",
-			buildPrompt(task),
+			buildAgentPrompt(task),
 			"--output-format",
-			"json",
+			"stream-json",
+			"--verbose",
 			"--allowedTools",
 			task.allowEdits ? "Read,Edit,Bash" : "Read,Bash",
 		];
+		const resumeSessionId = task.envelope?.resumeSessionId?.trim();
+		if (resumeSessionId) args.push("--resume", resumeSessionId);
 		if (task.maxTurns) args.push("--max-turns", String(task.maxTurns));
 
 		const result = await runShellDetailed("claude", args, task.timeoutMs ?? 180_000, task.cwd, {
 			closeStdin: true,
+			signal: task.signal,
+			onStdoutLine: emit
+				? (line) => {
+						const described = describeClaudeStreamLine(line);
+						if (described) emit("working", described);
+					}
+				: undefined,
 		});
-		const parsed = parseClaudeJson(result.stdout);
+		const parsed = parseClaudeStreamJson(result.stdout);
 		const summary =
 			parsed.result?.trim() ||
 			(!isCliNoise(result.stdout) ? result.stdout.trim() : "") ||
@@ -68,12 +114,3 @@ export const claudeCodeConnector: AgentConnector = {
 		};
 	},
 };
-
-function buildPrompt(task: AgentTask): string {
-	const parts = [task.brief.trim()];
-	if (task.contextSnapshot?.trim()) {
-		parts.push("", "Fold context:", task.contextSnapshot.trim());
-	}
-	parts.push("", LOCAL_TASK_RETURN_INSTRUCTIONS);
-	return parts.join("\n");
-}

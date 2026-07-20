@@ -1,0 +1,38 @@
+[
+  {
+    "audioSeconds" : 60,
+    "companyCostCny" : 0.08582000000000001,
+    "costPerMinuteCny" : 0.08582000000000001,
+    "displayName" : "Qwen3.5 Omni Plus Realtime",
+    "funAsrSeconds" : 0,
+    "inputAudioTokens" : 1500,
+    "inputTextTokens" : 80,
+    "meetsDefaultRouteBudget" : false,
+    "outputTextTokens" : 144,
+    "routeId" : "omni_plus_realtime"
+  },
+  {
+    "audioSeconds" : 60,
+    "companyCostCny" : 0.029091199999999998,
+    "costPerMinuteCny" : 0.029091199999999998,
+    "displayName" : "Qwen3.5 Omni Flash Realtime",
+    "funAsrSeconds" : 0,
+    "inputAudioTokens" : 1500,
+    "inputTextTokens" : 80,
+    "meetsDefaultRouteBudget" : true,
+    "outputTextTokens" : 144,
+    "routeId" : "omni_flash_realtime"
+  },
+  {
+    "audioSeconds" : 60,
+    "companyCostCny" : 0.0200796,
+    "costPerMinuteCny" : 0.0200796,
+    "displayName" : "Fun-ASR + Qwen Flash",
+    "funAsrSeconds" : 60,
+    "inputAudioTokens" : 0,
+    "inputTextTokens" : 424,
+    "meetsDefaultRouteBudget" : true,
+    "outputTextTokens" : 144,
+    "routeId" : "fun_asr_plus_qwen_flash"
+  }
+]

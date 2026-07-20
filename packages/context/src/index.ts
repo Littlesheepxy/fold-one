@@ -1,4 +1,5 @@
 export { ContextEngine } from "./engine.js";
+export type { FrontAppWatcherEvent } from "./engine.js";
 export { ContextStore } from "./store.js";
 export {
 	createEmptyContext,
@@ -19,6 +20,8 @@ export {
 	formatFocusDwellBrief,
 } from "./dwell.js";
 export {
+	extractClipboardContentQuery,
+	isClipboardContentRecallIntent,
 	isClipboardRecallIntent,
 	offerClipboardRecovery,
 	resolveClipboardRecall,

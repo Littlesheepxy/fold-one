@@ -335,6 +335,9 @@ export function InputHabitScannerPanel() {
 						已导入 {importReport.entryCount} 条 ·{" "}
 						{new Date(importReport.importedAt).toLocaleString()}
 					</p>
+					<p className="text-[10px] text-emerald-700">
+						已导入词库会作为热词加入语音纠错（上限 12 个，profile 专名优先）。
+					</p>
 					<p className="text-[11px] text-[#424245]">
 						来源：{" "}
 						{Object.entries(importReport.bySource)

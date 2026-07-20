@@ -69,6 +69,8 @@ export async function generateFastVision(
 	const cfg = PROVIDER_TABLE[choice.provider];
 	const apiKey = process.env[cfg.apiKeyEnv]?.trim().replace(/^["']|["']$/g, "");
 	if (!apiKey) throw new Error(`[fast-vision] missing ${cfg.apiKeyEnv}`);
+	const baseURL =
+		process.env[`${choice.provider.toUpperCase()}_BASE_URL`]?.trim() || cfg.baseURL;
 
 	const dataUri = await toDataUri(image);
 	const body: Record<string, unknown> = {
@@ -83,13 +85,14 @@ export async function generateFastVision(
 			},
 		],
 		max_tokens: options.maxOutputTokens ?? 640,
-		temperature: options.temperature ?? 0.35,
+		// Kimi Code Plan（moonshot 走该 baseURL 时）只接受 temperature=1，非 1 直接 400。
+		temperature: choice.provider === "moonshot" ? 1 : options.temperature ?? 0.35,
 	};
 	if (choice.provider === "zhipu") {
 		body.thinking = { type: "disabled" };
 	}
 
-	const res = await fetch(`${cfg.baseURL}/chat/completions`, {
+	const res = await fetch(`${baseURL}/chat/completions`, {
 		method: "POST",
 		headers: {
 			Authorization: `Bearer ${apiKey}`,

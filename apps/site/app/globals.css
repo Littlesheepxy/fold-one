@@ -1501,6 +1501,183 @@ a {
 	font-weight: 680;
 }
 
+.zg-aha-demo {
+	margin-top: 18px;
+	display: grid;
+	gap: 12px;
+	padding: 20px 22px;
+	border: 1px solid var(--zg-line);
+	border-radius: 24px;
+	background: rgb(255 255 255 / 0.74);
+}
+
+.zg-aha-demo--inline {
+	margin-top: 14px;
+	margin-bottom: 4px;
+}
+
+.zg-aha-demo-head {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+}
+
+.zg-aha-demo-head strong {
+	display: block;
+	font-size: 14px;
+}
+
+.zg-aha-demo-head small {
+	display: block;
+	margin-top: 2px;
+	color: #929490;
+	font-size: 10.5px;
+}
+
+.zg-aha-notification {
+	display: block;
+	width: 100%;
+	padding: 16px 18px;
+	border-radius: 18px;
+	border: 1px solid rgb(35 37 36 / 0.08);
+	background: rgb(255 255 255 / 0.92);
+	box-shadow: 0 12px 28px rgb(48 53 59 / 0.08);
+	text-align: left;
+	font: inherit;
+	cursor: pointer;
+	transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.zg-aha-notification:hover {
+	border-color: rgb(89 107 212 / 0.35);
+	box-shadow: 0 14px 32px rgb(89 107 212 / 0.1);
+}
+
+.zg-aha-look {
+	color: var(--zg-brand-deep);
+	font-weight: 700;
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.zg-aha-popup {
+	margin-top: 12px;
+	padding: 16px 18px;
+	border-radius: 20px;
+	border: 1px solid rgb(89 107 212 / 0.22);
+	background: linear-gradient(180deg, rgb(248 249 254), rgb(255 255 255));
+	box-shadow: 0 16px 40px rgb(48 53 59 / 0.1);
+}
+
+.zg-aha-popup header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 10px;
+}
+
+.zg-aha-popup header > span {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--zg-brand-deep);
+	font-size: 12.5px;
+	font-weight: 680;
+}
+
+.zg-aha-popup header button {
+	border: 0;
+	padding: 4px 8px;
+	border-radius: 8px;
+	background: transparent;
+	color: #777a77;
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.zg-aha-popup header button:hover {
+	background: rgb(35 37 36 / 0.06);
+}
+
+.zg-aha-popup > strong {
+	display: block;
+	font-size: 15px;
+	font-weight: 700;
+	color: #252725;
+}
+
+.zg-aha-popup > p {
+	margin: 8px 0 0;
+	font-size: 14px;
+	line-height: 1.6;
+	color: #3d413e;
+}
+
+.zg-aha-popup > small {
+	display: block;
+	margin-top: 10px;
+	color: #929490;
+	font-size: 11.5px;
+}
+
+.zg-aha-notification-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 6px;
+}
+
+.zg-aha-notification-head strong {
+	font-size: 13px;
+	font-weight: 700;
+	color: #252725;
+}
+
+.zg-aha-notification-time {
+	margin-left: auto;
+	font-size: 11px;
+	color: #929490;
+}
+
+.zg-aha-notification p {
+	margin: 0;
+	font-size: 13.5px;
+	line-height: 1.55;
+	color: #3d413e;
+}
+
+.zg-context-guess + .zg-aha-notification {
+	margin-top: 14px;
+}
+
+.zg-aha-caption {
+	margin: 0;
+	padding: 0 4px;
+	font-size: 12.5px;
+	line-height: 1.6;
+	color: #777a77;
+}
+
+.zg-context-foot {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px 10px;
+	margin: 14px 0 0;
+	font-size: 12.5px;
+	line-height: 1.6;
+	color: #777a77;
+}
+
+.zg-context-foot .zg-privacy-link {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	font-size: 12.5px;
+}
+
 /* ── 回收 + 定价 ─────────────────────────── */
 
 .zg-recap {

@@ -63,6 +63,12 @@ export interface FoldConfig {
 	skipLocalAgent?: boolean;
 	/** 转写整理完成后自动粘贴到前台输入框；默认 true */
 	structureAutoInsert?: boolean;
+	/** 自动 Aha 主动建议档位：off=关闭（默认），low/normal/high 控制后台刷新与弹出节奏 */
+	ahaProactiveFrequency?: "off" | "low" | "normal" | "high";
+	/** 转写整理程度：minimal=仅去语气词，smart=智能整理（默认），off=原文直出 */
+	speechCleanupLevel?: "minimal" | "smart" | "off";
+	/** 转写/代回成功后保持目标 App 的秒数；0=关闭（Mac 默认）。实验可设 8；iOS 另议 */
+	voiceStandbySeconds?: number;
 	onboarding?: {
 		completedAt?: number;
 		step?: string;

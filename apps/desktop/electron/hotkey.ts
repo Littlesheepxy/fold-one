@@ -14,6 +14,8 @@ const FALLBACK_REPLY_ACCEL = "F18";
 export interface HoldHotkeyHandlers {
 	/** Agent toggle */
 	onAgentToggle: () => void;
+	/** 触发键 keydown（早于短按/长按判定）：预热麦克风，按下即可说 */
+	onTriggerDown?: () => void;
 	/** 触发键短按松开：切换转写录音 */
 	onStructureToggle: () => void;
 	/** 触发键按住达到阈值：开始代回 */
@@ -120,6 +122,7 @@ function startHoldHotkeySession(
 		handlers.onHotkeyTest?.({ key: testKey, phase: "down" });
 		if (holdActive) return;
 		holdActive = true;
+		handlers.onTriggerDown?.();
 		longPressFired = false;
 		longPressTimer = setTimeout(() => {
 			if (!holdActive) return;

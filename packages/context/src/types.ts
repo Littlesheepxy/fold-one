@@ -6,12 +6,14 @@ export type ContextEventType =
 	| "file.created"
 	| "file.modified"
 	| "clipboard.changed"
-	| "browser.urlChanged";
+	| "browser.urlChanged"
+	| "user.afk"
+	| "user.active";
 
 export interface ContextEvent {
 	id: string;
 	type: ContextEventType;
-	source: "finder" | "chrome" | "mail" | "system" | "clipboard";
+	source: "finder" | "chrome" | "mail" | "system" | "clipboard" | "input";
 	timestamp: number;
 	data: {
 		appName?: string;

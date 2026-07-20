@@ -181,6 +181,29 @@ export function SettingsSection({
 									onChange={(v) => void onPersistBoolean("structureAutoInsert", v)}
 									hint="关闭后先在 知更 草稿窗里查看、修改，再手动插入或复制"
 								/>
+								<div className="fold-home-setting-row">
+									<div className="fold-home-setting-copy">
+										<span className="fold-home-setting-row-title">转写整理程度</span>
+										<span className="fold-home-setting-row-desc">
+											仅去语气词：只清理口头禅；智能整理：按 App 场景调语气断句；关闭：原文直出
+										</span>
+									</div>
+									<label className="fold-home-field shrink-0">
+										<select
+											className="min-w-[120px]"
+											value={config.speechCleanupLevel ?? "smart"}
+											onChange={(event) => {
+												const next = { ...config, speechCleanupLevel: event.target.value as FoldConfig["speechCleanupLevel"] };
+												void window.fold.saveConfig(next);
+											}}
+											aria-label="转写整理程度"
+										>
+											<option value="minimal">仅去语气词</option>
+											<option value="smart">智能整理</option>
+											<option value="off">关闭</option>
+										</select>
+									</label>
+								</div>
 							</div>
 							<HotkeyBindingRow
 								title="Agent"
@@ -365,6 +388,33 @@ export function SettingsSection({
 							onChange={(v) => onUpdateBoolean("allowWorkbuddy", v)}
 							hint="通常由「连接」页执行模式管理"
 						/>
+
+						<div className="rounded-lg border border-black/6 bg-[#fafafa] px-3 py-3">
+							<p className="text-[12px] font-medium text-[#1d1d1f]">隐私与反馈</p>
+							<p className="mt-1 text-[11px] leading-relaxed text-[#86868b]">
+								本地数据默认在 ~/.zhigeng。内测问题可邮件反馈；请勿在反馈里粘贴密钥。
+							</p>
+							<div className="mt-2 flex flex-wrap gap-2">
+								<button
+									type="button"
+									className="fold-home-save"
+									onClick={() => void window.fold.openDataDir()}
+								>
+									打开数据目录
+								</button>
+								<button
+									type="button"
+									className="fold-home-save"
+									onClick={() =>
+										void window.fold.openExternal(
+											"mailto:hello@zhigeng.app?subject=%E7%9F%A5%E6%9B%B4%E5%86%85%E6%B5%8B%E5%8F%8D%E9%A6%88",
+										)
+									}
+								>
+									反馈问题
+								</button>
+							</div>
+						</div>
 
 						<div className="rounded-lg border border-black/6 bg-[#fafafa] px-3 py-3">
 							<p className="text-[12px] font-medium text-[#1d1d1f]">引导流程（测试）</p>

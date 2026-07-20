@@ -51,4 +51,5 @@ Runtime 内的 Tier 0 / Tier 1 / Tier 2 是执行路由（Compiled Skill / Plan 
 - 已实现权益解析、体验额度、BYOK 与设置展示。
 - 已实现本地 Whisper 的 Electron Main 推理入口，使用 GGML 模型路径。
 - `local-funasr` provider 已预留；当前以 Whisper 作为本地备份。
-- 支付、账号、远端 entitlement 签名和云端热词下发尚未实现。
+- 云端热词：Pro/试用会把 `resolveSpeechHotwords` 下发到 asr-proxy；有热词时 structure 走 Fun-ASR + `vocabulary_id`，Omni 路径注入 instructions；`directStructured` 仍做本地轻纠。
+- 支付、账号、远端 entitlement 签名部分已实现；完整计费仍在迭代。

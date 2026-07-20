@@ -7,7 +7,9 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+	"typecheck": "tsc --noEmit",
+	"test:office-receipt": "pnpm exec tsx src/builtin/office.self-check.ts",
+	"test:office-recovery": "pnpm exec tsx src/builtin/office-recovery.self-check.ts"
   },
   "dependencies": {
     "@fold/connectors": "workspace:*",

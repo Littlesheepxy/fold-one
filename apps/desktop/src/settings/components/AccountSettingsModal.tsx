@@ -639,6 +639,18 @@ export function AccountSettingsModal({
 											</p>
 										)}
 									</div>
+									<AccountCard
+										title="本机数据"
+										description="工作上下文与记忆默认保存在本机数据目录（通常为 ~/.zhigeng）。"
+									>
+										<button
+											type="button"
+											className="fold-account-btn"
+											onClick={() => void window.fold.openDataDir()}
+										>
+											打开数据目录
+										</button>
+									</AccountCard>
 									<button
 										type="button"
 										className="fold-account-btn"

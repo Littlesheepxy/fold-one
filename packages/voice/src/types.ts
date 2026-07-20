@@ -1,6 +1,8 @@
 export interface VoiceResult {
 	text: string;
 	directStructured: boolean;
+	/** 识别未完整收尾（超时/断线）；调用方不得当作成功插入 */
+	incomplete?: boolean;
 }
 
 export interface VoiceAdapter {
@@ -23,6 +25,10 @@ export interface VoiceConfig {
 	windowTitle?: string | null;
 	/** Fold Hub tm_ API key for asr-proxy entitlement checks. */
 	authToken?: string;
+	/** 云端 ASR 热词（Pro/试用）；proxy 会同步 vocabulary_id 或注入 Omni instructions */
+	hotWords?: string[];
+	/** keydown 预热的麦克风流：按下即开麦，会话开始时直接接管，消除开麦死区 */
+	warmStream?: Promise<MediaStream>;
 }
 
 export type AsrProvider = "mock" | "dashscope" | "local-whisper";

@@ -7,6 +7,7 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { HeroHighlight, Highlight } from "./HeroHighlight";
 import { FeatureShowcase } from "./FeatureModules";
+import { Differentiators } from "./Differentiators";
 import { VoicePill, type VoicePillState } from "./VoicePill";
 
 const heroSentence = "知更，知你所言，才更懂你意。";
@@ -43,8 +44,8 @@ export function LandingExperience() {
 							<span>你说一句，它写好；说到，也能做到。</span>
 						</p>
 						<div className="zg-actions" id="download">
-							<Link className="zg-primary" href="/pricing">
-								申请 macOS 内测
+							<Link className="zg-primary" href="/beta">
+								申请内测码
 								<ArrowRight size={18} />
 							</Link>
 							<a className="zg-secondary" href="#speak">
@@ -57,14 +58,15 @@ export function LandingExperience() {
 			</section>
 
 			<FeatureShowcase />
+			<Differentiators />
 
 			<motion.section className="zg-final-cta" initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.4 }} variants={fadeUp}>
 				<span>从一句话开始</span>
 				<h2>把手从键盘上拿开，<br />让想法直接抵达结果。</h2>
-				<p>知更正在开放 macOS 内测。你说一句，它写好；说到，也能做到。</p>
+				<p>留下邮箱申请内测码。通过后我们会发送安装方式。你说一句，它写好；说到，也能做到。</p>
 				<div className="zg-actions">
-					<Link className="zg-primary" href="/pricing">
-						申请 macOS 内测
+					<Link className="zg-primary" href="/beta">
+						申请内测码
 						<ArrowRight size={18} />
 					</Link>
 					<Link className="zg-secondary" href="/about">
@@ -98,6 +100,10 @@ function HeroProductMoment({ reduceMotion }: { reduceMotion: boolean }) {
 			aria-label="知更把自然口述整理成可直接发送的文字"
 		>
 			<div className="zg-hero-product-mist" aria-hidden="true" />
+			<div className="zg-hero-context-hint" aria-hidden="true">
+				<img src="/brand/icons/feishu.svg" alt="" width={14} height={14} />
+				<span>检测到你在飞书 · 项目群</span>
+			</div>
 			<p className="zg-hero-utterance">“嗯……评审改到周三，不对，周四下午。把最新设计稿也带上。”</p>
 			<div className="zg-hero-pill">
 				<VoicePill state={state} />

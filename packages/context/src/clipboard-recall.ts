@@ -47,6 +47,26 @@ function pickByOffset(history: ClipboardHistoryEntry[], offset: number): Clipboa
 	return history[offset] ?? null;
 }
 
+const CONTENT_QUERY_HINTS =
+	/(关于|有关|提到|写着|包含|是什|哪段|那条|那段|那句|那段话|那句话|里的|里面的|内容)/;
+
+/** 从口语 query 提取内容关键词（供 FTS 搜索）。 */
+export function extractClipboardContentQuery(query: string): string {
+	const cleaned = query
+		.replace(
+			/(帮我|给我|找一下|找找|找回|找到|找出|搜一下|搜索|查一下|查看|看看|复制|剪贴板|拷贝|粘贴板|记录|历史|之前|刚才|最近|那条|那段|那句|那段话|那句话|关于|有关|提到|写着|包含|内容|的|了|吗|呢|吧|啊|一下)/gi,
+			" ",
+		)
+		.replace(/[?!。？！]/g, " ")
+		.trim();
+	const terms = cleaned.split(/\s+/).filter((t) => t.length >= 2);
+	return terms.slice(0, 6).join(" ");
+}
+
+export function isClipboardContentRecallIntent(query: string): boolean {
+	return CONTENT_QUERY_HINTS.test(query) && extractClipboardContentQuery(query).length >= 2;
+}
+
 export function resolveClipboardRecall(
 	query: string,
 	history: ClipboardHistoryEntry[],

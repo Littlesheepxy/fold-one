@@ -78,36 +78,65 @@ export async function runShellDetailed(
 	args: string[],
 	timeoutMs = 10000,
 	cwd?: string,
-	_options?: { closeStdin?: boolean },
+	options?: {
+		closeStdin?: boolean;
+		signal?: AbortSignal;
+		stdin?: string;
+		/** 进程运行期间逐行触发（按 \n 切分，跨 chunk 的半行会先缓存），用于消费 CLI 的 stream-json 实时输出。 */
+		onStdoutLine?: (line: string) => void;
+	},
 ): Promise<ShellResult> {
 	const searchDirs = executableSearchDirs();
 	const executable = await resolveExecutable(command, searchDirs);
+	if (options?.signal?.aborted) {
+		return { stdout: "", stderr: `Command canceled: ${command}`, exitCode: 130 };
+	}
 	return new Promise((resolve) => {
 		let stdout = "";
 		let stderr = "";
 		let settled = false;
+		let removeAbortListener = () => {};
 		const finish = (result: ShellResult) => {
 			if (settled) return;
 			settled = true;
 			clearTimeout(timer);
+			removeAbortListener();
 			resolve(result);
 		};
 		const child = spawn(executable, args, {
 			cwd,
 			env: { ...process.env, PATH: searchDirs.join(delimiter) },
 			// GUI apps may not have a valid inherited stdin descriptor.
-			stdio: ["ignore", "pipe", "pipe"],
+			stdio: [options?.stdin !== undefined ? "pipe" : "ignore", "pipe", "pipe"],
 		});
+		if (options?.stdin !== undefined) {
+			child.stdin?.write(options.stdin);
+			child.stdin?.end();
+		}
 		const timer = setTimeout(() => {
 			child.kill("SIGTERM");
 			finish({ stdout, stderr: stderr || `Command timed out: ${command}`, exitCode: 124 });
 		}, timeoutMs);
+		if (options?.signal) {
+			const onAbort = () => {
+				child.kill("SIGTERM");
+				finish({ stdout, stderr: stderr || `Command canceled: ${command}`, exitCode: 130 });
+			};
+			options.signal.addEventListener("abort", onAbort, { once: true });
+			removeAbortListener = () => options.signal?.removeEventListener("abort", onAbort);
+		}
 		const append = (current: string, chunk: Buffer): string => {
 			const next = current + chunk.toString("utf8");
 			return next.length > 10 * 1024 * 1024 ? next.slice(0, 10 * 1024 * 1024) : next;
 		};
+		let lineBuffer = "";
 		child.stdout?.on("data", (chunk: Buffer) => {
 			stdout = append(stdout, chunk);
+			if (!options?.onStdoutLine) return;
+			lineBuffer += chunk.toString("utf8");
+			const parts = lineBuffer.split("\n");
+			lineBuffer = parts.pop() ?? "";
+			for (const part of parts) options.onStdoutLine(part.replace(/\r$/, ""));
 		});
 		child.stderr?.on("data", (chunk: Buffer) => {
 			stderr = append(stderr, chunk);
@@ -116,6 +145,7 @@ export async function runShellDetailed(
 			finish({ stdout, stderr: stderr || error.message, exitCode: 124 });
 		});
 		child.once("close", (code, signal) => {
+			if (options?.onStdoutLine && lineBuffer) options.onStdoutLine(lineBuffer.replace(/\r$/, ""));
 			finish({ stdout, stderr, exitCode: code ?? 124, signal });
 		});
 	});

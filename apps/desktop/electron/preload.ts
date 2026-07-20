@@ -1,6 +1,12 @@
 import { contextBridge, ipcRenderer } from "electron";
 
-type VoiceMode = "structure" | "reply" | "agent";
+type VoiceMode = "structure" | "reply" | "agent" | "interaction";
+type UserActionResponse = {
+	requestId?: string;
+	optionId?: string;
+	text?: string;
+	modality: "click" | "voice" | "text" | "terminal";
+};
 type VoiceSessionStart = {
 	mode: VoiceMode;
 	app?: string | null;
@@ -57,6 +63,7 @@ contextBridge.exposeInMainWorld("fold", {
 			modelPath?: string;
 			ready: boolean;
 			authToken?: string;
+			hotWords?: string[];
 		}>,
 	localAsrStart: () =>
 		ipcRenderer.invoke("fold:local-asr-start") as Promise<{ ok: boolean }>,
@@ -75,8 +82,12 @@ contextBridge.exposeInMainWorld("fold", {
 	retryTask: () => ipcRenderer.invoke("fold:retry-task") as Promise<void>,
 	undoLastInsert: () =>
 		ipcRenderer.invoke("fold:undo-last-insert") as Promise<{ ok: boolean; error?: string }>,
-	askResponse: (optionId: string) =>
-		ipcRenderer.invoke("fold:ask-response", optionId) as Promise<void>,
+	askResponse: (response: string | UserActionResponse) =>
+		ipcRenderer.invoke("fold:ask-response", response) as Promise<void>,
+	interactionVoice: (transcript: string) =>
+		ipcRenderer.invoke("fold:interaction-voice", transcript) as Promise<void>,
+	toggleInteractionVoice: () =>
+		ipcRenderer.invoke("fold:toggle-interaction-voice") as Promise<void>,
 	getConfig: () => ipcRenderer.invoke("fold:get-config") as Promise<Record<string, unknown>>,
 	getHotkeySettings: () =>
 		ipcRenderer.invoke("fold:get-hotkey-settings") as Promise<{
@@ -229,6 +240,8 @@ contextBridge.exposeInMainWorld("fold", {
 			error?: string;
 			profile?: Record<string, unknown>;
 		}>,
+	profileSaveSeed: (input: { role?: string; domains?: string[]; keywords?: string[] }) =>
+		ipcRenderer.invoke("fold:profile-save-seed", input) as Promise<{ ok: boolean }>,
 	onContextEvent(cb: (event: Record<string, unknown>) => void) {
 		const handler = (_: unknown, event: Record<string, unknown>) => cb(event);
 		ipcRenderer.on("fold:context-event", handler);
@@ -299,6 +312,8 @@ contextBridge.exposeInMainWorld("fold", {
 	cancelConnectFlow: (sessionId: string) =>
 		ipcRenderer.invoke("fold:connect-flow-cancel", sessionId) as Promise<{ ok: boolean }>,
 	openExternal: (url: string) => ipcRenderer.invoke("fold:open-external", url) as Promise<{ ok: boolean }>,
+	openDataDir: () =>
+		ipcRenderer.invoke("fold:open-data-dir") as Promise<{ ok: boolean; path?: string; error?: string }>,
 	saveConfig: (config: Record<string, unknown>) =>
 		ipcRenderer.invoke("fold:save-config", config) as Promise<{ ok: boolean }>,
 	accountGetState: () =>
@@ -376,8 +391,10 @@ contextBridge.exposeInMainWorld("fold", {
 			height: number;
 		}>,
 	getOverlayState: () => ipcRenderer.invoke("fold:get-overlay-state") as Promise<Record<string, unknown>>,
-	dismiss: (opts?: { skipFeedback?: boolean }) =>
+	dismiss: (opts?: { skipFeedback?: boolean; soft?: boolean }) =>
 		ipcRenderer.invoke("fold:dismiss", opts) as Promise<void>,
+	voiceEmpty: () =>
+		ipcRenderer.invoke("fold:voice-empty") as Promise<{ ok: boolean; standby: boolean }>,
 	toggleVoice: () => ipcRenderer.invoke("fold:toggle-voice") as Promise<void>,
 	voiceError: (message: string) => ipcRenderer.invoke("fold:voice-error", message) as Promise<void>,
 	openSettings: (section?: string) =>
@@ -403,8 +420,13 @@ contextBridge.exposeInMainWorld("fold", {
 		ipcRenderer.on("fold:hotkey-down", handler);
 		return () => ipcRenderer.removeListener("fold:hotkey-down", handler);
 	},
-	onHotkeyUp(cb: (mode: "structure" | "reply" | "agent") => void) {
-		const handler = (_: unknown, mode?: "structure" | "reply" | "agent") => cb(mode ?? "structure");
+	onVoiceWarm(cb: () => void) {
+		const handler = () => cb();
+		ipcRenderer.on("fold:voice-warm", handler);
+		return () => ipcRenderer.removeListener("fold:voice-warm", handler);
+	},
+	onHotkeyUp(cb: (mode: VoiceMode) => void) {
+		const handler = (_: unknown, mode?: VoiceMode) => cb(mode ?? "structure");
 		ipcRenderer.on("fold:hotkey-up", handler);
 		return () => ipcRenderer.removeListener("fold:hotkey-up", handler);
 	},

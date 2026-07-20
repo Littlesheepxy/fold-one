@@ -70,6 +70,10 @@ export interface FoldConfig {
 		agent?: string;
 		cancel?: string;
 	};
+	/** 自动 Aha 主动建议档位 */
+	ahaProactiveFrequency?: "off" | "low" | "normal" | "high";
+	/** 转写整理程度：minimal=仅去语气词，smart=智能整理（默认），off=原文直出 */
+	speechCleanupLevel?: "minimal" | "smart" | "off";
 }
 
 export type HotkeyAction = "trigger" | "agent" | "cancel";

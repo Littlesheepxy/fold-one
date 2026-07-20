@@ -3,6 +3,7 @@ import { resumeOnboardingStep, STEP_ORDER, type OnboardingStepId } from "./types
 import { SetupAccessibilityStep } from "./steps/SetupAccessibilityStep";
 import { SetupMicrophoneStep } from "./steps/SetupMicrophoneStep";
 import { SetupHotkeyStep } from "./steps/SetupHotkeyStep";
+import { KnowYouStep } from "./steps/KnowYouStep";
 import { FirstReplyStep } from "./steps/FirstReplyStep";
 import { SummaryStep } from "./steps/SummaryStep";
 
@@ -47,6 +48,8 @@ export function OnboardingApp() {
 			return <SetupMicrophoneStep onNext={goNext} onBack={goBack} />;
 		case "hotkey":
 			return <SetupHotkeyStep onNext={goNext} onBack={goBack} />;
+		case "know-you":
+			return <KnowYouStep onNext={goNext} onBack={goBack} />;
 		case "first-reply":
 			return <FirstReplyStep onNext={goNext} onBack={goBack} />;
 		case "summary":

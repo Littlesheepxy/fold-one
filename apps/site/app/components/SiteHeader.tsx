@@ -33,8 +33,8 @@ export function SiteHeader() {
 					</Link>
 				))}
 			</nav>
-			<Link className="zg-nav-cta" href="/pricing">
-				申请 macOS 内测
+			<Link className="zg-nav-cta" href="/beta">
+				申请内测码
 			</Link>
 		</header>
 	);

@@ -116,6 +116,57 @@ const CHANNEL_BINARIES: Record<OfficeChannelId, string> = Object.fromEntries(
 	CHANNELS.map((c) => [c.id, c.binary]),
 ) as Record<OfficeChannelId, string>;
 
+function parseParamsJson(raw: string): Record<string, string> | null {
+	try {
+		const parsed = JSON.parse(raw) as unknown;
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+		return Object.fromEntries(
+			Object.entries(parsed as Record<string, unknown>).map(([key, value]) => [
+				key,
+				String(value),
+			]),
+		);
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * lark-cli generic `api` 不读取 path 内的 query string，只接受 `--params` JSON。
+ * Planner/旧计划可能生成 `...?x=y` 或 `--query`; 在连接器边界统一归一化。
+ */
+export function normalizeOfficeCliArgs(channelId: string, args: string[]): string[] {
+	const normalized = [...args];
+	if (channelId !== "feishu" || normalized[0] !== "api") return normalized;
+
+	for (let i = 0; i < normalized.length; i += 1) {
+		if (normalized[i] === "--query") normalized[i] = "--params";
+	}
+
+	const pathIndex = 2;
+	const path = normalized[pathIndex];
+	if (!path?.includes("?")) return normalized;
+
+	const queryIndex = path.indexOf("?");
+	normalized[pathIndex] = path.slice(0, queryIndex);
+	const fromPath = Object.fromEntries(new URLSearchParams(path.slice(queryIndex + 1)));
+	if (Object.keys(fromPath).length === 0) return normalized;
+
+	const paramsFlag = normalized.indexOf("--params");
+	if (paramsFlag < 0) {
+		normalized.push("--params", JSON.stringify(fromPath));
+		return normalized;
+	}
+
+	const existing = normalized[paramsFlag + 1];
+	const parsed = existing ? parseParamsJson(existing) : null;
+	if (parsed) {
+		// 显式 --params 优先于 path 中的同名值。
+		normalized[paramsFlag + 1] = JSON.stringify({ ...fromPath, ...parsed });
+	}
+	return normalized;
+}
+
 function getChannel(id: string): OfficeChannelSpec {
 	const spec = CHANNELS.find((c) => c.id === id);
 	if (!spec) throw new Error(`未知办公渠道: ${id}`);
@@ -167,15 +218,18 @@ export async function runOfficeCli(
 	channelId: string,
 	args: string[],
 	timeoutMs = 60_000,
+	signal?: AbortSignal,
+	cwd?: string,
 ): Promise<OfficeCliResult> {
 	const spec = getChannel(channelId);
+	const normalizedArgs = normalizeOfficeCliArgs(channelId, args);
 	let binary = spec.binary;
 	if (spec.id === "slack") {
 		const probe = await probeSlackCli();
 		if (!probe.available || !probe.backend) throw new Error(probe.error ?? "Slack CLI 不可用");
 		binary = probe.backend;
 	}
-	const result = await runShellDetailed(binary, args, timeoutMs);
+	const result = await runShellDetailed(binary, normalizedArgs, timeoutMs, cwd, { signal });
 	return {
 		ok: result.exitCode === 0,
 		channel: spec.id,

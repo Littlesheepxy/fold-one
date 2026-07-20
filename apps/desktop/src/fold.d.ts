@@ -27,7 +27,7 @@ interface ProfileImportOption {
 }
 
 interface VoiceSessionStart {
-	mode: "structure" | "reply" | "agent";
+	mode: "structure" | "reply" | "agent" | "interaction";
 	app?: string | null;
 	windowTitle?: string | null;
 }
@@ -52,6 +52,7 @@ interface FoldApi {
 		modelPath?: string;
 		ready: boolean;
 		authToken?: string;
+		hotWords?: string[];
 	}>;
 	localAsrStart(): Promise<{ ok: boolean }>;
 	localAsrAudio(chunk: ArrayBuffer): void;
@@ -62,7 +63,18 @@ interface FoldApi {
 	replyVoice(transcript: string): Promise<void>;
 	retryTask(): Promise<void>;
 	undoLastInsert(): Promise<{ ok: boolean; error?: string }>;
-	askResponse(optionId: string): Promise<void>;
+	askResponse(
+		response:
+			| string
+			| {
+					requestId?: string;
+					optionId?: string;
+					text?: string;
+					modality: "click" | "voice" | "text" | "terminal";
+			  },
+	): Promise<void>;
+	interactionVoice(transcript: string): Promise<void>;
+	toggleInteractionVoice(): Promise<void>;
 	getConfig(): Promise<FoldConfig>;
 	getHotkeySettings(): Promise<HotkeySettingsSnapshot>;
 	setHotkeyBinding(
@@ -169,6 +181,11 @@ interface FoldApi {
 		error?: string;
 		profile?: UserProfileData;
 	}>;
+	profileSaveSeed(input: {
+		role?: string;
+		domains?: string[];
+		keywords?: string[];
+	}): Promise<{ ok: boolean }>;
 	onContextEvent(cb: (event: HomeContextEvent) => void): () => void;
 	runConnectionAction(action: string, context?: Record<string, unknown>): Promise<{ ok: boolean }>;
 	startConnectFlow(
@@ -194,6 +211,7 @@ interface FoldApi {
 	activateConnectFlow(sessionId: string): Promise<{ ok: boolean; opened: boolean; url?: string }>;
 	cancelConnectFlow(sessionId: string): Promise<{ ok: boolean }>;
 	openExternal(url: string): Promise<{ ok: boolean }>;
+	openDataDir(): Promise<{ ok: boolean; path?: string; error?: string }>;
 	saveConfig(config: FoldConfig): Promise<{ ok: boolean }>;
 	accountGetState(): Promise<{
 		signedIn: boolean;
@@ -271,7 +289,8 @@ interface FoldApi {
 		height: number;
 	}>;
 	getOverlayState(): Promise<FoldStateEvent>;
-	dismiss(opts?: { skipFeedback?: boolean }): Promise<void>;
+	dismiss(opts?: { skipFeedback?: boolean; soft?: boolean }): Promise<void>;
+	voiceEmpty(): Promise<{ ok: boolean; standby: boolean }>;
 	toggleVoice(): Promise<void>;
 	voiceError(message: string): Promise<void>;
 	openSettings(section?: string): Promise<void>;
@@ -282,7 +301,8 @@ interface FoldApi {
 	exportInputHabitsRime(): Promise<Record<string, unknown> & { canceled?: boolean }>;
 	quit(): Promise<void>;
 	onHotkeyDown(cb: (session: VoiceSessionStart) => void): () => void;
-	onHotkeyUp(cb: (mode: "structure" | "reply" | "agent") => void): () => void;
+	onVoiceWarm(cb: () => void): () => void;
+	onHotkeyUp(cb: (mode: "structure" | "reply" | "agent" | "interaction") => void): () => void;
 	onHotkeyCancel(cb: () => void): () => void;
 	onHomeNavigate(cb: (section: string) => void): () => void;
 	probeAccessibility(): Promise<{

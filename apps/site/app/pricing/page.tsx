@@ -20,7 +20,7 @@ const benefits = [
 const faqs = [
 	{
 		question: "现在如何参与内测？",
-		answer: "知更正在分批开放 macOS 内测。加入后，我们会按顺序发送下载与安装方式。",
+		answer: "在网站申请内测码。我们分批审核，通过后会把内测码与安装方式发到你的邮箱。",
 	},
 	{
 		question: "是否需要一直联网？",
@@ -70,8 +70,8 @@ export default function PricingPage() {
 						</li>
 					))}
 				</ul>
-				<Link className="zg-primary" href="mailto:hello@zhigeng.app">
-					申请加入内测
+				<Link className="zg-primary" href="/beta">
+					申请内测码
 				</Link>
 			</section>
 

@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { detectMailConnector, isAgentSubagentsEnabled, listAvailableAgents, probeBrowserCdp, probeGmailCli, probeLarkCli, probeNango, probeOfficeChannels, probePlugins, probeScreenCapture, probeSlackCli, probeUitars, probeWorkBuddyGateway, resolveMailConnector, type AgentId } from "@fold/connectors";
 import type { LiveContext } from "@fold/context";
+import { pickPreferredAgent } from "@fold/memory";
 import { listSkills } from "@fold/skills";
 import { mentionsDownloads } from "./capability-resolver.js";
 
@@ -60,7 +61,11 @@ async function probeDownloads(intent: string): Promise<ProbeResult> {
 	return ok("fs.downloads", { exists: true, pdfCount });
 }
 
-export async function runProbes(intent: string, context: LiveContext): Promise<ProbeRunResult> {
+export async function runProbes(
+	intent: string,
+	context: LiveContext,
+	dataDir?: string,
+): Promise<ProbeRunResult> {
 	const probes = await Promise.all([
 		runProbe("context.activeApp", () =>
 			ok("context.activeApp", {
@@ -131,18 +136,14 @@ export async function runProbes(intent: string, context: LiveContext): Promise<P
 			const enabled = isAgentSubagentsEnabled();
 			const agents = enabled ? await listAvailableAgents() : [];
 			const preferredRaw = process.env.FOLD_PREFERRED_EXECUTOR?.trim();
-			let preferred: AgentId | null = agents[0] ?? null;
-			if (
-				preferredRaw === "claude-code" ||
-				preferredRaw === "codex" ||
-				preferredRaw === "cursor"
-			) {
-				if (agents.includes(preferredRaw)) preferred = preferredRaw;
-			}
+			const preferred = pickPreferredAgent(agents, {
+				preferred: preferredRaw,
+				dataDir,
+			}) as AgentId | undefined;
 			return ok("agent.available", {
 				enabled,
 				agents,
-				preferred,
+				preferred: preferred ?? null,
 			});
 		}),
 		runProbe("uitars.available", async () => ok("uitars.available", await probeUitars())),

@@ -32,7 +32,10 @@ try {
 	if (typeof cfg.fastModel === "string") process.env.FOLD_FAST_MODEL = cfg.fastModel;
 } catch {}
 
+const intentArg = process.argv.find((arg) => arg.startsWith("--intent="));
 const INTENT =
+	intentArg?.slice("--intent=".length).trim() ||
+	process.env.FOLD_REAL_TASK_INTENT?.trim() ||
 	"看一下 Chrome 里的百度页面，把页面里每一条链接都抓取下来，新建一个飞书多维表格并写进去";
 
 const emit: StateEmitter = (e) => {

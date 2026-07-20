@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
-    "self-check": "tsx src/omni-realtime.self-check.ts && tsx src/session.self-check.ts",
+		"self-check": "tsx src/omni-realtime.self-check.ts && tsx src/session.self-check.ts && tsx src/vocabulary.self-check.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

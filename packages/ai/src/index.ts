@@ -30,6 +30,8 @@ export {
 	type PredictSurface,
 } from "./predict-drafts.js";
 export {
+	applyContextualAcronymFixes,
+	applyLocalHotwordHints,
 	shouldCleanSpeechLocally,
 	structureSpeechText,
 	type StructuredSpeech,

@@ -31,6 +31,8 @@ export { generatePredictDrafts, type PredictDraftLine } from "./predict-drafts.j
 export {
 	generateAhaGuess,
 	ruleBasedAhaReply,
+	applyContextualAcronymFixes,
+	applyLocalHotwordHints,
 	shouldCleanSpeechLocally,
 	streamAhaGuess,
 	structureSpeechText,
@@ -118,12 +120,27 @@ export {
 	extractProfileKeywords,
 	type OnboardingDemoSentence,
 } from "./profile-brief.js";
+export {
+	resolveSpeechHotwords,
+	type SpeechHotwordLexiconEntry,
+} from "./speech-hotwords.js";
+export {
+	ahaProactiveTierFor,
+	AHA_PROACTIVE_TIERS,
+	decideAhaProactiveShow,
+	DEFAULT_AHA_PROACTIVE,
+	type AhaProactiveFrequency,
+	type AhaProactiveGateInput,
+	type AhaProactiveGateDecision,
+	type AhaProactiveTier,
+} from "./aha-proactive.js";
 export { runPlan } from "./executor.js";
 export { formatRelevantEpisodes } from "./episode-context.js";
 export { formatProbeSummary, runProbes } from "./probe-runner.js";
 export {
 	resolveTier,
 	tryCompiledPlan,
+	type CompiledMatch,
 	type ExecutionTier,
 	type RouteDecision,
 } from "./router.js";
@@ -140,7 +157,14 @@ export {
 } from "./capability-catalog.js";
 export { validatePlan } from "./validator.js";
 export { buildReactAgentPlan, buildRepairBrief } from "./repair.js";
-export { isGuiIntent } from "./capability-resolver.js";
+export {
+	isGuiIntent,
+	resolveSendChannel,
+	isExplicitMailIntent,
+	isFeishuSelfMessageIntent,
+	extractFeishuSelfMessageText,
+} from "./capability-resolver.js";
+export type { SendChannel, OfficeChannelHint } from "./capability-resolver.js";
 export {
 	buildRecoveryPlan,
 	classifyFailure,
@@ -169,5 +193,16 @@ export type {
 	StepView,
 	TaskResult,
 	StepResult,
+	UserActionInputPolicy,
+	UserActionKind,
+	UserActionOption,
 	UserActionRequest,
+	UserActionResponse,
+	UserActionRisk,
+	UserInteractionView,
 } from "./types.js";
+export {
+	matchUserActionVoice,
+	normalizeUserActionRequest,
+	type NormalizedUserActionRequest,
+} from "./interaction.js";

@@ -37,7 +37,7 @@ export function faviconUrlForPage(url: string): string | null {
 }
 
 export function voiceSurfaceLabel(input: {
-	voiceMode?: "structure" | "reply" | "agent" | null;
+	voiceMode?: "structure" | "reply" | "agent" | "interaction" | null;
 	contextPageUrl?: string | null;
 	contextPageLabel?: string | null;
 	contextWindowTitle?: string | null;
@@ -49,5 +49,6 @@ export function voiceSurfaceLabel(input: {
 		);
 	}
 	if (input.voiceMode === "reply") return "代回";
+	if (input.voiceMode === "interaction") return "回答";
 	return "转写";
 }

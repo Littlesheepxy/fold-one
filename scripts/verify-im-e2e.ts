@@ -98,8 +98,8 @@ async function verifyFeishu(): Promise<boolean> {
 			openId,
 			"--text",
 			marker,
-			"--format",
-			"json",
+			"--idempotency-key",
+			marker,
 		]);
 		return { ok: r.ok, detail: r.ok ? marker : r.stderr || r.stdout.slice(0, 160) };
 	});

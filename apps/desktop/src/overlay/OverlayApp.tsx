@@ -198,12 +198,15 @@ function PredictSuggestions({
 	anchor,
 	suggestions,
 	mode,
+	proactive,
 	onRun,
 	onDismiss,
 }: {
 	anchor: string | null | undefined;
 	suggestions: Array<{ intent: string; label: string; confidence: number; reason: string }>;
 	mode: string | null | undefined;
+	/** 自动 Aha 主动弹出（区别于用户按热键触发的预测） */
+	proactive?: boolean;
 	onRun: (intent: string) => void;
 	onDismiss: () => void;
 }) {
@@ -303,6 +306,7 @@ export function OverlayApp() {
 		askMessage,
 		askHint,
 		askOptions,
+		interaction,
 		voiceMode,
 		predictMode,
 		predictPhase,
@@ -320,8 +324,10 @@ export function OverlayApp() {
 		contextPageUrl,
 		contextPageLabel,
 		predictRefining,
+		ahaProactiveReason,
 		voiceTabPlacement,
 		voiceHint,
+		voiceStandbyUntil,
 		widgetDisplayBounds,
 		structureDraftOpen,
 		voiceLevel,
@@ -334,6 +340,7 @@ export function OverlayApp() {
 	const [panelOpen, setPanelOpen] = useState(false);
 	const [displayBounds, setDisplayBounds] = useState<DisplayBounds>(fallbackDisplayBounds);
 	const [bootstrapped, setBootstrapped] = useState(false);
+	const [smartCleanup, setSmartCleanup] = useState(true);
 	const initialPosition = useRef<WidgetPosition>({ x: 0, y: 0, snapSide: null });
 	const x = useMotionValue(initialPosition.current.x);
 	const y = useMotionValue(initialPosition.current.y);
@@ -341,11 +348,29 @@ export function OverlayApp() {
 	const [anchorPosition, setAnchorPosition] = useState(initialPosition.current);
 	const [hovered, setHovered] = useState(false);
 	const [idleRailOpen, setIdleRailOpen] = useState(false);
+	const [interactionCollapsed, setInteractionCollapsed] = useState(false);
 	const prevStatusRef = useRef(status);
 	const dragMovedRef = useRef(false);
 
 	useVoiceHandlers();
 	useMousePassthrough();
+
+	useEffect(() => {
+		void window.fold.getConfig().then((config) => {
+			// Overlay 只切 smart↔minimal；设置页的 off 显示为关，避免被当成智能整理
+			setSmartCleanup((config.speechCleanupLevel ?? "smart") === "smart");
+		});
+	}, []);
+
+	const toggleSmartCleanup = async () => {
+		const nextSmart = !smartCleanup;
+		setSmartCleanup(nextSmart);
+		const config = await window.fold.getConfig();
+		await window.fold.saveConfig({
+			...config,
+			speechCleanupLevel: nextSmart ? "smart" : "minimal",
+		});
+	};
 
 	const applyWidgetPosition = (pos: WidgetPosition, area: DisplayBounds) => {
 		const next = clampWidgetPosition(pos, area);
@@ -446,6 +471,10 @@ export function OverlayApp() {
 	}, [status, voiceMode]);
 
 	useEffect(() => {
+		if (status === "ask") setInteractionCollapsed(false);
+	}, [interaction?.id, status]);
+
+	useEffect(() => {
 		const handler = (e: Event) => {
 			const level = (e as CustomEvent<number>).detail;
 			if (typeof level === "number") setVoiceLevel(level);
@@ -459,8 +488,9 @@ export function OverlayApp() {
 	}, [setVoiceLevel]);
 
 	useEffect(() => {
-		if (status !== "listening") setVoiceLevel(0);
-	}, [status, setVoiceLevel]);
+		const hitlListening = status === "ask" && Boolean(interaction?.listening);
+		if (status !== "listening" && !hitlListening) setVoiceLevel(0);
+	}, [status, interaction?.listening, setVoiceLevel]);
 
 	const isAgentExecuting =
 		status === "understanding" || status === "planning" || status === "working";
@@ -479,9 +509,14 @@ export function OverlayApp() {
 		contextPageLabel,
 		contextWindowTitle,
 	});
+	const isVoiceStandby =
+		status === "idle" &&
+		typeof voiceStandbyUntil === "number" &&
+		voiceStandbyUntil > Date.now();
 	const inputScene =
-		isVoiceAssist &&
-		(status === "listening" || isVoiceFormatting || status === "done");
+		(isVoiceAssist &&
+			(status === "listening" || isVoiceFormatting || status === "done")) ||
+		isVoiceStandby;
 	const replyPredictScene =
 		status === "predict" && predictSurface === "reply" && Boolean(voiceTabPlacement);
 	const voiceTabAnchorScene = inputScene || replyPredictScene;
@@ -509,10 +544,16 @@ export function OverlayApp() {
 			: isStructureDraftCard && typeof window !== "undefined"
 				? { x: window.innerWidth / 2, y: window.innerHeight - 120 }
 				: null;
-	const collapsed = (status === "idle" && !panelOpen) || isPredictCard || isStructureDraftCard;
-	const dockedSide = collapsed ? anchorPosition.snapSide : null;
+	const collapsed =
+		(status === "ask" && interactionCollapsed) ||
+		(status === "idle" && !panelOpen && !isVoiceStandby) ||
+		isPredictCard ||
+		isStructureDraftCard;
+	const dockedSide = collapsed && status !== "ask" ? anchorPosition.snapSide : null;
 	const idleShellWidth = idleRailOpen ? 424 : 360;
-	const shellWidth = inputScene
+	const shellWidth = status === "ask" && interactionCollapsed
+		? 268
+		: inputScene
 		? isVoiceFormattingActive
 			? 96
 			: status === "done"
@@ -541,7 +582,7 @@ export function OverlayApp() {
 				: status === "done"
 					? 320
 				: status === "ask"
-					? 400
+					? 440
 				: status === "listening"
 					? 320
 					: 390;
@@ -659,8 +700,12 @@ export function OverlayApp() {
 				className={`${voiceTabAnchorScene ? "fold-input-tab-anchor" : "absolute"} pointer-events-auto select-none`}
 			>
 				<motion.div
-					className={`fold-shell ${collapsed ? "fold-shell-collapsed" : ""} ${
+				className={`fold-shell ${collapsed ? "fold-shell-collapsed" : ""} ${
 						inputScene ? "fold-input-tab" : ""
+					} ${
+						status === "ask" ? "fold-hitl-shell" : ""
+					} ${
+						status === "ask" && interactionCollapsed ? "fold-hitl-shell-collapsed" : ""
 					} ${
 						isProcessingFill ? "fold-shell-fill" : ""
 					} ${
@@ -688,10 +733,28 @@ export function OverlayApp() {
 							: undefined
 					}
 					onClick={() => {
-						if (collapsed && !dragMovedRef.current) setPanelOpen(true);
+						if (!collapsed || dragMovedRef.current) return;
+						if (status === "ask") setInteractionCollapsed(false);
+						else setPanelOpen(true);
 					}}
 				>
 					{isAuthPrompt && <MultiColorBorderBeam duration={5} />}
+
+					{isAuthPrompt && interactionCollapsed ? (
+						<button
+							type="button"
+							className="fold-hitl-collapsed"
+							onClick={(event) => {
+								event.stopPropagation();
+								setInteractionCollapsed(false);
+							}}
+						>
+							<ZhigengLogoMark className="fold-hitl-collapsed-logo" size={28} mono />
+							<span className="fold-hitl-status-dot" aria-hidden="true" />
+							<span className="fold-hitl-collapsed-copy">1 个任务等待你</span>
+							<span className="fold-hitl-collapsed-open">展开</span>
+						</button>
+					) : null}
 
 					{!inputScene && !isExecuting && !isAuthPrompt && status !== "done" && (
 						<button
@@ -733,22 +796,44 @@ export function OverlayApp() {
 								exit={{ opacity: 0, x: -4 }}
 								transition={{ duration: 0.16, delay: 0.06 }}
 							>
-								{status === "idle" && (
+								{status === "idle" && !isVoiceStandby && (
 									<>
 										<div className="min-w-0 flex-1">
 											<p className="text-sm font-medium whitespace-nowrap">{PRODUCT_NAME} 准备好了</p>
 											<p className="mt-1 text-xs text-white/45 whitespace-nowrap">⌥Space Agent · 右⌘ 转写/代回</p>
 										</div>
-										<button
-											type="button"
-											onClick={(e) => {
-												e.stopPropagation();
-												void window.fold.toggleVoice();
-											}}
-											className="shrink-0 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-black hover:bg-white/90"
+										<div
+											className="fold-idle-cleanup"
+											onClick={(e) => e.stopPropagation()}
+											onPointerDown={(e) => e.stopPropagation()}
 										>
-											开始语音
-										</button>
+											<button
+												type="button"
+												className="fold-idle-cleanup-tip"
+												tabIndex={-1}
+												aria-hidden="true"
+												onClick={() => void toggleSmartCleanup()}
+											>
+												{smartCleanup
+													? "智能整理 · 按应用调语气"
+													: "仅去语气词 · 不跟应用走"}
+												<em>点击切换</em>
+											</button>
+											<button
+												type="button"
+												role="switch"
+												aria-checked={smartCleanup}
+												aria-label={
+													smartCleanup
+														? "当前智能整理，点击改为仅去语气词"
+														: "当前仅去语气词，点击改为智能整理"
+												}
+												className={`fold-idle-cleanup-switch${smartCleanup ? " is-on" : ""}`}
+												onClick={() => void toggleSmartCleanup()}
+											>
+												<span />
+											</button>
+										</div>
 										<IdleActionRail onOpenChange={setIdleRailOpen} />
 									</>
 								)}
@@ -763,9 +848,9 @@ export function OverlayApp() {
 									/>
 								)}
 
-								{status === "listening" && (
+								{(status === "listening" || isVoiceStandby) && (
 									inputScene ? (
-										<div className={voiceHint ? "fold-input-tab-stack" : undefined}>
+										<div className={voiceHint || isVoiceStandby ? "fold-input-tab-stack" : undefined}>
 											<div className="fold-input-tab-row">
 												{contextAppName || contextPageUrl ? (
 													<span className="fold-input-app-icon" aria-hidden="true">
@@ -779,21 +864,26 @@ export function OverlayApp() {
 												) : null}
 												<span
 													className="fold-input-mode max-w-[132px] truncate"
-													title={voiceSurface}
+													title={isVoiceStandby ? "待机" : voiceSurface}
 												>
-													{voiceSurface}
+													{isVoiceStandby ? "待机" : voiceSurface}
 												</span>
 							<span className="fold-input-separator" />
-							<VoiceWave level={voiceLevel} />
+							{isVoiceStandby ? (
+								<span className="fold-input-standby-dot" aria-hidden="true" />
+							) : (
+								<VoiceWave level={voiceLevel} />
+							)}
 							<button
 								type="button"
 								className="fold-input-close"
 								onClick={(event) => {
 									event.stopPropagation();
-									void window.fold.toggleVoice();
+									if (isVoiceStandby) void window.fold.dismiss();
+									else void window.fold.toggleVoice();
 								}}
-								aria-label="结束并转写"
-								title="结束并转写"
+								aria-label={isVoiceStandby ? "结束待机" : "结束并转写"}
+								title={isVoiceStandby ? "结束待机" : "结束并转写"}
 							>
 								<X size={14} strokeWidth={2.2} />
 							</button>
@@ -901,11 +991,15 @@ export function OverlayApp() {
 
 								{status === "ask" && askOptions && askOptions.length > 0 && (
 									<AskOptions
+										interaction={interaction}
 										title={askTitle}
 										message={askMessage}
 										hint={askHint}
-										options={askOptions}
-										onSelect={(id) => void window.fold.askResponse(id)}
+										options={interaction?.options ?? askOptions}
+										voiceLevel={voiceLevel}
+										onRespond={(response) => void window.fold.askResponse(response)}
+										onToggleVoice={() => void window.fold.toggleInteractionVoice()}
+										onCollapse={() => setInteractionCollapsed(true)}
 									/>
 								)}
 							</motion.div>
@@ -1011,6 +1105,7 @@ export function OverlayApp() {
 					suggestions={predictSuggestions ?? []}
 					drafts={predictDrafts}
 					memoryRefs={predictMemoryRefs}
+					proactiveReason={ahaProactiveReason}
 					loading={Boolean(predictAnchor?.includes("正在"))}
 					draftsLoading={predictDraftsLoading}
 					selectedIntent={predictSelectedIntent}
@@ -1024,9 +1119,9 @@ export function OverlayApp() {
 							draft: predictDrafts?.[0]?.text,
 							anchor: predictAnchor,
 						});
-						void window.fold.dismiss({ skipFeedback: true });
+						void window.fold.dismiss({ skipFeedback: true, soft: true });
 					}}
-					onDismiss={() => void window.fold.dismiss()}
+					onDismiss={() => void window.fold.dismiss({ soft: true })}
 				/>
 			)}
 
@@ -1040,7 +1135,7 @@ export function OverlayApp() {
 					appPath={contextAppPath}
 					pageUrl={contextPageUrl}
 					onInsert={(text) => window.fold.structureInsertDraft(text, contextAppName)}
-					onDismiss={() => void window.fold.dismiss()}
+					onDismiss={() => void window.fold.dismiss({ soft: true })}
 				/>
 			)}
 		</div>

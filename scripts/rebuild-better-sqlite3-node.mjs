@@ -1,15 +1,8 @@
-import { createRequire } from "node:module";
-import { dirname } from "node:path";
+/** @deprecated use ensure-better-sqlite3.mjs node — kept as a thin alias for existing docs/scripts */
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-const memoryRequire = createRequire(new URL("../packages/memory/package.json", import.meta.url));
-const packageDir = dirname(memoryRequire.resolve("better-sqlite3/package.json"));
-const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
-const result = spawnSync(npmCommand, ["run", "build-release"], {
-	cwd: packageDir,
-	stdio: "inherit",
-	env: { ...process.env, npm_config_runtime: "node", npm_config_target: process.versions.node },
-});
-
+const ensure = fileURLToPath(new URL("./ensure-better-sqlite3.mjs", import.meta.url));
+const result = spawnSync(process.execPath, [ensure, "node"], { stdio: "inherit" });
 if (result.error) throw result.error;
 process.exit(result.status ?? 1);

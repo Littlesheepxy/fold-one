@@ -14,7 +14,10 @@ export interface DashscopeAsrOpts {
 	sampleRate?: number;
 	format?: "pcm" | "wav" | "opus";
 	languageHints?: string[];
-	hotWords?: string[];
+	/** 官方热词：vocabulary_id（优先）。旧 hot_words 字符串数组不靠谱，已弃用。 */
+	vocabularyId?: string | null;
+	/** Fun-ASR 上下文增强（领域词表，≤400 字） */
+	contextText?: string | null;
 	disfluencyRemoval?: boolean;
 	semanticPunctuation?: boolean;
 }
@@ -79,7 +82,9 @@ export class DashscopeAsrClient extends EventEmitter {
 					...(this.opts.languageHints?.length
 						? { language_hints: this.opts.languageHints }
 						: {}),
-					...(this.opts.hotWords?.length ? { hot_words: this.opts.hotWords } : {}),
+					...(this.opts.vocabularyId
+						? { vocabulary_id: this.opts.vocabularyId }
+						: {}),
 				},
 				input: {},
 			},
@@ -100,6 +105,7 @@ export class DashscopeAsrClient extends EventEmitter {
 		switch (event) {
 			case "task-started":
 				this.started = true;
+				this.sendContextIfAny();
 				this.emit("started");
 				break;
 			case "result-generated": {
@@ -132,6 +138,33 @@ export class DashscopeAsrClient extends EventEmitter {
 				this.emit("error", new Error(header?.error_message ?? "task-failed"));
 				this.safeClose();
 				break;
+		}
+	}
+
+	private sendContextIfAny() {
+		const text = this.opts.contextText?.trim();
+		if (!text || this.closed) return;
+		const cmd = {
+			header: {
+				action: "continue-task",
+				task_id: this.taskId,
+				streaming: "duplex",
+			},
+			payload: {
+				input: {
+					context: [
+						{
+							role: "user",
+							content: [{ type: "input_text", text: text.slice(0, 400) }],
+						},
+					],
+				},
+			},
+		};
+		try {
+			this.ws.send(JSON.stringify(cmd));
+		} catch {
+			/* ignore */
 		}
 	}
 

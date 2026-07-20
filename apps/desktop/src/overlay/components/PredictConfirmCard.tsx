@@ -19,6 +19,8 @@ interface Props {
 	draftsLoading?: boolean;
 	memoryRefs?: string[];
 	selectedIntent?: string | null;
+	/** 自动 Aha 主动弹出的原因；用户手动按热键触发时为空 */
+	proactiveReason?: string | null;
 	onPickIntent: (intent: string) => void;
 	onInsertDraft: (text: string) => void;
 	onReject?: () => void;
@@ -57,6 +59,7 @@ export function PredictConfirmCard({
 	draftsLoading,
 	memoryRefs,
 	selectedIntent,
+	proactiveReason,
 	onPickIntent,
 	onInsertDraft,
 	onReject,
@@ -114,7 +117,13 @@ export function PredictConfirmCard({
 					) : null}
 					<div className="min-w-0 flex-1">
 						<p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-white/45">
-							{phase === "result" ? surfaceTitle(surface) : phase === "pick" ? "猜你想做" : "知更"}
+							{proactiveReason
+								? `主动建议 · ${phase === "result" ? surfaceTitle(surface) : "猜你想做"}`
+								: phase === "result"
+									? surfaceTitle(surface)
+									: phase === "pick"
+										? "猜你想做"
+										: "知更"}
 						</p>
 						{sceneTitle ? (
 							<p className="mt-0.5 truncate text-[14px] font-semibold text-white/95" title={sceneTitle}>

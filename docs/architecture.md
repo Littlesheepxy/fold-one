@@ -1,5 +1,8 @@
 # Fold Runtime — 技术架构文档
 
+> Agent harness 的外部对标、事件事实源、durable interrupt 与副作用账本演进见
+> [Agent Harness 架构对标与演进 RFC](./agent-harness-benchmark.md)。
+
 ---
 
 ## 1. 架构总览

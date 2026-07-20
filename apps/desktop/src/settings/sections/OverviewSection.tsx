@@ -271,6 +271,7 @@ function ZhigengNoticedPanel({
 	const [reply, setReply] = useState("");
 	const [suggestions, setSuggestions] = useState<HomeAhaGuess["suggestions"]>([]);
 	const [confidenceLevel, setConfidenceLevel] = useState<HomeAhaGuess["confidenceLevel"]>();
+	const [ahaFrequency, setAhaFrequency] = useState<"off" | "low" | "normal" | "high">("off");
 	const runIdRef = useRef<number | null>(null);
 	const startedRef = useRef(false);
 	const wasActiveRef = useRef(false);
@@ -278,6 +279,21 @@ function ZhigengNoticedPanel({
 	const evidence = targets
 		.slice(0, 3)
 		.map((target) => target.kind === "app" ? target.appName : target.label);
+
+	useEffect(() => {
+		if (typeof window.fold === "undefined") return;
+		void window.fold.getConfig().then((config) => {
+			setAhaFrequency(config.ahaProactiveFrequency ?? "off");
+		});
+	}, []);
+
+	const updateAhaFrequency = (next: "off" | "low" | "normal" | "high") => {
+		setAhaFrequency(next);
+		if (typeof window.fold === "undefined") return;
+		void window.fold.getConfig().then((config) => {
+			void window.fold.saveConfig({ ...config, ahaProactiveFrequency: next });
+		});
+	};
 
 	useEffect(() => {
 		if (typeof window.fold === "undefined") {
@@ -386,11 +402,26 @@ function ZhigengNoticedPanel({
 						<span className="fold-aha-confidence fold-aha-confidence--medium">大致猜测</span>
 					) : null}
 				</div>
-				{state === "ready" && reply ? (
-					<button type="button" className="fold-aha-close" onClick={dismiss} aria-label="收起">
-						<X size={14} strokeWidth={2} />
-					</button>
-				) : null}
+				<div className="fold-aha-head-actions">
+					<label className="fold-aha-frequency" title="主动建议频次：看清你下一步时，用系统通知轻提醒你">
+						<span className="fold-aha-frequency-label">主动建议</span>
+						<select
+							value={ahaFrequency}
+							onChange={(e) => updateAhaFrequency(e.target.value as "off" | "low" | "normal" | "high")}
+							className="fold-aha-frequency-select"
+						>
+							<option value="off">关</option>
+							<option value="low">低频</option>
+							<option value="normal">正常</option>
+							<option value="high">高频</option>
+						</select>
+					</label>
+					{state === "ready" && reply ? (
+						<button type="button" className="fold-aha-close" onClick={dismiss} aria-label="收起">
+							<X size={14} strokeWidth={2} />
+						</button>
+					) : null}
+				</div>
 			</div>
 
 			{state === "loading" && !reply ? (
@@ -545,7 +576,7 @@ export function OverviewSection({
 										</span>
 										<time>{formatActivityTime(episode.timestamp)}</time>
 										<span className={`fold-activity-state is-${episode.status}`}>
-											{episode.status === "success" ? <Check size={14} strokeWidth={2.4} /> : null}
+											{episode.status === "success" || episode.status === "recovered" ? <Check size={14} strokeWidth={2.4} /> : null}
 										</span>
 									</button>
 								);

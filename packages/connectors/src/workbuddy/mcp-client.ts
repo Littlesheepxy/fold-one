@@ -20,7 +20,7 @@ export function workBuddyMcpAuthHeader(): string | undefined {
 
 export async function probeWorkBuddyMcp(
 	gatewayUrl: string,
-): Promise<{ ok: boolean; toolCount?: number; error?: string }> {
+): Promise<{ ok: boolean; toolCount?: number; toolNames?: string[]; error?: string }> {
 	const auth = workBuddyMcpAuthHeader();
 	if (!auth) {
 		return {
@@ -42,7 +42,8 @@ export async function probeWorkBuddyMcp(
 	try {
 		await client.connect(transport);
 		const tools = await client.listTools();
-		return { ok: true, toolCount: tools.tools.length };
+		const toolNames = tools.tools.map((tool) => tool.name).slice(0, 64);
+		return { ok: true, toolCount: tools.tools.length, toolNames };
 	} catch (error) {
 		return { ok: false, error: (error as Error).message };
 	} finally {
