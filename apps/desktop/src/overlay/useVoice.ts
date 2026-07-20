@@ -110,6 +110,7 @@ export function useVoiceHandlers() {
 									app: session.app,
 									windowTitle: session.windowTitle,
 									authToken: runtime.authToken,
+									hotWords: runtime.hotWords,
 								})
 							: createMockAsr();
 				asrRef.current = asr;

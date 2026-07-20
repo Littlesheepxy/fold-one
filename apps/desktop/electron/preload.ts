@@ -63,6 +63,7 @@ contextBridge.exposeInMainWorld("fold", {
 			modelPath?: string;
 			ready: boolean;
 			authToken?: string;
+			hotWords?: string[];
 		}>,
 	localAsrStart: () =>
 		ipcRenderer.invoke("fold:local-asr-start") as Promise<{ ok: boolean }>,
@@ -239,6 +240,8 @@ contextBridge.exposeInMainWorld("fold", {
 			error?: string;
 			profile?: Record<string, unknown>;
 		}>,
+	profileSaveSeed: (input: { role?: string; domains?: string[]; keywords?: string[] }) =>
+		ipcRenderer.invoke("fold:profile-save-seed", input) as Promise<{ ok: boolean }>,
 	onContextEvent(cb: (event: Record<string, unknown>) => void) {
 		const handler = (_: unknown, event: Record<string, unknown>) => cb(event);
 		ipcRenderer.on("fold:context-event", handler);

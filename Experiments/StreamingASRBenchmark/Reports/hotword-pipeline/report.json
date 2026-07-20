@@ -1,0 +1,105 @@
+{
+  "generatedAt": "2026-07-20T03:40:51.151Z",
+  "voice": "Tingting",
+  "vocabularyId": "vocab-foldhw-21615cfe4862461c95aeb5f07a866edd",
+  "pass": 8,
+  "total": 8,
+  "ratio": 1,
+  "rows": [
+    {
+      "id": "V1",
+      "text": "Fast Path 要优先保证 first character latency",
+      "asr": "fast path要优先保证first character latency。",
+      "cleaned": "Fast Path要优先保证first character latency。",
+      "hits": [
+        "Fast Path",
+        "first character latency"
+      ],
+      "misses": [],
+      "ok": true
+    },
+    {
+      "id": "V2",
+      "text": "这个 resolver 不应该每次重置整段 transcript",
+      "asr": "这个resolver不应该每次重置整段transcript。",
+      "cleaned": "这个resolver不应该每次重置整段transcript。",
+      "hits": [
+        "resolver",
+        "transcript"
+      ],
+      "misses": [],
+      "ok": true
+    },
+    {
+      "id": "V3",
+      "text": "InputSurface 和 ThoughtSurface 应该是两个独立的 surface",
+      "asr": "InputSurface和ThoughtSurface应该是两个独立的Surface。",
+      "cleaned": "InputSurface和ThoughtSurface应该是两个独立的Surface。",
+      "hits": [
+        "InputSurface",
+        "ThoughtSurface"
+      ],
+      "misses": [],
+      "ok": true
+    },
+    {
+      "id": "V4",
+      "text": "这家公司今年 ARR 大概三千万，续费率还可以",
+      "asr": "这家公司今年on大概3000万，续费率还可以。",
+      "cleaned": "这家公司今年ARR大概3000万，续费率还可以。",
+      "hits": [
+        "ARR"
+      ],
+      "misses": [],
+      "ok": true
+    },
+    {
+      "id": "V5",
+      "text": "这个项目投前估值十四亿，但是目前还没有收入",
+      "asr": "这个项目投前估值14亿，但是目前还没有收入。",
+      "cleaned": "这个项目投前估值14亿，但是目前还没有收入。",
+      "hits": [
+        "十四亿"
+      ],
+      "misses": [],
+      "ok": true
+    },
+    {
+      "id": "V6",
+      "text": "我们需要确认一下毛利率和销售回款周期",
+      "asr": "我们需要确认一下毛利率和销售回款周期。",
+      "cleaned": "我们需要确认一下毛利率和销售回款周期。",
+      "hits": [
+        "毛利率",
+        "回款"
+      ],
+      "misses": [],
+      "ok": true
+    },
+    {
+      "id": "V7",
+      "text": "你帮我看一下这个 PR 的 context 有没有问题",
+      "asr": "你帮我看一下这个PR的context有没有问题。",
+      "cleaned": "你帮我看一下这个PR的context有没有问题。",
+      "hits": [
+        "PR",
+        "context"
+      ],
+      "misses": [],
+      "ok": true
+    },
+    {
+      "id": "V8",
+      "text": "帮我 compare 一下这两个 branch 的 diff",
+      "asr": "帮我compare一下这两个branch的diff。",
+      "cleaned": "帮我compare一下这两个branch的diff。",
+      "hits": [
+        "compare",
+        "branch",
+        "diff"
+      ],
+      "misses": [],
+      "ok": true
+    }
+  ]
+}

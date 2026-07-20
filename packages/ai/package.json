@@ -6,10 +6,11 @@
   "exports": {
     ".": "./src/index.ts"
   },
-  "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test:structure-speech-cleanup": "pnpm exec tsx src/structure-speech-cleanup.self-check.ts"
-  },
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test:structure-speech-cleanup": "pnpm exec tsx src/structure-speech-cleanup.self-check.ts",
+		"test:local-hotword-hints": "pnpm exec tsx src/local-hotword-hints.self-check.ts"
+	},
   "dependencies": {
     "@ai-sdk/openai-compatible": "^2.0.42",
     "ai": "^6.0.169",

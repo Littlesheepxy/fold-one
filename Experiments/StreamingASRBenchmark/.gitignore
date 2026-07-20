@@ -3,6 +3,8 @@ Backends/.venv/
 Fixtures/WAV/*.wav
 Reports/asr_benchmark_results.json
 Reports/asr_benchmark_results.csv
+Reports/hotword-pipeline/*.wav
+Reports/hotword-pipeline/*.pcm
 Models/*.tar.bz2
 Models/sherpa-onnx-*/
 Runtime/*.tar.bz2

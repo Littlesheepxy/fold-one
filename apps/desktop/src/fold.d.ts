@@ -52,6 +52,7 @@ interface FoldApi {
 		modelPath?: string;
 		ready: boolean;
 		authToken?: string;
+		hotWords?: string[];
 	}>;
 	localAsrStart(): Promise<{ ok: boolean }>;
 	localAsrAudio(chunk: ArrayBuffer): void;
@@ -180,6 +181,11 @@ interface FoldApi {
 		error?: string;
 		profile?: UserProfileData;
 	}>;
+	profileSaveSeed(input: {
+		role?: string;
+		domains?: string[];
+		keywords?: string[];
+	}): Promise<{ ok: boolean }>;
 	onContextEvent(cb: (event: HomeContextEvent) => void): () => void;
 	runConnectionAction(action: string, context?: Record<string, unknown>): Promise<{ ok: boolean }>;
 	startConnectFlow(

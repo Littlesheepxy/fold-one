@@ -8,7 +8,10 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "noEmit": true,
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "@fold/macos-input": ["./native/macos-input/index.d.ts"]
+    }
   },
   "include": ["electron/**/*"]
 }

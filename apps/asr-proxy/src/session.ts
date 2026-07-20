@@ -6,6 +6,7 @@ import type { WebSocket as WsServer } from "ws";
 import { DashscopeAsrClient } from "./dashscope.js";
 import { fetchEntitlements, mustAuthenticate, reportVoiceUsage } from "./entitlements.js";
 import { OmniRealtimeClient, type OmniVoiceMode } from "./omni-realtime.js";
+import { ensureVocabularyId, buildAsrContextText } from "./vocabulary.js";
 
 interface StartMsg {
 	type: "start";
@@ -41,15 +42,24 @@ const ALLOWED_MODELS = new Set([
 	"qwen3.5-omni-plus-realtime",
 ]);
 
-/** Cost-aware route: structure prefers Omni Flash; reply/agent use Plus. */
+/**
+ * Cost-aware route:
+ * - reply/agent → Omni Plus
+ * - structure + 热词 → Fun-ASR（引擎 vocabulary_id bias）
+ * - structure 无热词 → Omni Flash（端到端整理）
+ */
 export function resolveSessionModel(
 	mode: OmniVoiceMode | undefined,
 	requested: string | undefined,
 	defaultModel: string,
+	hotWords?: string[],
 ): string {
 	const voiceMode = mode ?? "structure";
 	if (voiceMode === "reply" || voiceMode === "agent") {
 		return "qwen3.5-omni-plus-realtime";
+	}
+	if (voiceMode === "structure" && (hotWords?.length ?? 0) > 0) {
+		return "fun-asr-realtime";
 	}
 	if (requested && ALLOWED_MODELS.has(requested)) {
 		if (requested.includes("omni-plus")) {
@@ -101,7 +111,6 @@ export function attachAsrSession(ws: WsServer, deps: SessionDeps) {
 		if (isBinary) {
 			const buf = data as Buffer;
 			audioBytes += buf.byteLength;
-			// upstream 尚未创建时也入队，绝不能静默丢音频
 			if (upstreamSendable && upstream) {
 				upstream.sendAudio(buf);
 			} else {
@@ -134,32 +143,49 @@ export function attachAsrSession(ws: WsServer, deps: SessionDeps) {
 					}
 
 					sessionMode = msg.mode ?? "structure";
-					sessionModel = resolveSessionModel(sessionMode, msg.model, deps.defaultModel);
+					const hotWords = (msg.hotWords ?? [])
+						.map((w) => String(w).trim())
+						.filter(Boolean)
+						.slice(0, 100);
+					sessionModel = resolveSessionModel(
+						sessionMode,
+						msg.model,
+						deps.defaultModel,
+						hotWords,
+					);
 					sampleRate = msg.sampleRate ?? 16000;
 					requestId = (msg.sessionId?.trim() || randomUUID()) as string;
 					audioBytes = 0;
 					usageReported = false;
 
 					console.log(
-						`[asr-proxy] session model=${sessionModel}, mode=${sessionMode}, auth=${foldToken ? "yes" : "no"}`,
+						`[asr-proxy] session model=${sessionModel}, mode=${sessionMode}, hotWords=${hotWords.length}, auth=${foldToken ? "yes" : "no"}`,
 					);
 
-					upstream = sessionModel.includes("omni")
-						? new OmniRealtimeClient({
-								apiKey: deps.apiKey,
-								model: sessionModel,
-								mode: sessionMode,
-								app: msg.app,
-								windowTitle: msg.windowTitle,
-							})
-						: new DashscopeAsrClient({
-								apiKey: deps.apiKey,
-								model: sessionModel,
-								sampleRate,
-								format: msg.format ?? "pcm",
-								languageHints: msg.languageHints,
-								hotWords: msg.hotWords,
-							});
+					if (sessionModel.includes("omni")) {
+						upstream = new OmniRealtimeClient({
+							apiKey: deps.apiKey,
+							model: sessionModel,
+							mode: sessionMode,
+							app: msg.app,
+							windowTitle: msg.windowTitle,
+							hotWords,
+						});
+					} else {
+						const vocabularyId =
+							hotWords.length > 0
+								? await ensureVocabularyId(deps.apiKey, hotWords)
+								: null;
+						upstream = new DashscopeAsrClient({
+							apiKey: deps.apiKey,
+							model: sessionModel,
+							sampleRate,
+							format: msg.format ?? "pcm",
+							languageHints: msg.languageHints,
+							vocabularyId,
+							contextText: hotWords.length ? buildAsrContextText(hotWords) : null,
+						});
+					}
 
 					upstream.on("started", () => {
 						upstreamSendable = true;
@@ -172,7 +198,6 @@ export function attachAsrSession(ws: WsServer, deps: SessionDeps) {
 						fullText: string;
 						directStructured?: boolean;
 					}) => {
-						// 用量上报绝不能挡 done：foldhub 超时会让客户端 finish 超时 → incomplete → UI 卡住
 						send({
 							type: "done",
 							fullText: fullText.trim(),

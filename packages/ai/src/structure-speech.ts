@@ -89,6 +89,92 @@ export function shouldCleanSpeechLocally(text: string): boolean {
 	return false;
 }
 
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** 驼峰 / 连续大写拆成可匹配的空格形式：InputSurface → Input Surface。 */
+function spacedHotwordForm(keyword: string): string {
+	return keyword
+		.replace(/([a-z\d])([A-Z])/g, "$1 $2")
+		.replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+		.trim();
+}
+
+/**
+ * 免费档 / 云失败兜底：只做去空格、大小写、驼峰拆分级的热词对齐。
+ * 不做谐音或编辑距离深纠（那是付费云端「专有名词增强」的卖点）。
+ * 注意：cleanSpeechText 会去掉空白，所以 compact 匹配是主路径。
+ */
+export function applyLocalHotwordHints(
+	text: string,
+	keywords: string[] | undefined | null,
+): string {
+	if (!keywords?.length || !text) return text;
+	let out = text;
+	const sorted = [...keywords]
+		.map((k) => k.trim())
+		.filter(Boolean)
+		.sort((a, b) => b.length - a.length);
+
+	for (const kw of sorted) {
+		const exactRe = new RegExp(escapeRegExp(kw), "gi");
+		if (exactRe.test(out)) {
+			out = out.replace(new RegExp(escapeRegExp(kw), "gi"), kw);
+			continue;
+		}
+
+		const forms: string[] = [];
+		const compact = kw.replace(/\s+/g, "");
+		if (compact.toLowerCase() !== kw.toLowerCase()) forms.push(compact);
+		const spaced = spacedHotwordForm(kw);
+		if (spaced !== kw) forms.push(spaced);
+		// 驼峰词在去空白后的文本里：InputSurface ↔ inputsurface
+		if (spaced !== kw) forms.push(spaced.replace(/\s+/g, ""));
+
+		for (const form of forms) {
+			const pattern =
+				/\s/.test(form) ?
+					escapeRegExp(form).replace(/\\ /g, "\\s+")
+				:	escapeRegExp(form);
+			const re = new RegExp(pattern, "gi");
+			if (!re.test(out)) continue;
+			out = out.replace(new RegExp(pattern, "gi"), kw);
+			break;
+		}
+	}
+	return out;
+}
+
+/**
+ * Pro/试用后处理：仅在 profileKeywords 含目标词时，做语境敏感的近音/错识替换。
+ * 不全局替换（避免把普通 "on" 改成 ARR）。
+ */
+export function applyContextualAcronymFixes(
+	text: string,
+	keywords: string[] | undefined | null,
+): string {
+	if (!keywords?.length || !text) return text;
+	const has = (kw: string) =>
+		keywords.some((k) => k.replace(/\s+/g, "").toLowerCase() === kw.replace(/\s+/g, "").toLowerCase());
+	let out = text;
+
+	if (has("ARR")) {
+		const investCue = /续费|营收|收入|估值|万|亿|公司|年|arr/i.test(out);
+		if (investCue) {
+			// 「今年on大概」「今年 are 大概」——中英夹杂，\b 不可靠
+			out = out.replace(
+				/(?<=[\u4e00-\u9fff\s,，、]|^)(on|are|aar)(?=[\u4e00-\u9fff\s,，、.。！？!?]|$)/gi,
+				"ARR",
+			);
+		}
+	}
+	if (has("resolver")) {
+		out = out.replace(/\breserver\b/gi, "resolver");
+	}
+	return out;
+}
+
 function parseStructureJson(text: string, fallback: string): StructuredSpeech | null {
 	const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim();
 	const candidate = fenced ?? text;
@@ -132,17 +218,43 @@ export async function structureSpeechText(
 	const text = transcript.trim();
 	if (!text) return { headline: "", detail: "" };
 	if (context.cleanupLevel === "off") return { headline: text, detail: "" };
-	const cleaned = formatCleanedText(cleanSpeechText(text), context);
+	let cleaned = applyLocalHotwordHints(
+		formatCleanedText(cleanSpeechText(text), context),
+		context.profileKeywords,
+	);
+	// preferQuality（付费/试用）：短缩写语境纠错；免费本地快路径不做
+	if (context.preferQuality) {
+		cleaned = applyContextualAcronymFixes(cleaned, context.profileKeywords);
+	}
 	if (context.cleanupLevel === "minimal") return { headline: cleaned, detail: "" };
+	// preferQuality（付费/试用）：短命令也上云；免费仍走本地快路径 + 上面的轻量热词
 	const useLocal = !context.preferQuality && shouldCleanSpeechLocally(text);
 	if (useLocal) return { headline: cleaned, detail: "" };
-	if (context.allowCloud === false || !hasFastModelApiKey()) return heuristicStructure(text);
+	if (context.allowCloud === false || !hasFastModelApiKey()) {
+		const local = heuristicStructure(text);
+		const headline = context.preferQuality
+			? applyContextualAcronymFixes(
+					applyLocalHotwordHints(local.headline, context.profileKeywords),
+					context.profileKeywords,
+				)
+			: applyLocalHotwordHints(local.headline, context.profileKeywords);
+		const detail = context.preferQuality
+			? applyContextualAcronymFixes(
+					applyLocalHotwordHints(local.detail, context.profileKeywords),
+					context.profileKeywords,
+				)
+			: applyLocalHotwordHints(local.detail, context.profileKeywords);
+		return { headline, detail };
+	}
 
 	const app = [context.app, context.windowTitle].filter(Boolean).join(" · ") || "未知";
 	const keywordNote =
 		context.profileKeywords?.length ?
 			`\n用户常用专名（听写错字请纠正为下列写法）：${context.profileKeywords.join("、")}`
 		:	"";
+	const confusionNote = context.profileKeywords?.length
+		? `\n常见听写错识（有语境时纠正，勿无故替换日常词）：ARR←on/are；resolver←reserver。`
+		: "";
 	const prompt = `用户刚说完一段语音输入。请做“输入净化”，不是总结，不要扩写，不要补充事实。
 
 目标：
@@ -162,7 +274,7 @@ export async function structureSpeechText(
   "text": "可直接输入到当前 App 的最终文本"
 }
 
-当前 App/窗口：${app}${keywordNote}
+当前 App/窗口：${app}${keywordNote}${confusionNote}
 已去除口头禅和改口过程的文本：
 ${cleaned}`;
 
@@ -173,10 +285,35 @@ ${cleaned}`;
 			feature: "voice_structure",
 		});
 		const parsed = parseStructureJson(out, cleaned);
-		if (!parsed) return heuristicStructure(text);
+		if (!parsed) {
+			const local = heuristicStructure(text);
+			return {
+				headline: applyContextualAcronymFixes(
+					applyLocalHotwordHints(local.headline, context.profileKeywords),
+					context.profileKeywords,
+				),
+				detail: applyContextualAcronymFixes(
+					applyLocalHotwordHints(local.detail, context.profileKeywords),
+					context.profileKeywords,
+				),
+			};
+		}
 		context.onCloudSuccess?.();
-		return parsed;
+		return {
+			headline: applyContextualAcronymFixes(parsed.headline, context.profileKeywords),
+			detail: applyContextualAcronymFixes(parsed.detail, context.profileKeywords),
+		};
 	} catch {
-		return heuristicStructure(text);
+		const local = heuristicStructure(text);
+		return {
+			headline: applyContextualAcronymFixes(
+				applyLocalHotwordHints(local.headline, context.profileKeywords),
+				context.profileKeywords,
+			),
+			detail: applyContextualAcronymFixes(
+				applyLocalHotwordHints(local.detail, context.profileKeywords),
+				context.profileKeywords,
+			),
+		};
 	}
 }

@@ -31,6 +31,8 @@ export { generatePredictDrafts, type PredictDraftLine } from "./predict-drafts.j
 export {
 	generateAhaGuess,
 	ruleBasedAhaReply,
+	applyContextualAcronymFixes,
+	applyLocalHotwordHints,
 	shouldCleanSpeechLocally,
 	streamAhaGuess,
 	structureSpeechText,

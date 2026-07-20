@@ -89,7 +89,7 @@ FOLD_E2E_INTENT="帮我整理刚下载的报价发给 Jason" pnpm desktop:dev
 
 | ID | 项 | 怎么验 | 状态 |
 |----|-----|--------|------|
-| T1 | **语音转写精度 / 关键热词** | 真说 V1–V8；对照 transcript：专有名词是否被吃掉/改成日常词；再看是否进对 agent | 找到并修了 2 个根因 bug，见下；真人开口这部分仍未测 |
+| T1 | **语音转写精度 / 关键热词** | 真说 V1–V8；对照 transcript：专有名词是否被吃掉/改成日常词；再看是否进对 agent | 双轨门禁已修（见下）；真人开口仍未测 |
 | T2 | 语音 → agent 端到端 | 同一批话术不只看字对，还要看任务是否做对 | 未测（依赖 T1 的真人录音） |
 | T3 | Codex 难意图 live | `FOLD_PREFERRED_EXECUTOR=codex FOLD_STRESS_LIVE_AGENT=1 … journey-local-agent` | 阻塞：本机 `codex` CLI 装坏了（见下），和之前记的 usage limit 是两个问题 |
 | T4 | 真机 HITL | Chrome 断连授权自动续跑；群消息确认卡取消无副作用 | 未测，但已埋点（见下）：Chrome/Gmail/屏幕权限授权会自动记时长+选择，测完跑报告脚本就知道；群消息确认卡目前是纯 UI 演示，挂不上埋点 |
@@ -98,6 +98,19 @@ FOLD_E2E_INTENT="帮我整理刚下载的报价发给 Jason" pnpm desktop:dev
 | T7 | ASR 基准工具加自动错字率对比（新发现的缺口） | `BenchmarkRunner`/`ReportWriter` 目前只测延迟/RTF，`recognized_text` 不会自动对 `utterances.json` 的 ground truth 算 WER，需要人工比对 | 未做 |
 
 语音热词备注：仓库有 utterance 素材，**没有**硬热词表；靠大模型 + 后处理。T1 的目标是量「关键词错了多少」，再决定要不要加 bias / 词表。
+
+### 双轨专名纠错（07-20）
+
+短命令（V1–V8 全中 `shouldCleanSpeechLocally`）不再一刀切关云，按权益拆：
+
+| 档位 | 行为 |
+|------|------|
+| **Pro / 试用未耗尽**（`smartAccess.allowed`） | 客户端下发热词 → structure 有热词时走 **Fun-ASR + vocabulary_id**；无热词仍 Omni；Omni 路径 instructions 注入专名；`directStructured` 仍跑本地轻纠；后处理 `preferQuality` + `profileKeywords` |
+| **Free 无试用** | 本地快路径 + `applyLocalHotwordHints`（去空格/大小写/驼峰）；**不**做谐音深纠 |
+
+词源：onboarding `know-you`（职业/领域/英文专名 + 输入法导入）→ `resolveSpeechHotwords`。
+
+验证：`pnpm --filter @fold/ai test:local-hotword-hints`；`pnpm --filter @fold/asr-proxy self-check`。
 
 ### 埋点（07-18）：T1/T2/T4/T5 测完自动出报告，不用手填表
 
@@ -126,7 +139,7 @@ pnpm exec tsx scripts/read-stress-log.ts --since=30m
 
 修完后拿同一批错字文本重跑：**2/4**（`Fast Path`、`ARR` 纠对了；`InputSurface`/`ThoughtSurface`、`compare/branch/diff` 这两条云端模型返回空结果，退回本地兜底，看起来是 `moonshot-v1-8k` 这个快模型本身对高度混乱的中英混杂错字处理不稳，不是代码 bug）。
 
-**新发现但没动的架构问题**：`shouldCleanSpeechLocally()` 对所有单句、≤200 字的输入（V1–V8 全部命中）会直接短路走本地啟发式，**根本不会调用云端**，`profileKeywords` 纠错在这类短语音命令上目前形同没接——这是刻意的低延迟设计（短命令快、长语音才上云修正），但意味着「专名容易被吃掉」这类问题恰好集中在被短路掉的那一类命令上。是否要为命中已知专名的短命令破例走云端，是产品取舍问题，本次没动，需要单独决定。
+**新发现已闭合（07-20）**：原先 `shouldCleanSpeechLocally()` 对短命令强制 `allowCloud: false`，Pro/试用的专名增强也被掐掉。现已按档位拆开——付费/试用短命令上云；免费仅本地轻纠（见上「双轨专名纠错」）。
 
 ### 热词合并（07-19）：profile + 输入法词库
 
@@ -143,7 +156,20 @@ pnpm exec tsx scripts/read-stress-log.ts --since=30m
 
 **补测法**：设置 normal 档 → 在一个聊天 App 里停留 ≥2 分钟（让情境信心升上去）→ 等系统通知弹出；点通知 → 预测卡应显示「主动建议 · 猜你想做」；Esc 关 → dismiss 落库（surface=task）。
 
-### T6 dry-run 记录（07-18）
+### T6/T8 语音热词流水线（07-20，可重复）
+
+TTS（macOS `say`）→ Fun-ASR + vocabulary → 本地/云端净化 → 关键词表：
+
+```bash
+pnpm voice:hotword-pipeline
+# 或经本地 proxy：pnpm voice:hotword-pipeline -- --proxy=ws://localhost:3003
+# 只测后处理：pnpm voice:hotword-pipeline -- --skip-asr
+```
+
+报告目录：`Experiments/StreamingASRBenchmark/Reports/hotword-pipeline/`（`report.md` / `report.json` + 各条 WAV）。
+
+**注意**：TTS ≠ 真人，不能替代 T1 真人开口；用来回归「热词是否进引擎 / 后处理是否纠得回来」。优化后（短缩写 weight=5 + context + Pro 语境纠 ARR）：**8/8**（V4 ASR 仍可能出 `on`，OUT 由 `applyContextualAcronymFixes` 纠回）。
+
 
 `Fixtures/WAV/` 一直是空的，`Reports/ASR_BENCHMARK.md` 显示 `Runs: 0`——这个基准从没真正跑过。用 `say -v Tingting --data-format=LEI16@16000` 给 V1–V8 合成了 8 条占位 WAV（跑完即删，不是真人录音，不能当 T1 的结论），本地已下载模型的 `sherpa_zipformer` / `sherpa_paraformer` 两个引擎跑通了完整链路（编译 → 识别 → 出报告），没有崩：
 

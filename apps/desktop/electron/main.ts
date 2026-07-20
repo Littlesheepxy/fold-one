@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ContextEngine, extractClipboardContentQuery, isClipboardContentRecallIntent, isClipboardRecallIntent, resolveClipboardRecall, type ContextEvent } from "@fold/context";
 import { captureScreenshot, createNangoConnectLink, openGogAuthInTerminal, openGwsAuthInTerminal, openClaudeLoginInTerminal, openCodexInstallInTerminal, openOfficeSetupInTerminal, openWorkBuddyApp, activateAgentConnectFlow, cancelConnectFlow, pollConnectFlow, resolveConnectTarget, startConnectFlow } from "@fold/connectors";
-import { saveContextEvent, listContextEvents, saveVoiceInteraction, listMemoryEntities, saveProductEvent, deactivateMemory, removeProfileConstraint, searchContextEvents, loadProfileMemories, type UserProfileData } from "@fold/memory";
+import { saveContextEvent, listContextEvents, saveVoiceInteraction, listMemoryEntities, saveProductEvent, deactivateMemory, removeProfileConstraint, searchContextEvents, loadProfileMemories, saveProfileMemories, type UserProfileData } from "@fold/memory";
 import {
 	ahaProactiveTierFor,
 	decideAhaProactiveShow,
@@ -13,6 +13,8 @@ import {
 	recallHabitsFromUsage,
 	resolveEntitlements,
 	runTask,
+	applyLocalHotwordHints,
+	applyContextualAcronymFixes,
 	shouldCleanSpeechLocally,
 	shouldShowWeeklyRecap,
 	startHabitRecallLoop,
@@ -308,13 +310,23 @@ function snapshotContextEvents() {
 }
 
 /** 语音纠错热词：profile 专名 + 已导入输入法词库（未导入则只用 profile）。 */
-function getSpeechHotwords(): string[] {
+function getSpeechHotwords(limit = 12): string[] {
 	const profile: UserProfileData | null = loadProfileMemories();
 	const imported = loadImportedInputHabits();
 	return resolveSpeechHotwords({
 		profile,
 		lexicon: imported?.entries ?? [],
+		limit,
 	});
+}
+
+/** Pro / 试用：下发 ASR 引擎热词；Free 无试用返回空（仅本地轻纠）。 */
+function getAsrEngineHotwords(): string[] {
+	const config = loadConfig();
+	const entitlements = resolveEntitlements(config.planTier);
+	const smartAccess = resolveSmartActionAccess(config);
+	if (!entitlements.hotwords && !smartAccess.allowed) return [];
+	return getSpeechHotwords(48);
 }
 
 function recordVoiceInteraction(
@@ -1194,7 +1206,10 @@ async function structureVoiceTranscript(
 	}
 	const ctx = contextEngine.getLiveContext();
 	const smartAccess = resolveSmartActionAccess();
-	const useLocal = shouldCleanSpeechLocally(text);
+	const cleanupLevel = loadConfig().speechCleanupLevel ?? "smart";
+	// 付费/试用：短命令也上云做专名增强；免费：本地快路径 + 轻量热词
+	const preferCloudStructure = smartAccess.allowed && cleanupLevel === "smart";
+	const useLocal = !preferCloudStructure && shouldCleanSpeechLocally(text);
 
 	if (isOnboardingVoiceLiveStep()) {
 		const app = onboardingVoiceApp ?? "微信";
@@ -1224,7 +1239,7 @@ async function structureVoiceTranscript(
 						profileKeywords: getSpeechHotwords(),
 						allowCloud: smartAccess.allowed,
 						preferQuality: true,
-						cleanupLevel: loadConfig().speechCleanupLevel ?? "smart",
+						cleanupLevel,
 					});
 			const body = [structured.headline, structured.detail]
 				.map((part) => part.trim())
@@ -1303,15 +1318,24 @@ async function structureVoiceTranscript(
 		}
 
 		const structured = opts.directStructured
-			? { headline: text, detail: "" }
+			? {
+					headline: preferCloudStructure
+						? applyContextualAcronymFixes(
+								applyLocalHotwordHints(text, getSpeechHotwords()),
+								getSpeechHotwords(),
+							)
+						: applyLocalHotwordHints(text, getSpeechHotwords()),
+					detail: "",
+				}
 			: (
 					await Promise.all([
 						structureSpeechText(text, {
 							app: ctx.activeApp,
 							windowTitle: ctx.activeWindow,
 							profileKeywords: getSpeechHotwords(),
-							allowCloud: useLocal ? false : smartAccess.allowed,
-							cleanupLevel: loadConfig().speechCleanupLevel ?? "smart",
+							allowCloud: preferCloudStructure,
+							preferQuality: preferCloudStructure,
+							cleanupLevel,
 							onCloudSuccess: smartAccess.usesTrial
 								? () => {
 										consumeSmartActionTrial();
@@ -1547,6 +1571,7 @@ const IPC_HANDLE_CHANNELS = [
 	"fold:account-delete",
 	"fold:get-hotkey-settings",
 	"fold:set-hotkey-binding",
+	"fold:profile-save-seed",
 ] as const;
 
 function buildHotkeySettingsSnapshot() {
@@ -1670,7 +1695,8 @@ function registerIpc() {
 	ipcMain.handle("fold:get-asr-runtime", () => {
 		const runtime = resolveAsrRuntime();
 		const authToken = loadAccountSecret() ?? loadConfig().hubApiKey?.trim() ?? undefined;
-		return { ...runtime, authToken };
+		const hotWords = getAsrEngineHotwords();
+		return { ...runtime, authToken, hotWords };
 	});
 
 	ipcMain.handle("fold:local-asr-start", () => {
@@ -1879,6 +1905,36 @@ function registerIpc() {
 		if (result.ok) markProfileImported();
 		return result;
 	});
+	ipcMain.handle(
+		"fold:profile-save-seed",
+		(
+			_e,
+			input: { role?: string; domains?: string[]; keywords?: string[] },
+		) => {
+			const existing = loadProfileMemories() ?? {};
+			const split = (raw: string[] | undefined) =>
+				(raw ?? [])
+					.flatMap((s) => s.split(/[,，、;；\n]/))
+					.map((s) => s.trim())
+					.filter((s) => s.length >= 2);
+			const domains = [...new Set([...(existing.domains ?? []), ...split(input.domains)])];
+			const preferredTools = [
+				...new Set([...(existing.preferredTools ?? []), ...split(input.keywords)]),
+			];
+			const role = input.role?.trim() || existing.role;
+			saveProfileMemories(
+				{
+					...existing,
+					...(role ? { role } : {}),
+					...(domains.length ? { domains } : {}),
+					...(preferredTools.length ? { preferredTools } : {}),
+					updatedAt: Date.now(),
+				},
+				"onboarding-know-you",
+			);
+			return { ok: true as const };
+		},
+	);
 
 	ipcMain.handle("fold:probe-accessibility", () => probeAccessibility(false));
 	ipcMain.handle("fold:onboarding-get-state", () => getOnboardingState());

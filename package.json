@@ -14,6 +14,7 @@
     "desktop:dev": "dotenv -c -- pnpm --filter @fold/desktop rebuild:native && dotenv -c -- pnpm --parallel --filter @fold/asr-proxy --filter @fold/desktop dev",
     "e2e:smoke": "dotenv -c -- node scripts/ensure-better-sqlite3.mjs node && dotenv -c -- bash scripts/e2e-smoke.sh",
     "test:agent-stress": "dotenv -c -- node scripts/ensure-better-sqlite3.mjs node && dotenv -c -- tsx scripts/agent-stress/run.ts",
+    "voice:hotword-pipeline": "dotenv -c -- tsx scripts/voice-hotword-pipeline.ts",
     "recipe:stats": "dotenv -c -- node scripts/ensure-better-sqlite3.mjs node && dotenv -c -- tsx scripts/recipe-stats.ts"
   },
   "engines": {

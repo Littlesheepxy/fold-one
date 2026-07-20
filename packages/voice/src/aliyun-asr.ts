@@ -242,6 +242,7 @@ export function createAliyunAsr(config: VoiceConfig = {}): AsrController {
 					app: config.app,
 					windowTitle: config.windowTitle,
 					authToken: config.authToken,
+					hotWords: config.hotWords?.length ? config.hotWords : undefined,
 				}),
 			);
 		};
