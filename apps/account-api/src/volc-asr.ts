@@ -7,9 +7,11 @@ export type VolcAsrTokenPayload = {
 
 export function readVolcAsrConfig(): VolcAsrTokenPayload | null {
 	const appId = process.env.VOLC_ASR_APP_ID?.trim();
-	const token = process.env.VOLC_ASR_TOKEN?.trim();
+	const rawToken = process.env.VOLC_ASR_TOKEN?.trim();
 	const cluster = process.env.VOLC_ASR_CLUSTER?.trim();
-	if (!appId || !token || !cluster) return null;
+	if (!appId || !rawToken || !cluster) return null;
+	// Volc SpeechEngine requires "Bearer;{token}" (semicolon, not space).
+	const token = rawToken.startsWith("Bearer;") ? rawToken : `Bearer;${rawToken}`;
 	return {
 		appId,
 		cluster,

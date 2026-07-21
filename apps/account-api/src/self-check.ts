@@ -192,7 +192,7 @@ process.env.VOLC_ASR_CLUSTER = "volcengine_streaming_common";
 const volc = readVolcAsrConfig();
 assert.ok(volc);
 assert.equal(volc?.appId, "test-app");
-assert.equal(volc?.token, "test-token");
+assert.equal(volc?.token, "Bearer;test-token");
 assert.equal(volc?.cluster, "volcengine_streaming_common");
 assert.ok(volc?.expireAt);
 
