@@ -102,3 +102,28 @@ final class AppGroupBridgeTests: XCTestCase {
 		XCTAssertTrue(DictationResult(requestId: "a", status: .ready, text: "ok").isInsertable)
 	}
 }
+
+final class PersonalTermKindTests: XCTestCase {
+	func testLegacyJSONWithoutKindDecodesAsWord() throws {
+		let legacy = """
+		[{"id":"1","text":"ARR","source":"manual","weight":3,"lastUsedAt":1,"createdAt":1}]
+		""".data(using: .utf8)!
+		let lexicon = try PersonalLexicon.decode(from: legacy)
+		XCTAssertEqual(lexicon.allTerms.first?.kind, .word)
+	}
+
+	func testKindRoundTripsAndManualAddSupportsKind() throws {
+		let lexicon = PersonalLexicon()
+		_ = lexicon.addManual("小杨", kind: .person)
+		let data = try lexicon.encode()
+		let reloaded = try PersonalLexicon.decode(from: data)
+		XCTAssertEqual(reloaded.allTerms.first?.kind, .person)
+	}
+
+	func testSetKindReclassifiesTerm() throws {
+		let lexicon = PersonalLexicon()
+		let term = try XCTUnwrap(lexicon.addManual("季度报告"))
+		lexicon.setKind(id: term.id, kind: .project)
+		XCTAssertEqual(lexicon.allTerms.first?.kind, .project)
+	}
+}

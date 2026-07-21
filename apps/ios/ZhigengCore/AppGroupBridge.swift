@@ -60,6 +60,27 @@ public final class AppGroupBridge: @unchecked Sendable {
 		try read(DictationSession.self, fileName: AppGroupConstants.sessionFileName)
 	}
 
+	public func writeCommand(_ command: DictationCommand) throws {
+		try write(command, fileName: AppGroupConstants.commandFileName)
+	}
+
+	public func readCommand() throws -> DictationCommand? {
+		try read(DictationCommand.self, fileName: AppGroupConstants.commandFileName)
+	}
+
+	/// Returns and clears the pending command (if any).
+	public func consumeCommand() throws -> DictationCommand? {
+		guard let command = try readCommand() else { return nil }
+		try remove(fileName: AppGroupConstants.commandFileName)
+		return command
+	}
+
+	/// Newer revision only — does not clear the file (keyboard may re-read until final).
+	public func readResultIfNewer(than revision: Int) throws -> DictationResult? {
+		guard let result = try readResult(), result.revision > revision else { return nil }
+		return result
+	}
+
 	public func writeLexicon(_ data: Data) throws {
 		guard let url = fileURL(AppGroupConstants.lexiconFileName) else {
 			throw AppGroupBridgeError.containerUnavailable

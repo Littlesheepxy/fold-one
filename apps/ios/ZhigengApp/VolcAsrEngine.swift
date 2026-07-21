@@ -1,0 +1,185 @@
+import Foundation
+import SpeechEngineAsrToB
+import ZhigengCore
+
+/// Thin wrapper around Volc `SpeechEngineAsrToB` for streaming ASR with external PCM.
+final class VolcAsrEngine: NSObject, SpeechEngineDelegate {
+	struct Credentials: Sendable {
+		let appId: String
+		let cluster: String
+		let token: String
+	}
+
+	private let engine = SpeechEngine()
+	private let queue = DispatchQueue(label: "app.zhigeng.volc-asr")
+	private let onEvent: @Sendable (AsrStreamEvent) -> Void
+	private var running = false
+	private var finishRequested = false
+
+	init(onEvent: @escaping @Sendable (AsrStreamEvent) -> Void) {
+		self.onEvent = onEvent
+		super.init()
+	}
+
+	static func prepareEnvironment() {
+		_ = SpeechEngine.prepareEnvironment()
+	}
+
+	func configure(credentials: Credentials, hotWords: [String]) -> Bool {
+		var ok = false
+		queue.sync {
+			guard engine.createEngine(with: self) else { return }
+			engine.setStringParam(SE_ASR_ENGINE, forKey: SE_PARAMS_KEY_ENGINE_NAME_STRING)
+			engine.setStringParam(credentials.appId, forKey: SE_PARAMS_KEY_APP_ID_STRING)
+			engine.setStringParam(credentials.token, forKey: SE_PARAMS_KEY_APP_TOKEN_STRING)
+			engine.setStringParam(credentials.cluster, forKey: SE_PARAMS_KEY_ASR_CLUSTER_STRING)
+			engine.setStringParam("wss://openspeech.bytedance.com", forKey: SE_PARAMS_KEY_ASR_ADDRESS_STRING)
+			engine.setStringParam("/api/v2/asr", forKey: SE_PARAMS_KEY_ASR_URI_STRING)
+			engine.setStringParam(SE_RECORDER_TYPE_STREAM, forKey: SE_PARAMS_KEY_RECORDER_TYPE_STRING)
+			engine.setIntParam(Int(SEAsrScenarioStreaming.rawValue), forKey: SE_PARAMS_KEY_ASR_SCENARIO_INT)
+			engine.setStringParam(SE_ASR_RESULT_TYPE_FULL, forKey: SE_PARAMS_KEY_ASR_RESULT_TYPE_STRING)
+			engine.setBoolParam(true, forKey: SE_PARAMS_KEY_ASR_SHOW_PUNC_BOOL)
+			engine.setBoolParam(false, forKey: SE_PARAMS_KEY_ASR_AUTO_STOP_BOOL)
+			engine.setBoolParam(true, forKey: SE_PARAMS_KEY_PREVENT_PLAYER_CREATION_BOOL)
+			engine.setIntParam(16_000, forKey: SE_PARAMS_KEY_CUSTOM_SAMPLE_RATE_INT)
+			engine.setIntParam(1, forKey: SE_PARAMS_KEY_CUSTOM_CHANNEL_INT)
+			engine.setStringParam(SE_LOG_LEVEL_WARN, forKey: SE_PARAMS_KEY_LOG_LEVEL_STRING)
+			if !hotWords.isEmpty, let json = Self.hotWordsJSON(hotWords) {
+				engine.setStringParam(json, forKey: SE_PARAMS_KEY_ASR_REQ_PARAMS_STRING)
+			}
+			ok = engine.initEngine() == SENoError
+		}
+		return ok
+	}
+
+	func start() -> Bool {
+		var ok = false
+		queue.sync {
+			finishRequested = false
+			ok = engine.send(SEDirectiveStartEngine) == SENoError
+			running = ok
+		}
+		return ok
+	}
+
+	func sendPCM(_ data: Data) {
+		guard running, !data.isEmpty else { return }
+		queue.async { [weak self] in
+			guard let self, self.running else { return }
+			var buffer = data
+			let sampleCount = buffer.count / MemoryLayout<Int16>.size
+			guard sampleCount > 0 else { return }
+			buffer.withUnsafeMutableBytes { raw in
+				guard let base = raw.baseAddress?.assumingMemoryBound(to: Int16.self) else { return }
+				_ = self.engine.feedAudio(base, length: Int32(sampleCount))
+			}
+		}
+	}
+
+	func finish() {
+		queue.async { [weak self] in
+			guard let self, self.running else { return }
+			self.finishRequested = true
+			_ = self.engine.send(SEDirectiveFinishTalking)
+		}
+	}
+
+	func abort() {
+		queue.sync { [weak self] in
+			guard let self else { return }
+			self.running = false
+			_ = self.engine.send(SEDirectiveSyncStopEngine)
+			self.engine.destroy()
+		}
+		emit(.done(VoiceResult(text: "", directStructured: false, incomplete: false)))
+	}
+
+	func close() {
+		queue.sync { [weak self] in
+			guard let self else { return }
+			self.running = false
+			_ = self.engine.send(SEDirectiveSyncStopEngine)
+			self.engine.destroy()
+		}
+	}
+
+	func onMessage(with type: SEMessageType, andData data: Data) {
+		let payload = String(data: data, encoding: .utf8) ?? ""
+		switch type {
+		case SEEngineStart, SEConnectionConnected:
+			emit(.ready)
+		case SEPartialResult, SEAsrPartialResult:
+			if let text = Self.extractText(from: payload), !text.isEmpty {
+				emit(.partial(text))
+			}
+		case SEFinalResult:
+			let text = Self.extractText(from: payload) ?? ""
+			running = false
+			emit(.done(VoiceResult(text: text, directStructured: false, incomplete: false)))
+		case SEEngineError:
+			running = false
+			emit(.failed(Self.extractError(from: payload) ?? "豆包识别失败"))
+		case SEEngineStop:
+			if finishRequested {
+				running = false
+			}
+		default:
+			break
+		}
+	}
+
+	private func emit(_ event: AsrStreamEvent) {
+		onEvent(event)
+	}
+
+	private static func hotWordsJSON(_ words: [String]) -> String? {
+		let hotwords = words.prefix(100).map { ["word": $0] }
+		let body: [String: Any] = [
+			"request": [
+				"corpus": [
+					"context": [
+						"context_type": "dialog_ctx",
+						"hotwords": hotwords,
+					],
+				],
+			],
+		]
+		guard let data = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+		return String(data: data, encoding: .utf8)
+	}
+
+	static func extractText(from payload: String) -> String? {
+		guard let data = payload.data(using: .utf8),
+		      let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+		else { return payload.isEmpty ? nil : payload }
+
+		if let text = root["text"] as? String, !text.isEmpty { return text }
+		if let result = root["result"] as? [[String: Any]],
+		   let text = result.first?["text"] as? String, !text.isEmpty
+		{
+			return text
+		}
+		if let result = root["result"] as? [String: Any],
+		   let text = result["text"] as? String, !text.isEmpty
+		{
+			return text
+		}
+		if let payloadObj = root["payload"] as? [String: Any],
+		   let nested = try? JSONSerialization.data(withJSONObject: payloadObj),
+		   let nestedText = String(data: nested, encoding: .utf8)
+		{
+			return extractText(from: nestedText)
+		}
+		return nil
+	}
+
+	static func extractError(from payload: String) -> String? {
+		guard let data = payload.data(using: .utf8),
+		      let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+		else { return payload.isEmpty ? nil : payload }
+		if let message = root["message"] as? String, !message.isEmpty { return message }
+		if let errMsg = root["err_msg"] as? String, !errMsg.isEmpty { return errMsg }
+		if let error = root["error"] as? String, !error.isEmpty { return error }
+		return extractText(from: payload)
+	}
+}

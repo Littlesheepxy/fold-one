@@ -2,3 +2,4 @@
 *.xcuserstate
 xcuserdata/
 DerivedData/
+Pods/

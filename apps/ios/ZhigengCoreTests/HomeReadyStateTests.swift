@@ -33,7 +33,8 @@ final class HomeReadyStateTests: XCTestCase {
 			microphoneGranted: true,
 			heartbeat: hb,
 			sessionActiveUntil: nil,
-			sessionModeLabel: nil
+			sessionModeLabel: nil,
+			keyboardInstalled: false
 		)
 		guard case let .setupIncomplete(missing) = kind else {
 			return XCTFail("expected setupIncomplete for stale heartbeat")
@@ -42,13 +43,28 @@ final class HomeReadyStateTests: XCTestCase {
 		XCTAssertFalse(missing.contains(.fullAccess))
 	}
 
+	func testInstalledKeyboardWithoutHeartbeatNeedsFullAccessConfirm() {
+		let kind = HomeReadyState.resolve(
+			microphoneGranted: true,
+			heartbeat: nil,
+			sessionActiveUntil: nil,
+			sessionModeLabel: nil,
+			keyboardInstalled: true
+		)
+		guard case let .setupIncomplete(missing) = kind else {
+			return XCTFail("expected setupIncomplete")
+		}
+		XCTAssertEqual(missing, [.fullAccess])
+	}
+
 	func testFreshWithoutFullAccess() {
 		let hb = KeyboardHeartbeat(lastSeenAt: Date().timeIntervalSince1970, hasFullAccess: false)
 		let kind = HomeReadyState.resolve(
 			microphoneGranted: true,
 			heartbeat: hb,
 			sessionActiveUntil: nil,
-			sessionModeLabel: nil
+			sessionModeLabel: nil,
+			keyboardInstalled: true
 		)
 		guard case let .setupIncomplete(missing) = kind else {
 			return XCTFail("expected setupIncomplete")

@@ -2,15 +2,6 @@ import ActivityKit
 import SwiftUI
 import WidgetKit
 
-struct DictationAttributes: ActivityAttributes {
-	public struct ContentState: Codable, Hashable {
-		var status: String
-		var partial: String
-	}
-
-	var startedAt: Date
-}
-
 @main
 struct ZhigengLiveActivityBundle: WidgetBundle {
 	var body: some Widget {
@@ -23,13 +14,17 @@ struct DictationLiveActivity: Widget {
 		ActivityConfiguration(for: DictationAttributes.self) { context in
 			HStack {
 				Image(systemName: "mic.fill")
-				VStack(alignment: .leading) {
+				VStack(alignment: .leading, spacing: 4) {
 					Text(context.state.status)
 						.font(.headline)
 					if !context.state.partial.isEmpty {
 						Text(context.state.partial)
 							.font(.caption)
 							.lineLimit(2)
+					} else if context.state.remainingSeconds > 0 {
+						Text(remainingLabel(context.state.remainingSeconds))
+							.font(.caption)
+							.foregroundStyle(.secondary)
 					}
 				}
 				Spacer()
@@ -45,7 +40,11 @@ struct DictationLiveActivity: Widget {
 					Text(context.state.status)
 				}
 				DynamicIslandExpandedRegion(.bottom) {
-					Text(context.state.partial).lineLimit(2)
+					if !context.state.partial.isEmpty {
+						Text(context.state.partial).lineLimit(2)
+					} else if context.state.remainingSeconds > 0 {
+						Text(remainingLabel(context.state.remainingSeconds))
+					}
 				}
 			} compactLeading: {
 				Image(systemName: "mic.fill")
@@ -55,5 +54,11 @@ struct DictationLiveActivity: Widget {
 				Image(systemName: "mic.fill")
 			}
 		}
+	}
+
+	private func remainingLabel(_ seconds: Int) -> String {
+		let m = seconds / 60
+		let s = seconds % 60
+		return String(format: "剩余 %d:%02d", m, s)
 	}
 }

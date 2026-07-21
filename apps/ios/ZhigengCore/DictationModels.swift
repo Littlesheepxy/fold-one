@@ -5,10 +5,12 @@ public enum AppGroupConstants {
 	public static let requestFileName = "dictation_request.json"
 	public static let resultFileName = "dictation_result.json"
 	public static let sessionFileName = "dictation_session.json"
+	public static let commandFileName = "dictation_command.json"
 	public static let lexiconFileName = "personal_lexicon.json"
 	public static let keyboardHeartbeatFileName = "keyboard_heartbeat.json"
 	/// Darwin notification name for result ready (App Group + notify).
 	public static let resultReadyNotification = "app.zhigeng.ios.dictation.result"
+	public static let commandReadyNotification = "app.zhigeng.ios.dictation.command"
 }
 
 /// Heartbeat written by the keyboard extension; main app must not invent Full Access.
@@ -42,6 +44,8 @@ public enum DictationHistorySource: String, Codable, Sendable {
 
 /// Local history for the main app only — not shared via App Group.
 public struct DictationHistoryItem: Codable, Equatable, Identifiable, Sendable {
+	public static let retentionDays = 30
+
 	public var id: String
 	public var createdAt: TimeInterval
 	public var source: DictationHistorySource
@@ -51,6 +55,10 @@ public struct DictationHistoryItem: Codable, Equatable, Identifiable, Sendable {
 	public var durationMs: Int?
 	public var errorMessage: String?
 	public var processingTags: [String]
+	/// nil = 未留下；有值 = 用户手动点过「留下」
+	public var keptAt: TimeInterval?
+
+	public var isKept: Bool { keptAt != nil }
 
 	public init(
 		id: String = UUID().uuidString,
@@ -61,7 +69,8 @@ public struct DictationHistoryItem: Codable, Equatable, Identifiable, Sendable {
 		directStructured: Bool = false,
 		durationMs: Int? = nil,
 		errorMessage: String? = nil,
-		processingTags: [String] = []
+		processingTags: [String] = [],
+		keptAt: TimeInterval? = nil
 	) {
 		self.id = id
 		self.createdAt = createdAt
@@ -72,6 +81,31 @@ public struct DictationHistoryItem: Codable, Equatable, Identifiable, Sendable {
 		self.durationMs = durationMs
 		self.errorMessage = errorMessage
 		self.processingTags = processingTags
+		self.keptAt = keptAt
+	}
+
+	public init(from decoder: Decoder) throws {
+		let container = try decoder.container(keyedBy: CodingKeys.self)
+		id = try container.decode(String.self, forKey: .id)
+		createdAt = try container.decode(TimeInterval.self, forKey: .createdAt)
+		source = try container.decode(DictationHistorySource.self, forKey: .source)
+		status = try container.decode(DictationStatus.self, forKey: .status)
+		cleanedText = try container.decode(String.self, forKey: .cleanedText)
+		directStructured = try container.decode(Bool.self, forKey: .directStructured)
+		durationMs = try container.decodeIfPresent(Int.self, forKey: .durationMs)
+		errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
+		processingTags = try container.decodeIfPresent([String].self, forKey: .processingTags) ?? []
+		keptAt = try container.decodeIfPresent(TimeInterval.self, forKey: .keptAt)
+	}
+
+	/// Keep all manually kept items; drop unkept older than retentionDays.
+	public static func prune(
+		_ items: [DictationHistoryItem],
+		now: TimeInterval = Date().timeIntervalSince1970,
+		retentionDays: Int = retentionDays
+	) -> [DictationHistoryItem] {
+		let cutoff = now - TimeInterval(retentionDays) * 86_400
+		return items.filter { $0.isKept || $0.createdAt >= cutoff }
 	}
 }
 
@@ -96,7 +130,8 @@ public enum HomeReadyState {
 		sessionActiveUntil: TimeInterval?,
 		sessionModeLabel: String?,
 		now: TimeInterval = Date().timeIntervalSince1970,
-		serviceError: String? = nil
+		serviceError: String? = nil,
+		keyboardInstalled: Bool = false
 	) -> HomeReadyKind {
 		if let serviceError, !serviceError.isEmpty {
 			return .error(message: serviceError, actionTitle: "查看说明")
@@ -104,21 +139,19 @@ public enum HomeReadyState {
 		if let until = sessionActiveUntil, until > now {
 			return .sessionActive(
 				remainingSeconds: Int(until - now),
-				modeLabel: sessionModeLabel ?? "免切换"
+				modeLabel: sessionModeLabel ?? "即听即写"
 			)
 		}
 		var missing: [HomeSetupItem] = []
 		if !microphoneGranted { missing.append(.microphone) }
-		guard let heartbeat else {
+
+		let keyboardSeen = keyboardInstalled || (heartbeat?.isFresh == true)
+		if !keyboardSeen {
 			missing.append(.keyboard)
 			return .setupIncomplete(missing: missing)
 		}
-		if !heartbeat.isFresh {
-			// Stale heartbeat: do not claim Full Access is off; treat keyboard as needing re-check.
-			missing.append(.keyboard)
-			return .setupIncomplete(missing: missing)
-		}
-		if !heartbeat.hasFullAccess {
+		// Full Access can only be confirmed after the keyboard extension runs once.
+		if heartbeat?.isFresh != true || heartbeat?.hasFullAccess != true {
 			missing.append(.fullAccess)
 		}
 		if missing.isEmpty {
@@ -157,6 +190,8 @@ public struct DictationResult: Codable, Equatable, Sendable {
 	public var directStructured: Bool
 	public var ts: TimeInterval
 	public var errorMessage: String?
+	/// Monotonic per request; keyboard applies only newer revisions.
+	public var revision: Int
 
 	public init(
 		requestId: String,
@@ -164,7 +199,8 @@ public struct DictationResult: Codable, Equatable, Sendable {
 		text: String = "",
 		directStructured: Bool = false,
 		ts: TimeInterval = Date().timeIntervalSince1970,
-		errorMessage: String? = nil
+		errorMessage: String? = nil,
+		revision: Int = 0
 	) {
 		self.requestId = requestId
 		self.status = status
@@ -172,6 +208,18 @@ public struct DictationResult: Codable, Equatable, Sendable {
 		self.directStructured = directStructured
 		self.ts = ts
 		self.errorMessage = errorMessage
+		self.revision = revision
+	}
+
+	public init(from decoder: Decoder) throws {
+		let container = try decoder.container(keyedBy: CodingKeys.self)
+		requestId = try container.decode(String.self, forKey: .requestId)
+		status = try container.decode(DictationStatus.self, forKey: .status)
+		text = try container.decode(String.self, forKey: .text)
+		directStructured = try container.decodeIfPresent(Bool.self, forKey: .directStructured) ?? false
+		ts = try container.decode(TimeInterval.self, forKey: .ts)
+		errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
+		revision = try container.decodeIfPresent(Int.self, forKey: .revision) ?? 0
 	}
 
 	public var isInsertable: Bool {
@@ -179,16 +227,76 @@ public struct DictationResult: Codable, Equatable, Sendable {
 	}
 }
 
+public enum DictationSessionMode: String, Codable, Sendable {
+	case pip
+	case liveActivity
+}
+
+public enum DictationCommandKind: String, Codable, Sendable {
+	case start
+	case stop
+	case cancel
+}
+
+public struct DictationCommand: Codable, Equatable, Sendable {
+	public var commandId: String
+	public var requestId: String
+	public var kind: DictationCommandKind
+	public var createdAt: TimeInterval
+
+	public init(
+		kind: DictationCommandKind,
+		requestId: String = UUID().uuidString,
+		commandId: String = UUID().uuidString,
+		createdAt: TimeInterval = Date().timeIntervalSince1970
+	) {
+		self.commandId = commandId
+		self.requestId = requestId
+		self.kind = kind
+		self.createdAt = createdAt
+	}
+}
+
 public struct DictationSession: Codable, Equatable, Sendable {
+	/// Heartbeat older than this → keyboard treats service as dead.
+	public static let heartbeatFreshSeconds: TimeInterval = 8
+
 	public var activeUntil: TimeInterval
 	public var state: DictationStatus
+	public var mode: DictationSessionMode?
+	public var heartbeatAt: TimeInterval?
 
-	public init(activeUntil: TimeInterval, state: DictationStatus = .idle) {
+	public init(
+		activeUntil: TimeInterval,
+		state: DictationStatus = .idle,
+		mode: DictationSessionMode? = nil,
+		heartbeatAt: TimeInterval? = nil
+	) {
 		self.activeUntil = activeUntil
 		self.state = state
+		self.mode = mode
+		self.heartbeatAt = heartbeatAt
+	}
+
+	public init(from decoder: Decoder) throws {
+		let container = try decoder.container(keyedBy: CodingKeys.self)
+		activeUntil = try container.decode(TimeInterval.self, forKey: .activeUntil)
+		state = try container.decode(DictationStatus.self, forKey: .state)
+		mode = try container.decodeIfPresent(DictationSessionMode.self, forKey: .mode)
+		heartbeatAt = try container.decodeIfPresent(TimeInterval.self, forKey: .heartbeatAt)
 	}
 
 	public var isActive: Bool {
-		Date().timeIntervalSince1970 < activeUntil
+		isActive(now: Date().timeIntervalSince1970)
+	}
+
+	public func isActive(now: TimeInterval) -> Bool {
+		now < activeUntil
+	}
+
+	/// Alive = not expired AND recent heartbeat from main app.
+	public func isServiceAlive(now: TimeInterval = Date().timeIntervalSince1970) -> Bool {
+		guard isActive(now: now), let heartbeatAt else { return false }
+		return now - heartbeatAt <= Self.heartbeatFreshSeconds
 	}
 }

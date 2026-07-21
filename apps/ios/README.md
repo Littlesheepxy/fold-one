@@ -9,8 +9,11 @@
 ```bash
 cd apps/ios
 xcodegen generate
-open Zhigeng.xcodeproj
+pod install
+open Zhigeng.xcworkspace   # 必须用 workspace，不要直接开 .xcodeproj
 ```
+
+CocoaPods 仅链入主 App target（`SpeechEngineAsrToB`），键盘扩展 / Live Activity 不含豆包 SDK。
 
 ## 跑 Core 测试（不依赖模拟器）
 
@@ -19,10 +22,22 @@ cd apps/ios
 swift test
 ```
 
+## 听写 ASR（豆包）
+
+iOS 主 App 听写走火山 `SpeechEngineAsrToB`；PC 桌面仍用 Fun-ASR / `apps/asr-proxy`。
+
+真机听写前需在 account-api 配置：
+
+- `VOLC_ASR_APP_ID`
+- `VOLC_ASR_TOKEN`
+- `VOLC_ASR_CLUSTER`
+
+App 登录后向 `GET /asr/volc-token`（Bearer `zk_`）拉取短时凭证。未登录或未配 env 会显示明确错误，不会静默回退 Fun-ASR。
+
 ## 真机验证（M0.5 UI）
 
-1. Xcode 选真机 Run 安装
-2. 首次打开走完引导；试说暂为「示例整理」（ASR 接通后替换）
+1. Xcode 选真机 Run 安装（workspace scheme `Zhigeng`）
+2. 首次打开走完引导；试说需登录 + 豆包凭证
 3. 进入四 Tab：首页就绪卡、活动列表、懂我加词、我的诊断
 4. 设置里启用知更键盘并开完全访问；在验证区切到知更后，「我的 → 诊断」应出现键盘心跳
 

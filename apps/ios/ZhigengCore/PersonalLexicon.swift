@@ -6,10 +6,18 @@ public enum PersonalTermSource: String, Codable, Sendable {
 	case desktopSync
 }
 
+/// 人 / 事 / 词。「我的画像」是统计视图，不是词条，不在此枚举内。
+public enum PersonalTermKind: String, Codable, Sendable, CaseIterable {
+	case person
+	case project
+	case word
+}
+
 public struct PersonalTerm: Codable, Equatable, Identifiable, Sendable {
 	public var id: String
 	public var text: String
 	public var source: PersonalTermSource
+	public var kind: PersonalTermKind
 	public var weight: Int
 	public var lastUsedAt: TimeInterval
 	public var createdAt: TimeInterval
@@ -18,6 +26,7 @@ public struct PersonalTerm: Codable, Equatable, Identifiable, Sendable {
 		id: String = UUID().uuidString,
 		text: String,
 		source: PersonalTermSource,
+		kind: PersonalTermKind = .word,
 		weight: Int = 1,
 		lastUsedAt: TimeInterval = Date().timeIntervalSince1970,
 		createdAt: TimeInterval = Date().timeIntervalSince1970
@@ -25,9 +34,21 @@ public struct PersonalTerm: Codable, Equatable, Identifiable, Sendable {
 		self.id = id
 		self.text = text
 		self.source = source
+		self.kind = kind
 		self.weight = weight
 		self.lastUsedAt = lastUsedAt
 		self.createdAt = createdAt
+	}
+
+	public init(from decoder: Decoder) throws {
+		let container = try decoder.container(keyedBy: CodingKeys.self)
+		id = try container.decode(String.self, forKey: .id)
+		text = try container.decode(String.self, forKey: .text)
+		source = try container.decode(PersonalTermSource.self, forKey: .source)
+		kind = try container.decodeIfPresent(PersonalTermKind.self, forKey: .kind) ?? .word
+		weight = try container.decode(Int.self, forKey: .weight)
+		lastUsedAt = try container.decode(TimeInterval.self, forKey: .lastUsedAt)
+		createdAt = try container.decode(TimeInterval.self, forKey: .createdAt)
 	}
 }
 
@@ -102,16 +123,22 @@ public final class PersonalLexicon: @unchecked Sendable {
 	}
 
 	@discardableResult
-	public func addManual(_ text: String) -> PersonalTerm? {
+	public func addManual(_ text: String, kind: PersonalTermKind = .word) -> PersonalTerm? {
 		let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
 		guard !t.isEmpty else { return nil }
 		if let idx = terms.firstIndex(where: { $0.text.caseInsensitiveCompare(t) == .orderedSame }) {
 			terms[idx].lastUsedAt = now()
+			terms[idx].kind = kind
 			return terms[idx]
 		}
-		let term = PersonalTerm(text: t, source: .manual, weight: 3, lastUsedAt: now())
+		let term = PersonalTerm(text: t, source: .manual, kind: kind, weight: 3, lastUsedAt: now())
 		terms.append(term)
 		return term
+	}
+
+	public func setKind(id: String, kind: PersonalTermKind) {
+		guard let idx = terms.firstIndex(where: { $0.id == id }) else { return }
+		terms[idx].kind = kind
 	}
 
 	public func forget(id: String) {

@@ -19,10 +19,17 @@ enum AppTab: Hashable {
 }
 
 enum SessionMode: String, CaseIterable, Identifiable {
-	case pip = "画中画"
-	case liveActivity = "灵动岛"
+	case pip = "省电待命"
+	case liveActivity = "长时间待命"
 
 	var id: String { rawValue }
+
+	var protocolMode: DictationSessionMode {
+		switch self {
+		case .pip: .pip
+		case .liveActivity: .liveActivity
+		}
+	}
 }
 
 enum SessionDuration: Int, CaseIterable, Identifiable {
@@ -46,6 +53,7 @@ final class AppStore {
 	private let defaults: UserDefaults
 	private let bridge: AppGroupBridge
 	private let historyURL: URL
+	let remote: RemoteStore
 
 	var onboardingCompleted: Bool
 	var onboardingStep: OnboardingStep
@@ -57,13 +65,28 @@ final class AppStore {
 	var sessionActiveUntil: TimeInterval?
 	var sessionMode: SessionMode = .pip
 	var sessionDuration: SessionDuration = .fifteen
+	/// User has confirmed mode/duration at least once — toggle can start without sheet.
+	var sessionConfigured: Bool
 	var showSessionSheet = false
 	var showDictation = false
+	var pendingDictationRequestId: String?
 	var showAddTerm = false
 	var editingHistoryItem: DictationHistoryItem?
 	var pendingLearnTerm: String?
 	var tryLearnDraft = ""
 	var serviceError: String?
+	/// Fold asr-proxy base (no path). Simulator defaults to localhost; device uses saved/LAN URL.
+	var asrBaseURL: String
+
+	@ObservationIgnored
+	private var _keyboardSession: KeyboardSessionController?
+
+	var keyboardSession: KeyboardSessionController {
+		if let existing = _keyboardSession { return existing }
+		let created = KeyboardSessionController(store: self)
+		_keyboardSession = created
+		return created
+	}
 
 	init(
 		defaults: UserDefaults = .standard,
@@ -72,6 +95,7 @@ final class AppStore {
 	) {
 		self.defaults = defaults
 		self.bridge = bridge
+		self.remote = RemoteStore()
 		let dir = historyDirectory
 			?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
 		self.historyURL = dir.appendingPathComponent("dictation_history.json")
@@ -82,10 +106,57 @@ final class AppStore {
 		} else {
 			self.onboardingStep = .brandWelcome
 		}
+		if let saved = defaults.string(forKey: "asrBaseURL"), !saved.isEmpty {
+			self.asrBaseURL = saved
+		} else {
+			#if targetEnvironment(simulator)
+			self.asrBaseURL = "ws://127.0.0.1:3003"
+			#else
+			self.asrBaseURL = AsrStreamClient.defaultBaseURL
+			#endif
+		}
+		#if DEBUG
+		if let flag = ProcessInfo.processInfo.arguments.firstIndex(of: "-preview-onboarding-step"),
+		   ProcessInfo.processInfo.arguments.indices.contains(flag + 1),
+		   let rawValue = Int(ProcessInfo.processInfo.arguments[flag + 1]),
+		   let step = OnboardingStep(rawValue: rawValue) {
+			self.onboardingCompleted = false
+			self.onboardingStep = step
+		}
+		if let flag = ProcessInfo.processInfo.arguments.firstIndex(of: "-preview-main-tab"),
+		   ProcessInfo.processInfo.arguments.indices.contains(flag + 1),
+		   let rawValue = Int(ProcessInfo.processInfo.arguments[flag + 1]) {
+			self.onboardingCompleted = true
+			self.selectedTab = [.home, .activity, .lexicon, .me][min(max(rawValue, 0), 3)]
+		}
+		if let flag = ProcessInfo.processInfo.arguments.firstIndex(of: "-asr-base-url"),
+		   ProcessInfo.processInfo.arguments.indices.contains(flag + 1) {
+			self.asrBaseURL = ProcessInfo.processInfo.arguments[flag + 1]
+		}
+		#endif
 		self.microphoneGranted = AVAudioApplication.shared.recordPermission == .granted
 		self.lexicon = PersonalLexicon()
+		self.sessionConfigured = defaults.bool(forKey: "sessionConfigured")
+		if let modeRaw = defaults.string(forKey: "sessionMode"),
+		   let mode = SessionMode(rawValue: modeRaw) {
+			self.sessionMode = mode
+		}
+		if let durationRaw = defaults.object(forKey: "sessionDuration") as? Int,
+		   let duration = SessionDuration(rawValue: durationRaw) {
+			self.sessionDuration = duration
+		}
 		reloadSharedState()
 		loadHistory()
+	}
+
+	func setAsrBaseURL(_ url: String) {
+		let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+		asrBaseURL = trimmed
+		defaults.set(trimmed, forKey: "asrBaseURL")
+	}
+
+	var keyboardInstalled: Bool {
+		KeyboardPresence.isInstalled()
 	}
 
 	var readyKind: HomeReadyKind {
@@ -94,7 +165,8 @@ final class AppStore {
 			heartbeat: heartbeat,
 			sessionActiveUntil: sessionActiveUntil,
 			sessionModeLabel: sessionMode.rawValue,
-			serviceError: serviceError
+			serviceError: serviceError,
+			keyboardInstalled: keyboardInstalled
 		)
 	}
 
@@ -159,23 +231,93 @@ final class AppStore {
 		UIApplication.shared.open(url)
 	}
 
+	/// Open the public, stable Settings page for Zhigeng.
+	func openKeyboardSettings() {
+		openSystemSettings()
+	}
+
+	func setSessionMode(_ mode: SessionMode) {
+		sessionMode = mode
+		defaults.set(mode.rawValue, forKey: "sessionMode")
+	}
+
+	func setSessionDuration(_ duration: SessionDuration) {
+		sessionDuration = duration
+		defaults.set(duration.rawValue, forKey: "sessionDuration")
+	}
+
 	func startSession() {
-		let until = Date().timeIntervalSince1970 + TimeInterval(sessionDuration.rawValue * 60)
-		sessionActiveUntil = until
-		try? bridge.writeSession(DictationSession(activeUntil: until, state: .idle))
 		showSessionSheet = false
+		serviceError = nil
+		defaults.set(sessionMode.rawValue, forKey: "sessionMode")
+		defaults.set(sessionDuration.rawValue, forKey: "sessionDuration")
+		keyboardSession.start(
+			mode: sessionMode.protocolMode,
+			durationMinutes: sessionDuration.rawValue
+		)
+		if let error = keyboardSession.lastError {
+			serviceError = error
+			sessionActiveUntil = nil
+		} else {
+			sessionActiveUntil = keyboardSession.activeUntil
+			sessionConfigured = true
+			defaults.set(true, forKey: "sessionConfigured")
+		}
 	}
 
 	func endSession() {
+		keyboardSession.end()
 		sessionActiveUntil = nil
-		try? bridge.writeSession(DictationSession(activeUntil: 0, state: .idle))
+		serviceError = nil
+	}
+
+	/// Home toggle: off→on uses last prefs after first setup; on→off ends session.
+	func toggleInstantDictate() {
+		if keyboardSession.isRunning || sessionActiveUntil != nil {
+			endSession()
+			return
+		}
+		if sessionConfigured {
+			requestMicThenStart()
+		} else {
+			showSessionSheet = true
+		}
+	}
+
+	func openSessionSettings() {
+		showSessionSheet = true
+	}
+
+	func requestMicThenStart() {
+		if microphoneGranted {
+			startSession()
+		} else {
+			requestMicrophone { [weak self] granted in
+				if granted { self?.startSession() }
+			}
+		}
+	}
+
+	/// Keyboard asked to activate keepalive (`zhigeng://activate`).
+	func activateSessionFromKeyboard() {
+		if keyboardSession.isRunning { return }
+		if sessionConfigured {
+			requestMicThenStart()
+		} else {
+			showSessionSheet = true
+		}
 	}
 
 	@discardableResult
-	func addTerm(_ text: String) -> PersonalTerm? {
-		guard let term = lexicon.addManual(text) else { return nil }
+	func addTerm(_ text: String, kind: PersonalTermKind = .word) -> PersonalTerm? {
+		guard let term = lexicon.addManual(text, kind: kind) else { return nil }
 		persistLexicon()
 		return term
+	}
+
+	func setTermKind(id: String, kind: PersonalTermKind) {
+		lexicon.setKind(id: id, kind: kind)
+		persistLexicon()
 	}
 
 	func forgetTerm(id: String) {
@@ -184,17 +326,39 @@ final class AppStore {
 	}
 
 	func rememberCorrection(original: String, replacement: String, requestId: String) {
-		_ = lexicon.recordCorrection(
+		_ = learnCorrection(original: original, replacement: replacement, requestId: requestId)
+	}
+
+	@discardableResult
+	func learnCorrection(original: String, replacement: String, requestId: String) -> PersonalTerm? {
+		let term = lexicon.recordCorrection(
 			original: original,
 			replacement: replacement,
 			requestId: requestId,
 			insertedAt: Date().timeIntervalSince1970
 		)
-		persistLexicon()
+		if term != nil { persistLexicon() }
+		return term
 	}
 
 	func appendHistory(_ item: DictationHistoryItem) {
 		history.insert(item, at: 0)
+		persistHistory()
+	}
+
+	func toggleKept(id: String) {
+		guard let idx = history.firstIndex(where: { $0.id == id }) else { return }
+		if history[idx].keptAt == nil {
+			history[idx].keptAt = Date().timeIntervalSince1970
+		} else {
+			history[idx].keptAt = nil
+		}
+		persistHistory()
+	}
+
+	func updateHistoryText(id: String, cleanedText: String) {
+		guard let idx = history.firstIndex(where: { $0.id == id }) else { return }
+		history[idx].cleanedText = cleanedText
 		persistHistory()
 	}
 
@@ -247,7 +411,11 @@ final class AppStore {
 		guard let data = try? Data(contentsOf: historyURL),
 		      let items = try? JSONDecoder().decode([DictationHistoryItem].self, from: data)
 		else { return }
-		history = items
+		let pruned = DictationHistoryItem.prune(items)
+		history = pruned
+		if pruned.count != items.count {
+			persistHistory()
+		}
 	}
 
 	private func persistHistory() {

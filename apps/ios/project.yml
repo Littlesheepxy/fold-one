@@ -23,6 +23,13 @@ targets:
     platform: iOS
     sources:
       - path: ZhigengApp
+      - path: Shared
+      - path: ../../prototypes/zhigeng-mobile/public/robin.png
+        buildPhase: resources
+      - path: ../../prototypes/zhigeng-mobile/public/brand-mist.png
+        buildPhase: resources
+      - path: ../../prototypes/zhigeng-mobile/public/voice-mist.png
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.zhigeng.ios
@@ -43,6 +50,8 @@ targets:
     platform: iOS
     sources:
       - path: ZhigengKeyboard
+      - path: ../../prototypes/zhigeng-mobile/public/robin.png
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.zhigeng.ios.keyboard
@@ -60,6 +69,7 @@ targets:
     platform: iOS
     sources:
       - path: ZhigengLiveActivity
+      - path: Shared
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.zhigeng.ios.liveactivity

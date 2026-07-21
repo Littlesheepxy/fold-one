@@ -6,10 +6,23 @@ final class KeyboardViewController: UIInputViewController {
 	private var hostingController: UIHostingController<KeyboardRootView>?
 	private let bridge = AppGroupBridge()
 	private var linkStatus: KeyboardLinkStatus = .unknown
+	private var dictationPhase: KeyboardDictationPhase = .idle
+	private var sessionAlive = false
+	private var activeRequestId: String?
+	private var insertion = StreamingInsertionState()
+	private var lastAppliedRevision = 0
+	private var pollTimer: Timer?
+	private var deleteRepeatTimer: Timer?
+
+	// Correction learning: only active for 30s after we inserted a dictation result.
+	private var correctionRequestId: String?
+	private var correctionInsertedAt: TimeInterval = 0
+	private var correctionBaseline = ""
+	private var correctionTimer: Timer?
 
 	override func viewDidLoad() {
 		super.viewDidLoad()
-		view.backgroundColor = .secondarySystemBackground
+		view.backgroundColor = KeyboardChrome.bottomGray
 		refreshLinkStatus()
 		rebuildHost()
 	}
@@ -17,24 +30,43 @@ final class KeyboardViewController: UIInputViewController {
 	override func viewWillAppear(_ animated: Bool) {
 		super.viewWillAppear(animated)
 		refreshLinkStatus()
+		refreshSessionAlive()
 		rebuildHost()
+		startPolling()
+		consumeLegacyPendingResult()
+	}
+
+	override func viewWillDisappear(_ animated: Bool) {
+		super.viewWillDisappear(animated)
+		pollTimer?.invalidate()
+		pollTimer = nil
+		deleteRepeatTimer?.invalidate()
+		deleteRepeatTimer = nil
 	}
 
 	private func rebuildHost() {
 		let root = KeyboardRootView(
 			needsInputModeSwitchKey: needsInputModeSwitchKey,
 			linkStatus: linkStatus,
+			dictationPhase: dictationPhase,
+			sessionAlive: sessionAlive,
 			onInsert: { [weak self] text in
 				self?.textDocumentProxy.insertText(text)
 			},
 			onDelete: { [weak self] in
 				self?.textDocumentProxy.deleteBackward()
 			},
+			onDeleteHoldChanged: { [weak self] holding in
+				self?.setDeleteRepeating(holding)
+			},
+			onMoveCursor: { [weak self] offset in
+				self?.textDocumentProxy.adjustTextPosition(byCharacterOffset: offset)
+			},
 			onNextKeyboard: { [weak self] in
 				self?.advanceToNextInputMode()
 			},
 			onDictate: { [weak self] in
-				self?.requestDictation()
+				self?.toggleDictation()
 			}
 		)
 		if let hostingController {
@@ -51,7 +83,7 @@ final class KeyboardViewController: UIInputViewController {
 			host.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
 			host.view.topAnchor.constraint(equalTo: view.topAnchor),
 			host.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-			view.heightAnchor.constraint(greaterThanOrEqualToConstant: 260),
+			view.heightAnchor.constraint(greaterThanOrEqualToConstant: 280),
 		])
 		host.didMove(toParent: self)
 		hostingController = host
@@ -69,6 +101,10 @@ final class KeyboardViewController: UIInputViewController {
 		}
 	}
 
+	private func refreshSessionAlive() {
+		sessionAlive = (try? bridge.readSession())?.isServiceAlive() == true
+	}
+
 	private func writeDefaultsHeartbeat(_ hb: KeyboardHeartbeat) {
 		guard let defaults = UserDefaults(suiteName: AppGroupConstants.suiteName) else { return }
 		defaults.set(hb.lastSeenAt, forKey: "keyboard.lastSeenAt")
@@ -77,33 +113,276 @@ final class KeyboardViewController: UIInputViewController {
 		defaults.synchronize()
 	}
 
-	private func requestDictation() {
+	private func toggleDictation() {
 		refreshLinkStatus()
-		rebuildHost()
-		guard linkStatus == .connected else { return }
-		let request = DictationRequest()
-		do {
-			try bridge.writeRequest(request)
-		} catch {
-			linkStatus = .appGroupMissing
+		refreshSessionAlive()
+		guard linkStatus == .connected else {
 			rebuildHost()
 			return
 		}
-		if let url = URL(string: "zhigeng://dictate?requestId=\(request.requestId)") {
-			openURL(url)
+
+		switch dictationPhase {
+		case .listening:
+			stopDictation()
+		case .idle, .error, .done, .aborted:
+			startDictation()
+		case .processing, .needsActivation:
+			break
+		}
+	}
+
+	private func startDictation() {
+		refreshSessionAlive()
+		if !sessionAlive {
+			dictationPhase = .needsActivation
+			rebuildHost()
+			openURL(URL(string: "zhigeng://activate")!)
+			return
+		}
+
+		let request = DictationRequest()
+		activeRequestId = request.requestId
+		insertion.reset()
+		lastAppliedRevision = 0
+		dictationPhase = .listening
+		do {
+			try bridge.writeRequest(request)
+			try bridge.writeCommand(DictationCommand(kind: .start, requestId: request.requestId))
+			UserDefaults(suiteName: AppGroupConstants.suiteName)?
+				.set(request.requestId, forKey: "keyboard.pendingRequestId")
+		} catch {
+			linkStatus = .appGroupMissing
+			dictationPhase = .error
+		}
+		rebuildHost()
+	}
+
+	private func stopDictation() {
+		guard let requestId = activeRequestId else { return }
+		dictationPhase = .processing
+		try? bridge.writeCommand(DictationCommand(kind: .stop, requestId: requestId))
+		rebuildHost()
+	}
+
+	private func startPolling() {
+		pollTimer?.invalidate()
+		pollTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+			Task { @MainActor in self?.poll() }
+		}
+	}
+
+	private func poll() {
+		let wasAlive = sessionAlive
+		refreshSessionAlive()
+		if wasAlive != sessionAlive {
+			rebuildHost()
+		}
+		guard let requestId = activeRequestId else {
+			consumeLegacyPendingResult()
+			return
+		}
+		guard let result = try? bridge.readResultIfNewer(than: lastAppliedRevision),
+		      result.requestId == requestId
+		else { return }
+		applyStreamingResult(result)
+	}
+
+	private func applyStreamingResult(_ result: DictationResult) {
+		lastAppliedRevision = result.revision
+		let before = textDocumentProxy.documentContextBeforeInput ?? ""
+
+		switch result.status {
+		case .recording:
+			dictationPhase = .listening
+			let action = insertion.apply(
+				revision: result.revision,
+				nextPartial: result.text,
+				contextBefore: before
+			)
+			applyInsertion(action)
+		case .processing:
+			dictationPhase = .processing
+			rebuildHost()
+		case .ready:
+			let action = insertion.applyFinal(
+				revision: result.revision,
+				text: result.text,
+				contextBefore: before
+			)
+			applyInsertion(action)
+			dictationPhase = .done
+			if case .replace = action {
+				beginCorrectionWindow(requestId: result.requestId)
+			}
+			finishActiveRequest()
+			try? bridge.clearResult()
+			rebuildHost()
+		case .incomplete, .error:
+			dictationPhase = .error
+			finishActiveRequest()
+			rebuildHost()
+		case .idle, .requesting:
+			break
+		}
+	}
+
+	private func applyInsertion(_ action: StreamingInsertionAction) {
+		switch action {
+		case let .replace(deleteCount, insert):
+			for _ in 0..<deleteCount {
+				textDocumentProxy.deleteBackward()
+			}
+			if !insert.isEmpty {
+				textDocumentProxy.insertText(insert)
+			}
+		case .skip:
+			break
+		case .abort:
+			dictationPhase = .aborted
+			rebuildHost()
+		}
+	}
+
+	private func finishActiveRequest() {
+		UserDefaults(suiteName: AppGroupConstants.suiteName)?
+			.removeObject(forKey: "keyboard.pendingRequestId")
+		activeRequestId = nil
+		insertion.reset()
+	}
+
+	/// Fallback for old handoff that wrote final-only results after app switch.
+	private func consumeLegacyPendingResult() {
+		guard activeRequestId == nil,
+		      let defaults = UserDefaults(suiteName: AppGroupConstants.suiteName),
+		      let requestId = defaults.string(forKey: "keyboard.pendingRequestId"),
+		      !requestId.isEmpty
+		else { return }
+		do {
+			if let result = try bridge.consumeInsertableResult(matching: requestId) {
+				textDocumentProxy.insertText(result.text)
+				defaults.removeObject(forKey: "keyboard.pendingRequestId")
+				beginCorrectionWindow(requestId: requestId)
+				dictationPhase = .done
+				rebuildHost()
+			}
+		} catch {
+			// keep pending id for next appear
+		}
+	}
+
+	private func setDeleteRepeating(_ holding: Bool) {
+		if holding {
+			guard deleteRepeatTimer == nil else { return }
+			textDocumentProxy.deleteBackward()
+			deleteRepeatTimer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [weak self] _ in
+				Task { @MainActor in self?.textDocumentProxy.deleteBackward() }
+			}
+		} else {
+			deleteRepeatTimer?.invalidate()
+			deleteRepeatTimer = nil
+		}
+	}
+
+	// MARK: - Correction learning (30s window after insert)
+
+	override func textDidChange(_ textInput: UITextInput?) {
+		super.textDidChange(textInput)
+		guard correctionRequestId != nil else { return }
+		guard Date().timeIntervalSince1970 - correctionInsertedAt <= PersonalLexicon.correctionWindowSeconds else {
+			endCorrectionWindow()
+			return
+		}
+		correctionTimer?.invalidate()
+		correctionTimer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: false) { [weak self] _ in
+			Task { @MainActor in self?.learnFromEdit() }
+		}
+	}
+
+	private func beginCorrectionWindow(requestId: String) {
+		correctionRequestId = requestId
+		correctionInsertedAt = Date().timeIntervalSince1970
+		correctionBaseline = currentContextSnapshot()
+	}
+
+	private func endCorrectionWindow() {
+		correctionTimer?.invalidate()
+		correctionTimer = nil
+		correctionRequestId = nil
+		correctionBaseline = ""
+	}
+
+	private func currentContextSnapshot() -> String {
+		let proxy = textDocumentProxy
+		return (proxy.documentContextBeforeInput ?? "")
+			+ (proxy.selectedText ?? "")
+			+ (proxy.documentContextAfterInput ?? "")
+	}
+
+	private func learnFromEdit() {
+		guard let requestId = correctionRequestId else { return }
+		let now = Date().timeIntervalSince1970
+		guard now - correctionInsertedAt <= PersonalLexicon.correctionWindowSeconds else {
+			endCorrectionWindow()
+			return
+		}
+		let current = currentContextSnapshot()
+		let pairs = TextEditDiff.replacements(original: correctionBaseline, edited: current)
+		guard let (from, to) = pairs.first else { return }
+
+		do {
+			let lexicon: PersonalLexicon
+			if let data = try bridge.readLexiconData() {
+				lexicon = try PersonalLexicon.decode(from: data)
+			} else {
+				lexicon = PersonalLexicon()
+			}
+			guard lexicon.recordCorrection(
+				original: from,
+				replacement: to,
+				requestId: requestId,
+				insertedAt: correctionInsertedAt,
+				at: now
+			) != nil else { return }
+			try bridge.writeLexicon(lexicon.encode())
+			endCorrectionWindow()
+		} catch {
+			endCorrectionWindow()
 		}
 	}
 
 	private func openURL(_ url: URL) {
 		var responder: UIResponder? = self
+		let selector = NSSelectorFromString("openURL:")
 		while let r = responder {
-			if let application = r as? UIApplication {
-				application.open(url, options: [:], completionHandler: nil)
+			if r.responds(to: selector) {
+				r.perform(selector, with: url)
 				return
 			}
 			responder = r.next
 		}
 		extensionContext?.open(url, completionHandler: nil)
+	}
+}
+
+enum KeyboardDictationPhase: Equatable {
+	case idle
+	case needsActivation
+	case listening
+	case processing
+	case done
+	case aborted
+	case error
+
+	var statusLine: String {
+		switch self {
+		case .idle: return "点击说话"
+		case .needsActivation: return "请先开启即听即写"
+		case .listening: return "正在听 · 再点结束"
+		case .processing: return "正在整理…"
+		case .done: return "已插入"
+		case .aborted: return "内容已变化，完成后请手动插入"
+		case .error: return "识别失败，再试一次"
+		}
 	}
 }
 
@@ -120,54 +399,343 @@ enum KeyboardLinkStatus: Equatable {
 		case .connected:
 			return "已连接主 App"
 		case .needsFullAccess:
-			return "请开启「允许完全访问」，主 App 才能检测到键盘"
+			return "请开启「允许完全访问」"
 		case .appGroupMissing:
-			return "无法写入 App Group，请在 Xcode 确认 App Groups 签名"
+			return "无法写入 App Group"
 		}
+	}
+}
+
+enum KeyboardMode: String, CaseIterable, Identifiable {
+	case voice
+	case english
+	case pinyin
+
+	var id: String { rawValue }
+
+	var enabled: Bool {
+		self != .pinyin
+	}
+}
+
+enum KeyboardChrome {
+	/// Matches the system keyboard dock (globe / dictation bar) ≈ #d1d3da.
+	static let bottomGray = UIColor { traits in
+		traits.userInterfaceStyle == .dark
+			? UIColor(white: 0.17, alpha: 1)
+			: UIColor(red: 0xD1 / 255, green: 0xD3 / 255, blue: 0xDA / 255, alpha: 1)
+	}
+
+	static let topGray = UIColor { traits in
+		traits.userInterfaceStyle == .dark
+			? UIColor(white: 0.28, alpha: 1)
+			: UIColor(red: 0xEE / 255, green: 0xEF / 255, blue: 0xF2 / 255, alpha: 1)
+	}
+
+	static var background: LinearGradient {
+		LinearGradient(
+			colors: [
+				Color(uiColor: topGray),
+				Color(uiColor: bottomGray),
+			],
+			startPoint: .top,
+			endPoint: .bottom
+		)
 	}
 }
 
 struct KeyboardRootView: View {
 	var needsInputModeSwitchKey: Bool
 	var linkStatus: KeyboardLinkStatus
+	var dictationPhase: KeyboardDictationPhase
+	var sessionAlive: Bool
 	var onInsert: (String) -> Void
 	var onDelete: () -> Void
+	var onDeleteHoldChanged: (Bool) -> Void
+	var onMoveCursor: (Int) -> Void
 	var onNextKeyboard: () -> Void
 	var onDictate: () -> Void
 
+	@State private var mode: KeyboardMode = .voice
+	@State private var shifted = false
+	@State private var trackpadDragAccum: CGFloat = 0
+
 	var body: some View {
-		VStack(spacing: 12) {
-			Text(linkStatus.banner)
-				.font(.caption)
-				.foregroundStyle(linkStatus == .connected ? Color.secondary : Color.orange)
-				.multilineTextAlignment(.center)
-				.frame(maxWidth: .infinity)
-
-			Button(action: onDictate) {
-				Label(
-					linkStatus == .connected ? "点按说话" : "先开启完全访问",
-					systemImage: "mic.fill"
-				)
-				.font(.title3.weight(.semibold))
-				.foregroundStyle(Color(uiColor: .systemBackground))
-				.frame(maxWidth: .infinity, minHeight: 56)
-			}
-			.buttonStyle(.borderedProminent)
-			.tint(Color(uiColor: .label))
-			.disabled(linkStatus != .connected)
-
-			HStack(spacing: 8) {
-				Button(",") { onInsert(",") }
-				Button("空格") { onInsert(" ") }
+		VStack(spacing: 10) {
+			topBar
+			if linkStatus != .connected {
+				Text(linkStatus.banner)
+					.font(.caption2)
+					.foregroundStyle(.orange)
 					.frame(maxWidth: .infinity)
-				Button("删除", action: onDelete)
-				Button("回车") { onInsert("\n") }
-				if needsInputModeSwitchKey {
-					Button("🌐", action: onNextKeyboard)
+			} else if !sessionAlive && mode == .voice {
+				Text("未开启即听即写 · 点声波会先激活知更")
+					.font(.caption2)
+					.foregroundStyle(.secondary)
+					.frame(maxWidth: .infinity)
+			}
+
+			Group {
+				switch mode {
+				case .voice:
+					voicePlane
+				case .english:
+					englishPlane
+				case .pinyin:
+					pinyinPlaceholder
 				}
 			}
-			.buttonStyle(.bordered)
+			.frame(maxWidth: .infinity, maxHeight: .infinity)
 		}
-		.padding()
+		.padding(.horizontal, 8)
+		.padding(.top, 8)
+		.padding(.bottom, 6)
+		.background(KeyboardChrome.background)
+		.gesture(
+			DragGesture(minimumDistance: 40)
+				.onEnded { value in
+					guard abs(value.translation.width) > abs(value.translation.height) else { return }
+					cycleMode(forward: value.translation.width < 0)
+				}
+		)
+	}
+
+	private var topBar: some View {
+		HStack(spacing: 10) {
+			logoMark
+			Spacer(minLength: 8)
+			modeSwitcher
+		}
+	}
+
+	private var logoMark: some View {
+		Group {
+			if let uiImage = UIImage(named: "robin") {
+				Image(uiImage: uiImage)
+					.resizable()
+					.scaledToFit()
+			} else {
+				Image(systemName: "bird.fill")
+					.font(.system(size: 16, weight: .semibold))
+					.foregroundStyle(Color(red: 0.404, green: 0.361, blue: 0.945))
+			}
+		}
+		.frame(width: 34, height: 34)
+		.clipShape(Circle())
+		.accessibilityLabel("知更")
+	}
+
+	private var modeSwitcher: some View {
+		HStack(spacing: 2) {
+			ForEach(KeyboardMode.allCases) { item in
+				Button {
+					guard item.enabled else { return }
+					withAnimation(.easeOut(duration: 0.15)) { mode = item }
+				} label: {
+					Group {
+						if item == .voice {
+							Image(systemName: "waveform")
+								.font(.system(size: 13, weight: .semibold))
+						} else if item == .english {
+							Text("EN")
+								.font(.caption.weight(mode == item ? .semibold : .medium))
+						} else {
+							Text("拼")
+								.font(.caption.weight(mode == item ? .semibold : .medium))
+						}
+					}
+					.foregroundStyle(
+						item.enabled
+							? (mode == item ? Color.primary : Color.secondary)
+							: Color.secondary.opacity(0.4)
+					)
+					.frame(width: 34, height: 28)
+					.background(
+						mode == item ? Color(uiColor: .systemBackground).opacity(0.92) : .clear,
+						in: Capsule()
+					)
+				}
+				.buttonStyle(.plain)
+				.disabled(!item.enabled)
+				.accessibilityLabel(item == .voice ? "语音" : item == .english ? "英文" : "拼音")
+			}
+		}
+		.padding(3)
+		.background(Color.black.opacity(0.08), in: Capsule())
+	}
+
+	private var voicePlane: some View {
+		VStack(spacing: 14) {
+			Spacer(minLength: 4)
+			Text(voiceStatusText)
+				.font(.subheadline)
+				.foregroundStyle(.secondary)
+				.multilineTextAlignment(.center)
+			Button(action: onDictate) {
+				Image(systemName: dictationPhase == .listening ? "stop.fill" : "waveform")
+					.font(.system(size: 28, weight: .semibold))
+					.foregroundStyle(.white)
+					.frame(width: 136, height: 72)
+					.background(
+						dictationPhase == .listening
+							? Color(red: 0.75, green: 0.22, blue: 0.2)
+							: Color.black.opacity(0.88),
+						in: Capsule()
+					)
+			}
+			.buttonStyle(.plain)
+			.disabled(linkStatus != .connected || dictationPhase == .processing)
+			.opacity(linkStatus == .connected ? 1 : 0.45)
+			.accessibilityLabel(dictationPhase == .listening ? "结束说话" : "点击说话")
+			Spacer(minLength: 4)
+			editToolbar
+		}
+	}
+
+	private var voiceStatusText: String {
+		if linkStatus != .connected { return "先开启完全访问" }
+		return dictationPhase.statusLine
+	}
+
+	private var englishPlane: some View {
+		VStack(spacing: 7) {
+			keyRow(["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"])
+			keyRow(["A", "S", "D", "F", "G", "H", "J", "K", "L"])
+			HStack(spacing: 6) {
+				shiftKey
+				keyRowContent(["Z", "X", "C", "V", "B", "N", "M"])
+				holdDeleteKey
+			}
+			editToolbar
+		}
+	}
+
+	private var pinyinPlaceholder: some View {
+		VStack {
+			Spacer()
+			Text("拼音键盘即将接入")
+				.font(.subheadline)
+				.foregroundStyle(.secondary)
+			Spacer()
+			editToolbar
+		}
+	}
+
+	/// Globe (when needed) + delete + trackpad space + send.
+	private var editToolbar: some View {
+		HStack(spacing: 6) {
+			if needsInputModeSwitchKey {
+				actionKey(systemImage: "globe", action: onNextKeyboard)
+			}
+			holdDeleteKey
+			trackpadSpace
+			actionKey(systemImage: "return", action: { onInsert("\n") })
+		}
+	}
+
+	private var trackpadSpace: some View {
+		Text("空格")
+			.font(.subheadline.weight(.medium))
+			.frame(maxWidth: .infinity, minHeight: 42)
+			.background(
+				LinearGradient(
+					colors: [
+						Color(uiColor: .systemBackground).opacity(0.98),
+						Color(uiColor: .systemGray5).opacity(0.9),
+					],
+					startPoint: .top,
+					endPoint: .bottom
+				),
+				in: RoundedRectangle(cornerRadius: 8)
+			)
+			.contentShape(RoundedRectangle(cornerRadius: 8))
+			.gesture(
+				DragGesture(minimumDistance: 0)
+					.onChanged { value in
+						let delta = value.translation.width - trackpadDragAccum
+						let step: CGFloat = 14
+						if abs(delta) >= step {
+							let steps = Int(delta / step)
+							onMoveCursor(steps)
+							trackpadDragAccum += CGFloat(steps) * step
+						}
+					}
+					.onEnded { value in
+						defer { trackpadDragAccum = 0 }
+						if hypot(value.translation.width, value.translation.height) < 8 {
+							onInsert(" ")
+						}
+					}
+			)
+			.accessibilityLabel("空格，左右拖动移动光标")
+	}
+
+	private var holdDeleteKey: some View {
+		Image(systemName: "delete.left")
+			.font(.body.weight(.semibold))
+			.frame(width: 42, height: 42)
+			.background(Color(uiColor: .systemGray3).opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
+			.contentShape(Rectangle())
+			.gesture(
+				DragGesture(minimumDistance: 0)
+					.onChanged { _ in onDeleteHoldChanged(true) }
+					.onEnded { _ in onDeleteHoldChanged(false) }
+			)
+			.accessibilityLabel("删除")
+	}
+
+	private var shiftKey: some View {
+		Button {
+			shifted.toggle()
+		} label: {
+			Image(systemName: shifted ? "shift.fill" : "shift")
+				.font(.body.weight(.semibold))
+				.frame(width: 42, height: 42)
+				.background(Color(uiColor: .systemGray3).opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
+		}
+		.buttonStyle(.plain)
+	}
+
+	private func keyRow(_ keys: [String]) -> some View {
+		HStack(spacing: 6) {
+			keyRowContent(keys)
+		}
+	}
+
+	private func keyRowContent(_ keys: [String]) -> some View {
+		HStack(spacing: 6) {
+			ForEach(keys, id: \.self) { key in
+				let display = shifted ? key : key.lowercased()
+				Button {
+					onInsert(display)
+					if shifted { shifted = false }
+				} label: {
+					Text(display)
+						.font(.body.weight(.medium))
+						.frame(maxWidth: .infinity, minHeight: 42)
+						.background(Color(uiColor: .systemBackground).opacity(0.94), in: RoundedRectangle(cornerRadius: 8))
+				}
+				.buttonStyle(.plain)
+			}
+		}
+	}
+
+	private func actionKey(systemImage: String, action: @escaping () -> Void) -> some View {
+		Button(action: action) {
+			Image(systemName: systemImage)
+				.font(.body.weight(.semibold))
+				.frame(width: 42, height: 42)
+				.background(Color(uiColor: .systemGray3).opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
+		}
+		.buttonStyle(.plain)
+	}
+
+	private func cycleMode(forward: Bool) {
+		let enabled = KeyboardMode.allCases.filter(\.enabled)
+		guard let idx = enabled.firstIndex(of: mode) else { return }
+		let next = forward
+			? enabled[(idx + 1) % enabled.count]
+			: enabled[(idx - 1 + enabled.count) % enabled.count]
+		withAnimation(.easeOut(duration: 0.15)) { mode = next }
 	}
 }
